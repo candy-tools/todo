@@ -18,12 +18,13 @@ Debian package, and a macOS cask are published on every tagged release.
 
 ### macOS (Homebrew)
 
-A macOS cask is published into this repository on every tagged release. Because
-the repo isn't named `homebrew-*`, tap it with an explicit URL, then install:
+A macOS cask is published to the
+[candy-tools/homebrew-tap](https://github.com/candy-tools/homebrew-tap) tap on
+every tagged release. Add the tap, then install:
 
 ```bash
-brew tap candy-tools/todo https://github.com/candy-tools/todo
-brew install --cask candy-tools/todo/todo
+brew tap candy-tools/tap
+brew install --cask todo
 ```
 
 `brew upgrade` tracks future releases. The binary isn't notarized, so the cask
