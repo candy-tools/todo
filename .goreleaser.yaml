@@ -67,16 +67,20 @@ nfpms:
         - statically-linked-binary
 
 homebrew_casks:
-  # publish a macOS cask into this same repo (Casks/todo.rb).
-  # linux is distributed as a .deb and windows as a .zip, so a macOS-only cask
-  # is fine — and it's the non-deprecated successor to `brews`. the default
-  # GITHUB_TOKEN can push here.
+  # publish a macOS cask into the dedicated tap repo (candy-tools/homebrew-tap,
+  # Casks/todo.rb). linux is distributed as a .deb and windows as a .zip, so a
+  # macOS-only cask is fine — and it's the non-deprecated successor to `brews`.
+  # pushing to a *different* repo needs a cross-repo PAT; the default
+  # GITHUB_TOKEN is scoped to this repo only. see HOMEBREW_TAP_GITHUB_TOKEN in
+  # .github/workflows/release.yml.
   - name: todo
     binaries:
       - todo
     repository:
       owner: candy-tools
-      name: todo
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Casks
     commit_author:
       name: Andres Bott
