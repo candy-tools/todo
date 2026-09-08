@@ -3,7 +3,7 @@ package todo_test
 import (
 	"testing"
 
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo"
 )
 
 func TestRenderCanonical(t *testing.T) {

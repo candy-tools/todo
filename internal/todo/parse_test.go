@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo"
 )
 
 // treeString renders a document's structure into a compact, indentation-based

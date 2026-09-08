@@ -5,7 +5,7 @@ import (
 	"io"
 	"runtime"
 
-	"github.com/andresbott/todo/app/metainfo"
+	"github.com/candy-tools/todo/app/metainfo"
 	"github.com/spf13/cobra"
 )
 

@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/todo/app/metainfo"
+	"github.com/candy-tools/todo/app/metainfo"
 )
 
 func TestPrintVersion(t *testing.T) {

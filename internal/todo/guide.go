@@ -13,9 +13,9 @@ const guideMarker = "<!-- todo:guide"
 // elsewhere but is plain to read in the raw file. It documents the format for
 // whoever edits the file directly — human or agent — and points at the repo.
 // The block is rewritten on every save, so it always reflects the current text.
-const guideComment = `<!-- todo:guide — managed by todo; this block is rewritten on save. Docs: https://github.com/andresbott/todo
+const guideComment = `<!-- todo:guide — managed by todo; this block is rewritten on save. Docs: https://github.com/candy-tools/todo
 This file is a todo list managed by "todo", a terminal TODO app:
-https://github.com/andresbott/todo
+https://github.com/candy-tools/todo
 
 todo watches this file and reloads it automatically when it changes on disk, so
 you — human or agent — can edit it directly in any editor. Keep to this format

@@ -3,7 +3,7 @@ package todo_test
 import (
 	"testing"
 
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo"
 )
 
 // find returns the first item in the document whose title matches, or nil.

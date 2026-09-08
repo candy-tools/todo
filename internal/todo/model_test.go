@@ -3,7 +3,7 @@ package todo_test
 import (
 	"testing"
 
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo"
 )
 
 // buildTree returns a small task tree: parent → [c1 → [g1], c2], all not done.

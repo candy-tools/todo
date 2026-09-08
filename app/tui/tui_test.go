@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/todo/app/metainfo"
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/app/metainfo"
+	"github.com/candy-tools/todo/internal/todo"
 )
 
 func TestNavigateAndSelect(t *testing.T) {

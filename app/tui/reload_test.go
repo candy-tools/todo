@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo"
 )
 
 // --- reloadCheck: the pure file-change probe ---

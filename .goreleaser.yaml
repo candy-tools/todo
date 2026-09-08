@@ -20,9 +20,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/andresbott/todo/app/metainfo.Version={{.Version}}
-      - -X github.com/andresbott/todo/app/metainfo.Commit={{.Commit}}
-      - -X github.com/andresbott/todo/app/metainfo.BuildTime={{.Date}}
+      - -X github.com/candy-tools/todo/app/metainfo.Version={{.Version}}
+      - -X github.com/candy-tools/todo/app/metainfo.Commit={{.Commit}}
+      - -X github.com/candy-tools/todo/app/metainfo.BuildTime={{.Date}}
     binary: todo
 
 archives:
@@ -53,7 +53,7 @@ nfpms:
     formats:
       - deb
     maintainer: "Andres Bott <contact@andresbott.com>"
-    homepage: "https://github.com/andresbott/todo"
+    homepage: "https://github.com/candy-tools/todo"
     description: "Keyboard-driven terminal TODO manager backed by plain Markdown files"
     license: "GPL-3.0"
     section: utils
@@ -75,13 +75,13 @@ homebrew_casks:
     binaries:
       - todo
     repository:
-      owner: andresbott
+      owner: candy-tools
       name: todo
     directory: Casks
     commit_author:
       name: Andres Bott
       email: contact@andresbott.com
-    homepage: "https://github.com/andresbott/todo"
+    homepage: "https://github.com/candy-tools/todo"
     description: "Keyboard-driven terminal TODO manager backed by plain Markdown files"
     # the darwin binary isn't code-signed/notarized, so strip the Gatekeeper
     # quarantine attribute on install to avoid a "todo is damaged" error.

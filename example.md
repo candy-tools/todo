@@ -1,6 +1,6 @@
-<!-- todo:guide — managed by todo; this block is rewritten on save. Docs: https://github.com/andresbott/todo
+<!-- todo:guide — managed by todo; this block is rewritten on save. Docs: https://github.com/candy-tools/todo
 This file is a todo list managed by "todo", a terminal TODO app:
-https://github.com/andresbott/todo
+https://github.com/candy-tools/todo
 
 todo watches this file and reloads it automatically when it changes on disk, so
 you — human or agent — can edit it directly in any editor. Keep to this format
