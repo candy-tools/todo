@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/andresbott/todo/app/metainfo"
-	"github.com/andresbott/todo/app/tui"
+	"github.com/candy-tools/todo/app/metainfo"
+	"github.com/candy-tools/todo/app/tui"
 	"github.com/spf13/cobra"
 )
 

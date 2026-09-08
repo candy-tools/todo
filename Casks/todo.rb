@@ -5,27 +5,27 @@ cask "todo" do
   on_macos do
     on_arm do
       sha256 "5b9271f8bf40ed61df21214ca2b1807a49876c5ddeb7bb93ef720e46936eb1a9"
-      url "https://github.com/andresbott/todo/releases/download/v#{version}/todo_Darwin_arm64.tar.gz"
+      url "https://github.com/candy-tools/todo/releases/download/v#{version}/todo_Darwin_arm64.tar.gz"
     end
     on_intel do
       sha256 "2b85925b04e391003fdc88759b4822a01120a46c0de02c222df3d1e5455665dc"
-      url "https://github.com/andresbott/todo/releases/download/v#{version}/todo_Darwin_x86_64.tar.gz"
+      url "https://github.com/candy-tools/todo/releases/download/v#{version}/todo_Darwin_x86_64.tar.gz"
     end
   end
   on_linux do
     on_arm do
       sha256 "f6de64687dfbff6cf60563150c1fac0190ae38fd14d33b0d44de78635f0dac53"
-      url "https://github.com/andresbott/todo/releases/download/v#{version}/todo_Linux_arm64.tar.gz"
+      url "https://github.com/candy-tools/todo/releases/download/v#{version}/todo_Linux_arm64.tar.gz"
     end
     on_intel do
       sha256 "1b41dba6be157b364d6f79a409f7b8ed40d83b9f45681871aedf1b8d89e0e07a"
-      url "https://github.com/andresbott/todo/releases/download/v#{version}/todo_Linux_x86_64.tar.gz"
+      url "https://github.com/candy-tools/todo/releases/download/v#{version}/todo_Linux_x86_64.tar.gz"
     end
   end
 
   name "todo"
   desc "Keyboard-driven terminal TODO manager backed by plain Markdown files"
-  homepage "https://github.com/andresbott/todo"
+  homepage "https://github.com/candy-tools/todo"
 
   livecheck do
     skip "Auto-generated on release."

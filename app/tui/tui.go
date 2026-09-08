@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/andresbott/todo/app/metainfo"
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/app/metainfo"
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"

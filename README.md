@@ -22,8 +22,8 @@ A macOS cask is published into this repository on every tagged release. Because
 the repo isn't named `homebrew-*`, tap it with an explicit URL, then install:
 
 ```bash
-brew tap andresbott/todo https://github.com/andresbott/todo
-brew install --cask andresbott/todo/todo
+brew tap candy-tools/todo https://github.com/candy-tools/todo
+brew install --cask candy-tools/todo/todo
 ```
 
 `brew upgrade` tracks future releases. The binary isn't notarized, so the cask
@@ -32,7 +32,7 @@ strips the Gatekeeper quarantine flag on install — no "todo is damaged" prompt
 ### Debian / Ubuntu
 
 Download the `.deb` for your architecture from the
-[releases page](https://github.com/andresbott/todo/releases) and install it:
+[releases page](https://github.com/candy-tools/todo/releases) and install it:
 
 ```bash
 sudo apt install ./todo_*_amd64.deb
@@ -43,11 +43,11 @@ sudo apt install ./todo_*_amd64.deb
 With a Go 1.26+ toolchain installed:
 
 ```bash
-go install github.com/andresbott/todo@latest
+go install github.com/candy-tools/todo@latest
 ```
 
 Or grab a prebuilt `tar.gz` (`.zip` on Windows) for your OS/arch from the
-[releases page](https://github.com/andresbott/todo/releases).
+[releases page](https://github.com/candy-tools/todo/releases).
 
 ## Usage
 

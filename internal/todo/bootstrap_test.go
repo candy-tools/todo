@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo"
 )
 
 // EnsureFile bootstraps a missing file so `todo` (with no argument, or a new

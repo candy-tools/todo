@@ -6,16 +6,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo"
 )
 
-const repoURL = "github.com/andresbott/todo"
+const repoURL = "github.com/candy-tools/todo"
 
 // guideSample is a representative managed guide block: it starts with the
 // recognised marker and ends with the HTML-comment close. The exact prose is
 // the app's to define; the parser only has to recognise and strip it.
 const guideSample = `<!-- todo:guide — managed by todo; this block is rewritten on save
-This is a todo list for https://github.com/andresbott/todo.
+This is a todo list for https://github.com/candy-tools/todo.
 Keep to the format below so todo can parse it.
 -->`
 

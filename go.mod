@@ -1,4 +1,4 @@
-module github.com/andresbott/todo
+module github.com/candy-tools/todo
 
 go 1.26.2
 
