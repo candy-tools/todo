@@ -83,3 +83,38 @@ func TestDoneNoCascadeLeavesChildren(t *testing.T) {
 		t.Errorf("target-only done must leave the child open:\n%s", got)
 	}
 }
+
+func TestProgressAndDefer(t *testing.T) {
+	path := writeTemp(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	if _, err := runCmd(t, "progress", "--file", path, "--title", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCmd(t, "defer", "--file", path, "--title", "b"); err != nil {
+		t.Fatal(err)
+	}
+	got := readFile(t, path)
+	if !strings.Contains(got, "- [/] a") || !strings.Contains(got, "- [>] b") {
+		t.Errorf("want a in-progress and b deferred:\n%s", got)
+	}
+}
+
+func TestReopen(t *testing.T) {
+	path := writeTemp(t, "# Work\n\n- [x] a\n")
+	if _, err := runCmd(t, "reopen", "--file", path, "--title", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readFile(t, path), "- [ ] a") {
+		t.Error("reopen should return the task to open")
+	}
+}
+
+func TestReopenCascade(t *testing.T) {
+	path := writeTemp(t, "# Work\n\n- [x] parent\n  - [x] child\n")
+	if _, err := runCmd(t, "reopen", "--file", path, "--title", "parent", "--cascade"); err != nil {
+		t.Fatal(err)
+	}
+	got := readFile(t, path)
+	if !strings.Contains(got, "- [ ] parent") || !strings.Contains(got, "  - [ ] child") {
+		t.Errorf("--cascade reopen should open the subtree:\n%s", got)
+	}
+}
