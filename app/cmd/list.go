@@ -44,7 +44,7 @@ func depthOf(it *todo.Item) int {
 
 func writeListTable(w io.Writer, doc *todo.Document, filter string) error {
 	visible := doc.VisibleItems(filter) // nil => show everything
-	fmt.Fprintln(w, "  #  line  st   item")
+	_, _ = fmt.Fprintln(w, "  #  line  st   item")
 	for i, it := range doc.Enumerate() {
 		if visible != nil && !visible[it] {
 			continue
@@ -54,7 +54,7 @@ func writeListTable(w io.Writer, doc *todo.Document, filter string) error {
 			st = "[" + it.Status.Marker() + "]"
 		}
 		indent := strings.Repeat("  ", depthOf(it))
-		fmt.Fprintf(w, "%3d %5d  %-4s %s%s\n", i+1, it.Line, st, indent, it.Title)
+		_, _ = fmt.Fprintf(w, "%3d %5d  %-4s %s%s\n", i+1, it.Line, st, indent, it.Title)
 	}
 	return nil
 }

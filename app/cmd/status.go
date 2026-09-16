@@ -31,7 +31,7 @@ func setStatus(cmd *cobra.Command, verb string, target todo.Status, cascade bool
 	if err := doc.Save(path); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, it.Status.Marker(), it.Title, categoryPath(it))
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, it.Status.Marker(), it.Title, categoryPath(it))
 	return nil
 }
 

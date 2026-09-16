@@ -138,7 +138,7 @@ func Parse(src string) *Document {
 	}
 
 	for i, line := range lines {
-		if hasGuide && i >= gStart && i <= gEnd {
+		if inGuide(i, gStart, gEnd, hasGuide) {
 			continue // the managed guide block: skip but keep counting lines
 		}
 		lineNo := i + 1
@@ -202,6 +202,10 @@ func Parse(src string) *Document {
 	doc.Preamble = strings.Trim(strings.Join(preamble, "\n"), "\n")
 	return doc
 }
+
+// inGuide reports whether line index i falls inside the managed guide block
+// [start,end].
+func inGuide(i, start, end int, has bool) bool { return has && i >= start && i <= end }
 
 // leadingWhitespace counts the leading space/tab characters of s (each as one).
 func leadingWhitespace(s string) int {
