@@ -36,3 +36,31 @@ func TestPruneRemovesCompleted(t *testing.T) {
 		t.Errorf("prune should report the count removed, got %q", out)
 	}
 }
+
+func TestEditTitleAndDesc(t *testing.T) {
+	path := writeTemp(t, "# Work\n\n- [ ] old\n")
+	if _, err := runCmd(t, "edit", "--file", path, "--title", "old", "--set-title", "new", "--set-desc", "why"); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	got := readFile(t, path)
+	if !strings.Contains(got, "- [ ] new") || strings.Contains(got, "old") {
+		t.Errorf("title should be renamed:\n%s", got)
+	}
+	if !strings.Contains(got, "why") {
+		t.Errorf("description should be set:\n%s", got)
+	}
+}
+
+func TestEditRequiresAChange(t *testing.T) {
+	path := writeTemp(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "edit", "--file", path, "--title", "a"); codeOf(t, err) != exitUsage {
+		t.Error("edit with no --set-* should be a usage error")
+	}
+}
+
+func TestEditDescOnCategoryIsWrongKind(t *testing.T) {
+	path := writeTemp(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "edit", "--file", path, "--title", "Work", "--set-desc", "x"); codeOf(t, err) != exitWrongKind {
+		t.Error("a category cannot take a description")
+	}
+}
