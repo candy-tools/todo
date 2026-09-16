@@ -39,6 +39,7 @@ type Item struct {
 	Kind        Kind
 	Title       string
 	Level       int    // Category only: header level 1..6
+	Line        int    // 1-based source line of the header/checkbox; 0 until parsed
 	Status      Status // Task only
 	Description string // Task only: free-form text shown in the details view
 	Children    []*Item
