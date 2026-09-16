@@ -28,3 +28,18 @@ func TestStatusMarker(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusFromName(t *testing.T) {
+	for name, want := range map[string]todo.Status{
+		"open": todo.Open, "progress": todo.InProgress,
+		"deferred": todo.Deferred, "done": todo.Done,
+	} {
+		got, ok := todo.StatusFromName(name)
+		if !ok || got != want {
+			t.Errorf("StatusFromName(%q) = %v ok=%v, want %v", name, got, ok, want)
+		}
+	}
+	if _, ok := todo.StatusFromName("bogus"); ok {
+		t.Error("StatusFromName(bogus) should be ok=false")
+	}
+}
