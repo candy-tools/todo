@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -16,10 +17,16 @@ const defaultFile = "TODO.md"
 
 // Execute is the entry point for the command line.
 func Execute() {
-	if err := newRootCommand().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	err := newRootCommand().Execute()
+	if err == nil {
+		return
 	}
+	fmt.Fprintln(os.Stderr, err)
+	var ce *cliError
+	if errors.As(err, &ce) {
+		os.Exit(ce.code)
+	}
+	os.Exit(exitGeneric)
 }
 
 func newRootCommand() *cobra.Command {
@@ -40,7 +47,10 @@ func newRootCommand() *cobra.Command {
 		},
 	}
 	cmd.PersistentFlags().StringP("file", "f", defaultFile, "the todo file to operate on")
-	cmd.AddCommand(versionCmd(), listCmd())
+	cmd.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
+		return &cliError{exitUsage, e.Error()}
+	})
+	cmd.AddCommand(versionCmd(), listCmd(), doneCmd())
 	return cmd
 }
 
