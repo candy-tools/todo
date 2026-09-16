@@ -50,7 +50,7 @@ func newRootCommand() *cobra.Command {
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
 		return &cliError{exitUsage, e.Error()}
 	})
-	cmd.AddCommand(versionCmd(), listCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd())
+	cmd.AddCommand(versionCmd(), listCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd())
 	return cmd
 }
 
