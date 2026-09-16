@@ -31,11 +31,16 @@ func newRootCommand() *cobra.Command {
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(c *cobra.Command, args []string) error {
+			if len(args) == 0 && c.Flags().Changed("file") {
+				f, _ := c.Flags().GetString("file")
+				return tui.Run(f)
+			}
 			return tui.Run(filePath(args))
 		},
 	}
-	cmd.AddCommand(versionCmd())
+	cmd.PersistentFlags().StringP("file", "f", defaultFile, "the todo file to operate on")
+	cmd.AddCommand(versionCmd(), listCmd())
 	return cmd
 }
 

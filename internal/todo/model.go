@@ -32,6 +32,25 @@ const (
 	Done                     // `[x]`
 )
 
+// String returns the lowercase status name used by the CLI (JSON output and
+// the `add --status` flag): open, progress, deferred, done.
+func (s Status) String() string {
+	switch s {
+	case InProgress:
+		return "progress"
+	case Deferred:
+		return "deferred"
+	case Done:
+		return "done"
+	default:
+		return "open"
+	}
+}
+
+// Marker returns the checkbox marker char for the status, e.g. "x" for Done. It
+// is markerFromStatus exposed for the CLI's list table; the two stay in sync.
+func (s Status) Marker() string { return markerFromStatus(s) }
+
 // Item is one node of the TODO tree. Categories nest by header level and hold
 // sub-categories and tasks; tasks nest by list indentation and hold sub-tasks.
 // Only tasks use Status and Description; only categories use Level.
