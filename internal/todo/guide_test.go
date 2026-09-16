@@ -72,6 +72,13 @@ func TestGuideDocumentsAllMarkers(t *testing.T) {
 	}
 }
 
+func TestGuideMentionsCLI(t *testing.T) {
+	fc := (&todo.Document{}).FileContent()
+	if !strings.Contains(fc, "todo --help") {
+		t.Errorf("the guide should point agents at the CLI:\n%s", fc)
+	}
+}
+
 func TestFileContentOnEmptyDocStillHasGuide(t *testing.T) {
 	fc := (&todo.Document{}).FileContent()
 	if !strings.Contains(fc, "<!-- todo:guide") || !strings.Contains(fc, repoURL) {

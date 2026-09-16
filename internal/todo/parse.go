@@ -96,12 +96,14 @@ func (d *Document) Save(path string) error {
 // the first header/task is kept verbatim as the preamble; stray non-indented
 // prose elsewhere is dropped (the app owns the file format).
 func Parse(src string) *Document {
-	// Remove the app-managed guide from the raw source before parsing: it is an
-	// HTML comment whose own example lines (`- [ ]`, `#`) would otherwise be
-	// mis-parsed as real tasks and headers.
-	src = stripGuide(src)
 	doc := &Document{}
 	lines := strings.Split(src, "\n")
+	// The app-managed guide block is skipped below rather than stripped up
+	// front, so its lines still count toward every other line's real index
+	// (see guideRange and Item.Line). It must still be excluded from parsing
+	// itself: it is an HTML comment whose own example lines (`- [ ]`, `#`)
+	// would otherwise be mis-parsed as real tasks and headers.
+	gStart, gEnd, hasGuide := guideRange(lines)
 
 	var catStack []*Item // open categories, by increasing Level
 	type taskEntry struct {
@@ -135,13 +137,17 @@ func Parse(src string) *Document {
 		}
 	}
 
-	for _, line := range lines {
+	for i, line := range lines {
+		if inGuide(i, gStart, gEnd, hasGuide) {
+			continue // the managed guide block: skip but keep counting lines
+		}
+		lineNo := i + 1
 		if m := headerRe.FindStringSubmatch(line); m != nil {
 			flushDesc()
 			curTask = nil
 			taskStack = nil
 			level := len(m[1])
-			cat := &Item{Kind: Category, Level: level, Title: strings.TrimRight(m[2], " \t")}
+			cat := &Item{Kind: Category, Level: level, Title: strings.TrimRight(m[2], " \t"), Line: lineNo}
 			for len(catStack) > 0 && catStack[len(catStack)-1].Level >= level {
 				catStack = catStack[:len(catStack)-1]
 			}
@@ -157,6 +163,7 @@ func Parse(src string) *Document {
 				Kind:   Task,
 				Title:  strings.TrimRight(m[3], " \t"),
 				Status: statusFromMarker(m[2]),
+				Line:   lineNo,
 			}
 			for len(taskStack) > 0 && taskStack[len(taskStack)-1].indent >= indent {
 				taskStack = taskStack[:len(taskStack)-1]
@@ -195,6 +202,10 @@ func Parse(src string) *Document {
 	doc.Preamble = strings.Trim(strings.Join(preamble, "\n"), "\n")
 	return doc
 }
+
+// inGuide reports whether line index i falls inside the managed guide block
+// [start,end].
+func inGuide(i, start, end int, has bool) bool { return has && i >= start && i <= end }
 
 // leadingWhitespace counts the leading space/tab characters of s (each as one).
 func leadingWhitespace(s string) int {

@@ -40,6 +40,49 @@ An example task file:
 - [ ] Book dentist
 ```
 
+## Scripting / for agents
+
+Every interactive action is also a non-interactive subcommand, so an agent (or a
+script) can edit the file without opening the TUI. All commands take
+`-f/--file` (default `TODO.md`).
+
+Read the list — with numbers, line numbers, and JSON for the read-then-act loop:
+
+```sh
+todo list                 # aligned table: # · line · status · item
+todo list --json          # nested tree with number/line/title/status/path
+todo list --filter build  # only matching items and their path
+```
+
+Address an existing item three ways — exactly one, mutually exclusive:
+
+```sh
+--number N   # the # column from `todo list`
+--line   N   # the item's line in the file
+--title  T   # the item's exact title (errors if more than one matches)
+```
+
+Common actions:
+
+```sh
+todo add --title "Cut the tag" --parent-title "Ship v1.0" [--desc "…"] [--status open|progress|deferred|done]
+todo add-category --title "Backend" [--parent-title "Work"]
+todo done     --title "Cut the tag" [--cascade]
+todo progress --number 4
+todo defer    --line 33
+todo reopen   --title "Cut the tag" [--cascade]
+todo edit     --number 4 --set-title "…" --set-desc "…"
+todo rm       --number 4
+todo prune                # drop every fully-completed task
+```
+
+`--number` and `--line` shift after any add/remove (the file is rewritten to
+canonical form on save); `--title` is stable. For a sequence of edits, re-run
+`todo list` between steps or address by `--title`.
+
+Exit codes: `0` ok, `2` usage, `3` not found, `4` ambiguous title, `5` wrong
+kind, `1` other. Errors go to stderr.
+
 ## Keys
 
 | Key | Action |

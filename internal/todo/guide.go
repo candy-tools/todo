@@ -33,6 +33,10 @@ Notes for editors:
 - Text above the first heading (this block included) is preserved on save.
 - todo rewrites the file into the canonical form above on every change, so any
   other free-form markdown placed between items is not kept.
+
+Prefer the CLI over editing by hand: it writes this file in the exact format
+above. ` + "`todo add`, `todo done|progress|defer|reopen`, `todo edit`, `todo rm`" + `
+and ` + "`todo list --json`" + ` cover the common actions — run ` + "`todo --help`" + `.
 -->`
 
 // FileContent is the exact on-disk representation of the document: the managed
@@ -46,16 +50,13 @@ func (d *Document) FileContent() string {
 	return guideComment + "\n\n" + body
 }
 
-// stripGuide removes a managed guide block — a line starting with guideMarker
-// through the line that closes the HTML comment (`-->`) — from markdown source,
-// wherever it sits, and trims the surrounding blank lines. Text that isn't the
-// managed block (including a user's own comment) is returned untouched.
-func stripGuide(src string) string {
-	if !strings.Contains(src, guideMarker) {
-		return src
-	}
-	lines := strings.Split(src, "\n")
-	start := -1
+// guideRange reports the inclusive line range [start,end] of the managed guide
+// block within lines (0-based), or ok=false when there is none. It is the scan
+// Parse uses to skip the guide while keeping every other line's real index: the
+// block runs from the line beginning with guideMarker through the next line
+// containing the HTML-comment close.
+func guideRange(lines []string) (start, end int, ok bool) {
+	start = -1
 	for i, l := range lines {
 		if strings.HasPrefix(strings.TrimSpace(l), guideMarker) {
 			start = i
@@ -63,15 +64,14 @@ func stripGuide(src string) string {
 		}
 	}
 	if start == -1 {
-		return src
+		return 0, 0, false
 	}
-	end := start
+	end = start
 	for j := start; j < len(lines); j++ {
 		if strings.Contains(lines[j], "-->") {
 			end = j
 			break
 		}
 	}
-	lines = append(lines[:start], lines[end+1:]...)
-	return strings.Trim(strings.Join(lines, "\n"), "\n")
+	return start, end, true
 }

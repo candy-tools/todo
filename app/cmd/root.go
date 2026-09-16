@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -16,10 +17,16 @@ const defaultFile = "TODO.md"
 
 // Execute is the entry point for the command line.
 func Execute() {
-	if err := newRootCommand().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	err := newRootCommand().Execute()
+	if err == nil {
+		return
 	}
+	fmt.Fprintln(os.Stderr, err)
+	var ce *cliError
+	if errors.As(err, &ce) {
+		os.Exit(ce.code)
+	}
+	os.Exit(exitGeneric)
 }
 
 func newRootCommand() *cobra.Command {
@@ -31,11 +38,19 @@ func newRootCommand() *cobra.Command {
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(c *cobra.Command, args []string) error {
+			if len(args) == 0 && c.Flags().Changed("file") {
+				f, _ := c.Flags().GetString("file")
+				return tui.Run(f)
+			}
 			return tui.Run(filePath(args))
 		},
 	}
-	cmd.AddCommand(versionCmd())
+	cmd.PersistentFlags().StringP("file", "f", defaultFile, "the todo file to operate on")
+	cmd.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
+		return &cliError{exitUsage, e.Error()}
+	})
+	cmd.AddCommand(versionCmd(), listCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd())
 	return cmd
 }
 

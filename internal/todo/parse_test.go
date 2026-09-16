@@ -160,3 +160,29 @@ func TestParseEmpty(t *testing.T) {
 		t.Errorf("empty source should give an empty document")
 	}
 }
+
+func TestParseTracksLinesWithoutGuide(t *testing.T) {
+	// # Work (1), blank (2), - [ ] a (3)
+	d := todo.Parse("# Work\n\n- [ ] a\n")
+	if got := d.Roots[0].Line; got != 1 {
+		t.Errorf("Work header line = %d, want 1", got)
+	}
+	if got := d.Roots[0].Children[0].Line; got != 3 {
+		t.Errorf("task a line = %d, want 3", got)
+	}
+}
+
+func TestParseTracksLinesCountingGuide(t *testing.T) {
+	// guide (1-2), blank (3), # Work (4), blank (5), - [ ] a (6), "  - [x] b" (7)
+	src := "<!-- todo:guide x\n-->\n\n# Work\n\n- [ ] a\n  - [x] b\n"
+	d := todo.Parse(src)
+	work := d.Roots[0]
+	a := work.Children[0]
+	b := a.Children[0]
+	if work.Line != 4 || a.Line != 6 || b.Line != 7 {
+		t.Errorf("lines = work:%d a:%d b:%d, want 4/6/7", work.Line, a.Line, b.Line)
+	}
+	if d.Preamble != "" {
+		t.Errorf("guide must still be stripped from the preamble, got %q", d.Preamble)
+	}
+}
