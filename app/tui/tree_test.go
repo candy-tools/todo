@@ -72,12 +72,12 @@ func TestTreeCursorClampsAfterRebuild(t *testing.T) {
 func TestTreeRowRendering(t *testing.T) {
 	d := todo.Parse("# Work\n\n- [ ] open\n- [x] done\n")
 	tr := newTree(d)
-	// Unselected done task shows a tick glyph; open task shows an empty box.
-	if got := tr.rowString(treeRow{item: find(d, "done")}, false); !strings.Contains(got, "☑") {
-		t.Errorf("done row should contain ☑, got %q", got)
+	// Unselected done task shows a filled circle; open task shows an empty circle.
+	if got := tr.rowString(treeRow{item: find(d, "done")}, false); !strings.Contains(got, "●") {
+		t.Errorf("done row should contain ●, got %q", got)
 	}
-	if got := tr.rowString(treeRow{item: find(d, "open")}, false); !strings.Contains(got, "☐") {
-		t.Errorf("open row should contain ☐, got %q", got)
+	if got := tr.rowString(treeRow{item: find(d, "open")}, false); !strings.Contains(got, "○") {
+		t.Errorf("open row should contain ○, got %q", got)
 	}
 	// A selected row is marked with the ❯ gutter.
 	if got := tr.rowString(treeRow{item: find(d, "open")}, true); !strings.Contains(got, "❯") {
