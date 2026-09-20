@@ -315,17 +315,17 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 			highlight(title, t.filter, categoryStyle) + helpTextStyle.Render(counts)
 	}
 
-	// Task. The glyph and its colour follow the status: open is a plain empty box,
-	// in progress and deferred colour the glyph, done is a green tick with a
-	// struck-through dim title.
-	glyph, boxStyle, titleStyle := "☐", plainStyle, plainStyle
+	// Task. The glyph and its colour follow the status: open is an empty circle,
+	// in progress a half-filled circle, deferred a coloured pause, done a filled
+	// green circle with a struck-through dim title.
+	glyph, boxStyle, titleStyle := "○", plainStyle, plainStyle
 	switch r.item.Status {
 	case todo.InProgress:
 		glyph, boxStyle = "◐", progStyle
 	case todo.Deferred:
 		glyph, boxStyle = "⏸", deferStyle
 	case todo.Done:
-		glyph, boxStyle, titleStyle = "☑", doneStyle, doneTitleStyle
+		glyph, boxStyle, titleStyle = "●", doneStyle, doneTitleStyle
 	}
 	// A task with a description gets a trailing ≡ marker, so the single-panel list
 	// still shows at a glance which items have details to open (enter).
