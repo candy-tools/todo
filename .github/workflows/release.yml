@@ -37,15 +37,31 @@ jobs:
           # cross-repo PAT so goreleaser can push the cask to candy-tools/homebrew-tap
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
-      - name: Register the .deb with the Debian repo
-        # after goreleaser writes the .deb into dist/, hand it to
-        # candy-tools/debian-repo: the action writes packages/todo.json there
-        # and pushes it, which triggers a publish. needs a cross-repo PAT with
-        # contents:read+write on candy-tools/debian-repo (DEBIAN_REPO_TOKEN);
-        # the default GITHUB_TOKEN is scoped to this repo only, same reason as
-        # HOMEBREW_TAP_GITHUB_TOKEN above.
-        uses: candy-tools/debian-repo/.github/actions/register@main
+      - name: Upload the .debs for the Debian repo
+        # after goreleaser writes the .deb into dist/, hand it to the apt job
+        # below. only the .debs: dist/ also holds the binaries and archives,
+        # and a flat artifact means "every release" of the Debian repo.
+        uses: actions/upload-artifact@v4
         with:
-          name: todo          # must match the .deb's Package field (nfpms package_name)
-          dist-dir: dist      # where goreleaser wrote the .deb files
-          token: ${{ secrets.DEBIAN_REPO_TOKEN }}
+          name: debs
+          path: dist/*.deb
+          if-no-files-found: error
+
+  # register the .deb with candy-tools/debian-repo through the
+  # gh-action-debian-repo engine: it writes packages/todo.json there and pushes
+  # it, which triggers a publish. the default GITHUB_TOKEN is scoped to this repo
+  # only, so it authenticates as the candy-tools GitHub App (org variable
+  # APT_APP_ID + secret APT_APP_PRIVATE_KEY), which mints a short-lived token
+  # scoped to debian-repo.
+  apt:
+    needs: release
+    permissions:
+      contents: read
+    uses: andresbott/gh-action-debian-repo/.github/workflows/publish.yml@v1.0.0-rc.2
+    with:
+      name: todo          # must match the .deb's Package field (nfpms package_name)
+      artifact: debs
+      collection: candy-tools/debian-repo
+      app-id: ${{ vars.APT_APP_ID }}
+    secrets:
+      app-private-key: ${{ secrets.APT_APP_PRIVATE_KEY }}
