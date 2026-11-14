@@ -772,11 +772,19 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 // change) and rebuilds the tree, keeping the folds of the items that still
 // exist, the viewport, the filter and the grab state, and selecting focusID if
 // present (else keeping the cursor index, clamped). The undo snapshots are
-// kept, since this is the app's own write. If the reload itself fails, the
-// current document and tree stay as they are and the error is shown.
+// kept, since this is the app's own write — unless the reload shows that
+// someone else wrote too: a successful store write bumps the revision exactly
+// once and a failed one rolls back, so any other revision than that means an
+// external write landed since the last load, and the reload is handled as
+// external (snapshots dropped, the status line says so). If the reload itself
+// fails, the current document and tree stay as they are and the error is shown.
 func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 	ctx := context.Background()
 	m.err = write(ctx)
+	expected := m.lastRev
+	if m.err == nil {
+		expected++
+	}
 	doc, rev, err := m.store.Load(ctx)
 	if err != nil {
 		if m.err == nil {
@@ -787,6 +795,10 @@ func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 	onPH := m.tree.onPlaceholder()
 	m.doc, m.lastRev = doc, rev
 	m.tree.adopt(doc, focusID, onPH)
+	if rev != expected {
+		m.snapshots = map[uint]todo.DoneStates{}
+		m.status = "reloaded — list changed externally"
+	}
 }
 
 // confirmQuestion phrases the prompt for the open confirm dialog.

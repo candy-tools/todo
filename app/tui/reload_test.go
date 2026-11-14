@@ -259,6 +259,48 @@ func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
 	}
 }
 
+// TestOwnWriteDetectsExternalWriteBeforePoll covers an external write landing
+// between polls: the app's next own write must notice that the revision moved
+// by more than its own bump, treat the reload as external and drop the undo
+// snapshots, so un-toggling the parent never writes old statuses over it.
+func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [ ] c2\n- [ ] other\n")
+	m = press(m, "down", "space") // cascade-complete parent
+	if len(m.snapshots) != 1 {
+		t.Fatalf("precondition: the cascade must leave a snapshot, got %d", len(m.snapshots))
+	}
+
+	// An agent flags c1 in progress through a second handle; no poll runs.
+	c1 := find(m.doc, "c1").ID
+	if err := openSecond(t, path).SetStatuses(context.Background(), map[uint]todo.Status{c1: todo.InProgress}); err != nil {
+		t.Fatalf("external write: %v", err)
+	}
+
+	// An own, unrelated write: flag "other" in progress.
+	m = press(m, "down", "down", "down", "p")
+	if got := m.tree.selected().Title; got != "other" {
+		t.Fatalf("precondition: expected other selected, got %q", got)
+	}
+	if len(m.snapshots) != 0 {
+		t.Errorf("an own write that absorbed an external one must clear the snapshots, got %d", len(m.snapshots))
+	}
+	if m.status != "reloaded — list changed externally" {
+		t.Errorf("status = %q, want the external-reload notice", m.status)
+	}
+
+	// Un-toggle the parent: c1 keeps the agent's status.
+	m = press(m, "up", "up", "up", "space")
+	if got := m.tree.selected().Title; got != "parent" {
+		t.Fatalf("precondition: expected parent selected, got %q", got)
+	}
+	if got := find(m.doc, "c1").Status; got != todo.InProgress {
+		t.Errorf("c1 = %v after un-toggle, want in progress (the agent's change)", got)
+	}
+	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] parent\n  - [/] c1\n  - [x] c2\n- [/] other\n"; got != want {
+		t.Errorf("store after un-toggle:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestWriteErrorShowsAndReloads(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	if err := m.store.Close(); err != nil {
