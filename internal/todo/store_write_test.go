@@ -62,14 +62,14 @@ func titles(items []*Item) []string {
 type sampleIDs struct{ A, t1, t2, B uint }
 
 // addSample builds category A holding tasks t1 (Open, described) and t2
-// (InProgress), then category B, in that order.
+// (Working), then category B, in that order.
 func addSample(t *testing.T, s *Store) sampleIDs {
 	t.Helper()
 	ctx := context.Background()
 	var ids sampleIDs
 	ids.A = mustID(t)(s.AddCategory(ctx, "A", 0, 0))
 	ids.t1 = mustID(t)(s.AddTask(ctx, "t1", "d1", Open, ids.A, 0))
-	ids.t2 = mustID(t)(s.AddTask(ctx, "t2", "", InProgress, ids.A, ids.t1))
+	ids.t2 = mustID(t)(s.AddTask(ctx, "t2", "", Working, ids.A, ids.t1))
 	ids.B = mustID(t)(s.AddCategory(ctx, "B", ids.A, ids.t2))
 	return ids
 }
@@ -104,7 +104,7 @@ func TestAddStoresItemFields(t *testing.T) {
 	if t1.ID != ids.t1 || t1.Kind != Task || t1.Status != Open || t1.Description != "d1" || t1.Level != 0 {
 		t.Fatalf("t1 = %+v; want open task with description d1", t1)
 	}
-	if t2.ID != ids.t2 || t2.Kind != Task || t2.Status != InProgress || t2.Level != 0 {
+	if t2.ID != ids.t2 || t2.Kind != Task || t2.Status != Working || t2.Level != 0 {
 		t.Fatalf("t2 = %+v; want in-progress task", t2)
 	}
 	if b.ID != ids.B || b.Kind != Category || b.Level != 2 {
@@ -150,7 +150,7 @@ func TestCascadeStatus(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	p := mustID(t)(s.AddTask(ctx, "p", "", Open, 0, 0))
-	c1 := mustID(t)(s.AddTask(ctx, "c1", "", InProgress, p, 0))
+	c1 := mustID(t)(s.AddTask(ctx, "c1", "", Working, p, 0))
 	c2 := mustID(t)(s.AddTask(ctx, "c2", "", Open, p, c1))
 
 	mustOK(t, s.CascadeStatus(ctx, p, Done))

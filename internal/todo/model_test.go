@@ -129,8 +129,8 @@ func TestApplyStatusesSkipsMissingIDs(t *testing.T) {
 	parent.ID, c1.ID = 1, 2
 	doc := &todo.Document{}
 	doc.AppendRoot(parent)
-	doc.ApplyStatuses(todo.DoneStates{2: todo.InProgress, 99: todo.Done})
-	if c1.Status != todo.InProgress {
+	doc.ApplyStatuses(todo.DoneStates{2: todo.Working, 99: todo.Done})
+	if c1.Status != todo.Working {
 		t.Errorf("c1 = %v, want in progress", c1.Status)
 	}
 	if parent.Status != todo.Open {

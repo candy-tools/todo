@@ -273,7 +273,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 
 	// An agent flags c1 in progress through a second handle; no poll runs.
 	c1 := find(m.doc, "c1").ID
-	if err := openSecond(t, path).SetStatuses(context.Background(), map[uint]todo.Status{c1: todo.InProgress}); err != nil {
+	if err := openSecond(t, path).SetStatuses(context.Background(), map[uint]todo.Status{c1: todo.Working}); err != nil {
 		t.Fatalf("external write: %v", err)
 	}
 
@@ -294,7 +294,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 	if got := m.tree.selected().Title; got != "parent" {
 		t.Fatalf("precondition: expected parent selected, got %q", got)
 	}
-	if got := find(m.doc, "c1").Status; got != todo.InProgress {
+	if got := find(m.doc, "c1").Status; got != todo.Working {
 		t.Errorf("c1 = %v after un-toggle, want in progress (the agent's change)", got)
 	}
 	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] parent\n  - [/] c1\n  - [x] c2\n- [/] other\n"; got != want {

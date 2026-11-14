@@ -11,7 +11,7 @@ import (
 func TestSetInProgress(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	m = press(m, "down", "p")
-	if got := find(m.doc, "a").Status; got != todo.InProgress {
+	if got := find(m.doc, "a").Status; got != todo.Working {
 		t.Errorf("p should set the task in progress, got %v", got)
 	}
 	if !strings.Contains(todotest.Dump(t, path), "- [/] a") {
@@ -52,7 +52,7 @@ func TestStatusFlagSwitchesStates(t *testing.T) {
 func TestStatusFlagsDoNotCascade(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n")
 	m = press(m, "down", "p") // parent in progress
-	if got := find(m.doc, "parent").Status; got != todo.InProgress {
+	if got := find(m.doc, "parent").Status; got != todo.Working {
 		t.Fatalf("parent should be in progress, got %v", got)
 	}
 	if got := find(m.doc, "c1").Status; got != todo.Open {

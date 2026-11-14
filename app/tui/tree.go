@@ -364,7 +364,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	// green circle with a struck-through dim title.
 	glyph, boxStyle, titleStyle := "○", plainStyle, plainStyle
 	switch r.item.Status {
-	case todo.InProgress:
+	case todo.Working:
 		glyph, boxStyle = "◐", progStyle
 	case todo.Deferred:
 		glyph, boxStyle = "⏸", deferStyle

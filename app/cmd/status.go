@@ -58,7 +58,7 @@ func progressCmd() *cobra.Command {
 		Short: "mark a task in progress",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return setStatus(cmd, "progress", todo.InProgress, false)
+			return setStatus(cmd, "progress", todo.Working, false)
 		},
 	}
 	addSelectorFlags(c, "")

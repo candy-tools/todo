@@ -27,7 +27,7 @@ func statusFromMarker(marker string) Status {
 	case "x", "X":
 		return Done
 	case "/":
-		return InProgress
+		return Working
 	case ">":
 		return Deferred
 	default: // " "

@@ -252,7 +252,7 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		return m.toggleDone()
 	case "p":
-		return m.setStatus(todo.InProgress)
+		return m.setStatus(todo.Working)
 	case ">":
 		return m.setStatus(todo.Deferred)
 	case "n":
@@ -918,7 +918,7 @@ func itemMeta(it *todo.Item) string {
 	}
 	var status string
 	switch it.Status {
-	case todo.InProgress:
+	case todo.Working:
 		status = progStyle.Render("◐ in progress")
 	case todo.Deferred:
 		status = deferStyle.Render("⏸ deferred")
