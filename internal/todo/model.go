@@ -238,7 +238,7 @@ func (it *Item) IsTask() bool { return it.Kind == Task }
 
 // IsDone reports whether the task is complete. It is the successor to the old
 // Done bool: the done-cascade, counts and pruning all key off it, so a task that
-// is InProgress or Deferred reads as not done.
+// is Working or Deferred reads as not done.
 func (it *Item) IsDone() bool { return it.Status == Done }
 
 // IsSubtask reports whether it is a task nested under another task.
