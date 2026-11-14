@@ -121,6 +121,12 @@ func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, par
 // no trace: a store file this call created is closed and removed with its WAL
 // side files. On success the open store is returned.
 func ImportFile(dbPath, mdPath string, replace bool) (*Store, ImportReport, error) {
+	return importFile(context.Background(), dbPath, mdPath, replace)
+}
+
+// importFile is ImportFile with the context of the store write, so a test can
+// make the import fail after the store file was created.
+func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Store, ImportReport, error) {
 	existed, err := StoreExists(dbPath)
 	if err != nil {
 		return nil, ImportReport{}, err
@@ -138,7 +144,7 @@ func ImportFile(dbPath, mdPath string, replace bool) (*Store, ImportReport, erro
 		removeNewStore(dbPath, existed)
 		return nil, ImportReport{}, err
 	}
-	if err := s.Import(context.Background(), doc, replace); err != nil {
+	if err := s.Import(ctx, doc, replace); err != nil {
 		_ = s.Close()
 		removeNewStore(dbPath, existed)
 		return nil, ImportReport{}, err
