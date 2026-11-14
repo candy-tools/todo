@@ -76,6 +76,27 @@ func newTree(doc *todo.Document) tree {
 // (spaces only) filters nothing, as in todo.VisibleItems.
 func (t *tree) searching() bool { return strings.TrimSpace(t.filter) != "" }
 
+// filtered reports whether the tab can hide items that sit between its rows:
+// any tab but Backlog shows only its column's tasks, and a search shows only
+// matches. Backlog without a search hides nothing but folds.
+func (t *tree) filtered() bool { return t.column != todo.ColBacklog || t.searching() }
+
+// shownBefore counts the items the tab showed at the last rebuild that come
+// before it in document order. A move that changes the count has carried it
+// past a shown row.
+func (t *tree) shownBefore(it *todo.Item) int {
+	n := 0
+	for _, x := range t.doc.Enumerate() {
+		if x == it {
+			break
+		}
+		if t.shown[x] {
+			n++
+		}
+	}
+	return n
+}
+
 // visibleItems returns the items the current tab shows: the column's items
 // (todo.ColumnItems) and, while searching, only those on a path to a match that
 // is itself in the tab. Matching only in-tab items keeps a search from showing
@@ -337,10 +358,15 @@ func (t *tree) expand() {
 // re-deriving it from the cursor, so the page doesn't slide when the cursor
 // moves within it. The offset is clamped here defensively in case this height
 // differs from the one it was reconciled against (e.g. before the first resize).
-// An empty tab renders a single dim "nothing in <tab>" line.
+// An empty tab renders a single dim "nothing in <tab>" line, or "no matches in
+// <tab>" while a search finds nothing there.
 func (t *tree) view(width, height int) string {
 	if len(t.rows) == 0 {
-		return "  " + helpTextStyle.Render("nothing in "+t.column.Title())
+		empty := "nothing in "
+		if t.searching() {
+			empty = "no matches in "
+		}
+		return "  " + helpTextStyle.Render(empty+t.column.Title())
 	}
 	if height < 1 {
 		height = 1
@@ -424,7 +450,8 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 
 	// Task. The glyph and its colour follow the status (see statusGlyph); a done
 	// task's title is struck through and dim. A top-level task names its state
-	// after the title, and a ready task without a plan carries a warning.
+	// after the title, followed by its subtask progress when it has subtasks,
+	// and a ready task without a plan carries a warning.
 	subtask := r.item.IsSubtask()
 	glyph, boxStyle := statusGlyph(r.item.Status, subtask)
 	titleStyle := plainStyle
@@ -434,6 +461,9 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	state := ""
 	if !subtask {
 		state = " " + r.item.Status.String()
+		if done, total := r.item.TaskCounts(); total > 0 {
+			state += fmt.Sprintf(" (%d/%d)", done, total)
+		}
 	}
 	warn := ""
 	if r.item.NeedsPlan() {

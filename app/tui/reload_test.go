@@ -253,8 +253,8 @@ func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
 	}
 	m = showOn(t, m, todo.ColDone, "parent")
 	m = press(m, "space")
-	if got := find(m.doc, "parent").Status; got != todo.Open {
-		t.Errorf("parent = %v after un-toggle, want open", got)
+	if got := find(m.doc, "parent").Status; got != todo.Working {
+		t.Errorf("parent = %v after un-toggle without a snapshot, want working", got)
 	}
 	for _, title := range []string{"c1", "c2"} {
 		if got := find(m.doc, title).Status; got != todo.Done {
@@ -280,9 +280,9 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 		t.Fatalf("external write: %v", err)
 	}
 
-	// An own, unrelated write: flag "other" in progress.
+	// An own, unrelated write: defer "other".
 	m = showOn(t, m, todo.ColBacklog, "other")
-	m = press(m, "p")
+	m = press(m, "t")
 	if len(m.snapshots) != 0 {
 		t.Errorf("an own write that absorbed an external one must clear the snapshots, got %d", len(m.snapshots))
 	}
@@ -290,14 +290,14 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 		t.Errorf("status = %q, want the external-reload notice", m.status)
 	}
 
-	// Un-toggle the parent: c1 keeps the agent's status, and c2 stays done
-	// because the dropped snapshot no longer restores it.
+	// Un-toggle the parent: it reopens to working, c1 keeps the agent's status,
+	// and c2 stays done because the dropped snapshot no longer restores it.
 	m = showOn(t, m, todo.ColDone, "parent")
 	m = press(m, "space")
 	if got := find(m.doc, "c1").Status; got != todo.Open {
 		t.Errorf("c1 = %v after un-toggle, want open (the agent's change)", got)
 	}
-	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [x] c2\n- [/] other\n"; got != want {
+	if got, want := todotest.Dump(t, path), "# Work\n\n- [/] parent\n  - [ ] c1\n  - [x] c2\n- [>] other\n"; got != want {
 		t.Errorf("store after un-toggle:\n%s\nwant:\n%s", got, want)
 	}
 }

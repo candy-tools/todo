@@ -118,6 +118,33 @@ func TestEmptyTabShowsNothingLine(t *testing.T) {
 	}
 }
 
+func TestEmptyTabAddHint(t *testing.T) {
+	m, _ := newTestModelOn(t, board, todo.ColNext)
+	for _, key := range []string{"n", "N"} {
+		got := press(m, key)
+		if got.mode != modeMain {
+			t.Errorf("%q on an empty tab must not open the form, mode = %v", key, got.mode)
+		}
+		if want := "add tasks from a tab that shows their category (Backlog shows all)"; got.status != want {
+			t.Errorf("%q footer = %q, want %q", key, got.status, want)
+		}
+	}
+}
+
+func TestSearchWithNoMatchesSaysSo(t *testing.T) {
+	m, _ := newTestModelOn(t, board, todo.ColInProgress)
+	m = press(m, "/")
+	m = typeText(m, "zzz")
+	m = press(m, "enter")
+	out := m.View()
+	if !strings.Contains(out, "no matches in In Progress") {
+		t.Errorf("an empty search result must say so:\n%s", out)
+	}
+	if strings.Contains(out, "nothing in") {
+		t.Errorf("a search with no matches must not read as an empty tab:\n%s", out)
+	}
+}
+
 func TestTabKeepsOwnSelectionAndFolds(t *testing.T) {
 	m, _ := newTestModelOn(t, board, todo.ColInProgress)
 	m = press(m, "left") // fold B (selected at the top)

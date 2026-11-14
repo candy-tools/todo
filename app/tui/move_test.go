@@ -6,6 +6,7 @@ import (
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // titles lists the titles of a sibling slice, for order assertions.
@@ -164,6 +165,74 @@ func TestMoveModeCrossesCategoriesPersists(t *testing.T) {
 	reloaded := todotest.Parse(t, todotest.Dump(t, path))
 	if got := titles(find(reloaded, "Personal").Children); len(got) != 2 || got[0] != "b" || got[1] != "p1" {
 		t.Errorf("persisted Personal children = %v, want [b p1]", got)
+	}
+}
+
+// storedChildren loads the store at path through a fresh handle and returns the
+// titles of the children of the item titled title.
+func storedChildren(t *testing.T, path, title string) []string {
+	t.Helper()
+	return titles(storedItem(t, path, title).Children)
+}
+
+func TestGrabMoveStepsOverHiddenTasks(t *testing.T) {
+	m, path := newTestModelOn(t, "# C\n- [/] w1\n- [ ] b\n- [/] w2\n", todo.ColInProgress)
+	m = selectTitle(t, m, "w2")
+	m = press(m, "m", "up", "m")
+	if got, want := storedChildren(t, path, "C"), []string{"w2", "w1", "b"}; !equalStrings(got, want) {
+		t.Errorf("stored order under C = %v, want %v", got, want)
+	}
+	if got := m.tree.selected(); got == nil || got.Title != "w2" {
+		t.Errorf("the cursor should follow w2, got %v", got)
+	}
+	// One down passes w1; a second has no visible row left to pass, so it steps
+	// over the hidden b until the move runs out.
+	m = press(m, "m", "down")
+	if got, want := storedChildren(t, path, "C"), []string{"w1", "w2", "b"}; !equalStrings(got, want) {
+		t.Errorf("stored order under C after down = %v, want %v", got, want)
+	}
+	m = press(m, "down", "m")
+	if got, want := storedChildren(t, path, "C"), []string{"w1", "b", "w2"}; !equalStrings(got, want) {
+		t.Errorf("stored order under C after a second down = %v, want %v", got, want)
+	}
+}
+
+func TestGrabMoveCrossesHiddenCategory(t *testing.T) {
+	m, path := newTestModelOn(t, "# A\n- [/] w\n# B\n- [ ] x\n# C\n- [/] v\n", todo.ColInProgress)
+	m = selectTitle(t, m, "w")
+	m = press(m, "m", "down")
+	if got, want := storedChildren(t, path, "C"), []string{"w", "v"}; !equalStrings(got, want) {
+		t.Errorf("w must step over the hidden B into C, C = %v, want %v", got, want)
+	}
+	if got := storedChildren(t, path, "B"); !equalStrings(got, []string{"x"}) {
+		t.Errorf("B = %v, want [x]", got)
+	}
+	if got := m.tree.selected(); got == nil || got.Title != "w" || !m.tree.grabbed {
+		t.Errorf("w stays selected and grabbed, got %v (grabbed %v)", got, m.tree.grabbed)
+	}
+}
+
+func TestIndentUnderSubtaskRefusedInTUI(t *testing.T) {
+	m, path := newTestModel(t, "# W\n- [ ] a\n  - [ ] s1\n  - [ ] s2\n- [ ] b\n  - [ ] t1\n")
+	before := storeRev(t, m)
+	for _, title := range []string{"s2", "b"} {
+		got := selectTitle(t, m, title)
+		got = press(got, "m", "right")
+		if got.status != "subtasks can't have subtasks" {
+			t.Errorf("indenting %s: status = %q", title, got.status)
+		}
+		if !strings.Contains(ansi.Strip(got.footer(200)), "subtasks can't have subtasks") {
+			t.Errorf("indenting %s: the refusal must show in the footer, got %q", title, got.footer(200))
+		}
+		if !got.tree.grabbed {
+			t.Errorf("indenting %s: a refused move keeps the item grabbed", title)
+		}
+		if storeRev(t, got) != before {
+			t.Errorf("indenting %s wrote to the store", title)
+		}
+	}
+	if got := storedChildren(t, path, "a"); !equalStrings(got, []string{"s1", "s2"}) {
+		t.Errorf("a's subtasks = %v, want [s1 s2]", got)
 	}
 }
 

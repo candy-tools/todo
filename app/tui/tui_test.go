@@ -519,7 +519,7 @@ func TestDeleteAfterCancelledClear(t *testing.T) {
 
 func TestFooterShowsClearDoneHint(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [x] a\n")
-	if got := m.footer(120); !strings.Contains(got, "Clear") {
+	if got := m.footer(200); !strings.Contains(got, "Clear") {
 		t.Errorf("footer should advertise the clear-done shortcut:\n%s", got)
 	}
 }
