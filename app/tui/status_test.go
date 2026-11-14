@@ -26,7 +26,7 @@ func selectTitle(t *testing.T, m model, title string) model {
 	t.Helper()
 	it := find(m.doc, title)
 	if it == nil || !m.tree.selectID(it.ID) {
-		t.Fatalf("%q is not shown on %s (rows %v)", title, m.tree.column.Title(), rowTitles(m.tree))
+		t.Fatalf("%q is not shown on %s (rows %v)", title, m.view.column.Title(), rowTitles(m.tree))
 	}
 	return m
 }
@@ -253,13 +253,13 @@ func TestStateFilter(t *testing.T) {
 		t.Errorf("footer should show the state filter, got %q", got)
 	}
 	// Other tabs ignore Backlog's states.
-	m.tree.setColumn(todo.ColDone)
-	if len(m.tree.tabStates()) != 0 {
+	m.setColumn(todo.ColDone)
+	if len(m.view.activeStates()) != 0 {
 		t.Errorf("Done must not inherit Backlog's state filter")
 	}
-	m.tree.setColumn(todo.ColBacklog)
+	m.setColumn(todo.ColBacklog)
 	m = press(m, "esc")
-	if len(m.tree.tabStates()) != 0 || !hasRow(m, "a") {
+	if len(m.view.activeStates()) != 0 || !hasRow(m, "a") {
 		t.Errorf("esc must clear the state filter, rows %v", rowTitles(m.tree))
 	}
 }
@@ -345,7 +345,7 @@ func TestEmptyTabKeysAreNoops(t *testing.T) {
 
 func TestTreeRowStatusGlyphs(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [/] working\n- [>] defer\n")
-	tr := newTree(d)
+	tr := newTree(d, newViewState())
 	if got := tr.rowString(treeRow{item: find(d, "working")}, false); !strings.Contains(got, "◐") {
 		t.Errorf("a working row should contain ◐, got %q", got)
 	}
@@ -380,7 +380,7 @@ func TestStatusGlyphTable(t *testing.T) {
 
 func TestTaskRowShowsSubtaskProgress(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] a\n  - [x] s1\n  - [ ] s2\n- [ ] b\n")
-	tr := newTree(d)
+	tr := newTree(d, newViewState())
 	if got := tr.rowString(treeRow{item: find(d, "a")}, false); !strings.Contains(got, "open") || !strings.Contains(got, "(1/2)") {
 		t.Errorf("a task row must show its subtask progress after the state, got %q", got)
 	}

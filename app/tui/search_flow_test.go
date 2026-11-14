@@ -33,8 +33,8 @@ func TestSearchEscClearsFilter(t *testing.T) {
 	if m.searching {
 		t.Error("esc should close the search input")
 	}
-	if m.tree.filter != "" {
-		t.Errorf("esc should clear the filter, got %q", m.tree.filter)
+	if m.view.filter != "" {
+		t.Errorf("esc should clear the filter, got %q", m.view.filter)
 	}
 	if len(m.tree.rows) != before {
 		t.Errorf("esc should restore the tree: got %d rows, want %d", len(m.tree.rows), before)
@@ -49,8 +49,8 @@ func TestSearchEnterKeepsFilter(t *testing.T) {
 	if m.searching {
 		t.Error("enter should stop editing the query")
 	}
-	if m.tree.filter != "cat" {
-		t.Errorf("enter should keep the filter active, got %q", m.tree.filter)
+	if m.view.filter != "cat" {
+		t.Errorf("enter should keep the filter active, got %q", m.view.filter)
 	}
 	got := rowTitles(m.tree)
 	want := []string{"Work", "Task A", "Explore catacombs"}
@@ -66,8 +66,8 @@ func TestEscInMainClearsActiveFilter(t *testing.T) {
 	m = typeText(m, "cat")
 	m = press(m, "enter") // filter active, no longer editing
 	m = press(m, "esc")   // esc in the main view clears the active filter (not quit)
-	if m.tree.filter != "" {
-		t.Errorf("esc in the main view should clear the active filter, got %q", m.tree.filter)
+	if m.view.filter != "" {
+		t.Errorf("esc in the main view should clear the active filter, got %q", m.view.filter)
 	}
 	if len(m.tree.rows) != before {
 		t.Errorf("clearing the filter should restore the tree: got %d rows, want %d", len(m.tree.rows), before)
@@ -83,8 +83,8 @@ func TestClearFilterKeepsFocusOnNavigatedItem(t *testing.T) {
 		t.Fatalf("precondition: cursor should be on \"category\" while filtering, got %v", sel)
 	}
 	m = press(m, "esc") // clear the filter
-	if m.tree.filter != "" {
-		t.Fatalf("esc should clear the filter, got %q", m.tree.filter)
+	if m.view.filter != "" {
+		t.Fatalf("esc should clear the filter, got %q", m.view.filter)
 	}
 	if sel := m.tree.selected(); sel == nil || sel.Title != "category" {
 		t.Errorf("clearing the filter should keep focus on \"category\", got %v", sel)

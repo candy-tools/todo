@@ -65,9 +65,13 @@ type model struct {
 	store   *todo.Store
 	version string
 	doc     *todo.Document
-	tree    tree
-	width   int
-	height  int
+	// view is the tab, search query and state filter every tree shows the
+	// list through; the model changes it (setColumn, setFilter, setStates)
+	// and rebuilds the trees.
+	view   *viewState
+	tree   tree
+	width  int
+	height int
 
 	// lastRev is the store revision doc reflects: the one todo last loaded,
 	// which after its own write is the revision that write produced. The poll
@@ -80,7 +84,7 @@ type model struct {
 
 	// searching is true while the "/" search bar is focused and capturing keys.
 	// The query itself lives in search; the resulting filter lives on the tree
-	// (m.tree.filter), so it stays applied for navigation after search closes.
+	// (m.view.filter), so it stays applied for navigation after search closes.
 	searching bool
 	search    textinput.Model
 
@@ -132,11 +136,13 @@ func newModel(st *todo.Store, notice string) (model, error) {
 	if err != nil {
 		return model{}, err
 	}
+	v := newViewState()
 	return model{
 		store:     st,
 		version:   metainfo.Version,
 		doc:       doc,
-		tree:      newTree(doc),
+		view:      v,
+		tree:      newTree(doc, v),
 		mode:      modeMain,
 		snapshots: map[uint]todo.DoneStates{},
 		lastRev:   rev,
@@ -222,7 +228,7 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.mode, m.helpOffset = modeHelp, 0
 	case "f":
-		m.pick = newFilterPicker(m.tree.column, m.tree.states)
+		m.pick = newFilterPicker(m.view.column, m.view.states)
 		m.mode = modeStateFilter
 	case "up", "w":
 		m.tree.moveUp()
@@ -237,8 +243,8 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right":
 		m.tree.expand()
 	default:
-		if c, ok := tabKey(msg.String(), m.tree.column); ok {
-			m.tree.setColumn(c)
+		if c, ok := tabKey(msg.String(), m.view.column); ok {
+			m.setColumn(c)
 			return m, nil
 		}
 		return m.updateMainItemKey(msg)
@@ -275,38 +281,22 @@ const msgCategoriesInBacklog = "categories are managed in Backlog"
 // categoryLocked reports whether rename, delete or move of it is refused: it is
 // a category and the tab is not Backlog.
 func (m model) categoryLocked(it *todo.Item) bool {
-	return it != nil && it.Kind == todo.Category && m.tree.column != todo.ColBacklog
+	return it != nil && it.Kind == todo.Category && !m.view.editsCategories()
 }
 
 // escOrQuit clears an active search (dismissing it the same way it's
 // cancelled), else the tab's state filter, or quits when there is nothing to
 // dismiss.
 func (m model) escOrQuit() (tea.Model, tea.Cmd) {
-	if m.tree.filter != "" {
+	if m.view.filter != "" {
 		m.clearFilter()
 		return m, nil
 	}
-	if states := m.tree.tabStates(); len(states) > 0 {
-		m.clearTabStates()
+	if states := m.view.activeStates(); len(states) > 0 {
+		m.clearStates()
 		return m, nil
 	}
 	return m, tea.Quit
-}
-
-// clearTabStates drops the current tab's states from the state filter (other
-// tabs keep theirs), keeping the item under the cursor selected.
-func (m *model) clearTabStates() {
-	sel := m.tree.selected()
-	next := map[todo.Status]bool{}
-	for st := range m.tree.states {
-		if st.Column() != m.tree.column {
-			next[st] = true
-		}
-	}
-	m.tree.setStates(next)
-	if sel != nil && !m.tree.onPlaceholder() {
-		m.tree.revealItem(sel)
-	}
 }
 
 // updateStatePick handles keys in the "t" dialog: the arrows move between
@@ -342,12 +332,8 @@ func (m model) updateStateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 	case "enter":
 		m.mode = modeMain
-		m.clearTabStates()
-		next := m.tree.states
-		for st := range m.pick.checked {
-			next[st] = true
-		}
-		m.tree.setStates(next)
+		m.clearStates()
+		m.setStates(m.pick.checked)
 	}
 	return m, nil
 }
@@ -547,7 +533,7 @@ func (m model) openSearch() (tea.Model, tea.Cmd) {
 	ti.Prompt = ""
 	ti.CharLimit = 100
 	ti.Width = m.searchWidth()
-	ti.SetValue(m.tree.filter)
+	ti.SetValue(m.view.filter)
 	ti.CursorEnd()
 	m.search = ti
 	m.searching = true
@@ -582,7 +568,7 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.search, cmd = m.search.Update(msg)
-	m.tree.setFilter(m.search.Value())
+	m.setFilter(m.search.Value())
 	return m, cmd
 }
 
@@ -593,7 +579,7 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *model) clearFilter() {
 	m.searching = false
 	sel := m.tree.selected()
-	m.tree.setFilter("")
+	m.setFilter("")
 	if sel != nil {
 		m.tree.revealItem(sel)
 	}
@@ -941,7 +927,7 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 			// Outside Backlog a tab shows only categories holding its tasks, and c
 			// is refused there, so point at a tab that shows the category instead.
 			m.status = "Add a category first (press c) — tasks live under a category."
-			if m.tree.column != todo.ColBacklog {
+			if !m.view.editsCategories() {
 				m.status = "add tasks from a tab that shows their category (Backlog shows all)"
 			}
 			return m, nil
@@ -963,7 +949,7 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 		m.form = newForm(sel.Title, sel.Description, sel.Plan, sel.IsTask(), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
-		if m.tree.column != todo.ColBacklog {
+		if !m.view.editsCategories() {
 			m.status = msgCategoriesInBacklog
 			return m, nil
 		}
@@ -1073,7 +1059,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	// A new task enters the current tab in its column's first state, so it shows
 	// where it was added; a new subtask starts open (subtasks are open or done).
 	if added.Kind == todo.Task && !added.IsSubtask() {
-		added.Status = m.tree.column.FirstState()
+		added.Status = m.view.newTaskState()
 	}
 
 	parentID, afterID := m.doc.Placement(added)
@@ -1208,7 +1194,7 @@ func (m model) header(width int) string {
 		gap = 1
 	}
 	title := ansi.Truncate(" "+left+strings.Repeat(" ", gap)+right, width, "")
-	return title + "\n" + tabBar(m.doc.ColumnCounts(), m.tree.column, width)
+	return title + "\n" + tabBar(m.doc.ColumnCounts(), m.view.column, width)
 }
 
 func (m model) footer(width int) string {
@@ -1229,14 +1215,14 @@ func (m model) footer(width int) string {
 			hint("↑↓", "Move"), hint("→", "Child"), hint("←", "Sibling"), hint("m/esc", "Drop"),
 		}
 		return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
-	case m.tree.filter != "" || len(m.tree.tabStates()) > 0:
+	case m.view.filter != "" || len(m.view.activeStates()) > 0:
 		// A search and/or state filter is applied but the bar is closed: show it,
 		// with how to edit/clear.
 		var info []string
-		if m.tree.filter != "" {
-			info = append(info, helpKeyStyle.Render("filter")+helpTextStyle.Render(": "+m.tree.filter), hint("/", "Edit"))
+		if m.view.filter != "" {
+			info = append(info, helpKeyStyle.Render("filter")+helpTextStyle.Render(": "+m.view.filter), hint("/", "Edit"))
 		}
-		if states := m.tree.tabStates(); len(states) > 0 {
+		if states := m.view.activeStates(); len(states) > 0 {
 			names := make([]string, len(states))
 			for i, st := range states {
 				names[i] = st.Label()

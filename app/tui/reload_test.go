@@ -321,7 +321,7 @@ func TestWriteErrorShowsAndReloads(t *testing.T) {
 		t.Errorf("footer should report the failed save, got %q", got)
 	}
 	// The in-memory toggle stays in view: a, now done, shows on the Done tab.
-	m.tree.setColumn(todo.ColDone)
+	m.setColumn(todo.ColDone)
 	if find(m.doc, "a") == nil || !hasRow(m, "a") {
 		t.Errorf("a failed reload must keep the current view")
 	}

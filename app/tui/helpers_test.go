@@ -31,7 +31,7 @@ func newTestModel(t *testing.T, src string) (model, string) {
 func newTestModelOn(t *testing.T, src string, c todo.Column) (model, string) {
 	t.Helper()
 	m, path := newTestModel(t, src)
-	m.tree.setColumn(c)
+	m.setColumn(c)
 	return m, path
 }
 
@@ -40,7 +40,7 @@ func newTestModelOn(t *testing.T, src string, c todo.Column) (model, string) {
 // that changed column (and so left the tab it was in).
 func showOn(t *testing.T, m model, c todo.Column, title string) model {
 	t.Helper()
-	m.tree.setColumn(c)
+	m.setColumn(c)
 	it := find(m.doc, title)
 	if it == nil || !m.tree.selectID(it.ID) {
 		t.Fatalf("%q is not shown on %s (rows %v)", title, c.Title(), rowTitles(m.tree))
@@ -151,4 +151,12 @@ func pickState(t *testing.T, m model, st todo.Status) model {
 	}
 	t.Fatalf("the state dialog doesn't offer %v", st)
 	return m
+}
+
+// setTreeFilter applies a search query to a bare tree (one built in a test
+// without a model), the way model.setFilter does.
+func setTreeFilter(tr *tree, q string) {
+	tr.vs.filter = q
+	tr.cursor = 0
+	tr.rebuild()
 }

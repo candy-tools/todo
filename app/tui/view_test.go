@@ -1,0 +1,24 @@
+package tui
+
+import (
+	"testing"
+
+	"github.com/candy-tools/todo/internal/todo"
+)
+
+func TestSetActiveStatesKeepsOtherColumns(t *testing.T) {
+	v := newViewState()
+	v.states[todo.Deferred] = true // a Backlog filter
+	v.column = todo.ColNext
+	v.setActiveStates(map[todo.Status]bool{todo.Ready: true})
+	if !v.states[todo.Deferred] || !v.states[todo.Ready] {
+		t.Fatalf("states = %v, want Deferred kept and Ready added", v.states)
+	}
+	if got := v.activeStates(); len(got) != 1 || got[0] != todo.Ready {
+		t.Errorf("activeStates = %v, want [ready]", got)
+	}
+	v.setActiveStates(nil)
+	if v.states[todo.Ready] || !v.states[todo.Deferred] {
+		t.Errorf("clearing Next must keep Backlog's filter, states = %v", v.states)
+	}
+}

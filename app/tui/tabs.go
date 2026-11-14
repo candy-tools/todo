@@ -8,24 +8,25 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// setColumn switches the tree to the board tab for column c. The current tab's
-// selection (by item ID) and folds are kept for when it is shown again; the new
-// tab gets back its own, or no folds and the top row the first time (and when
-// its remembered item is no longer shown there). The search filter carries over.
-func (t *tree) setColumn(c todo.Column) {
-	if c == t.column {
+// switchView moves the tree onto the view its viewState now describes, after
+// the model changed it away from from (another tab, say). The selection (by
+// item ID) is remembered under from for when that view is shown again; the new
+// view gets back its own folds and selection, or no folds and the top row the
+// first time (and when its remembered item is no longer shown there).
+func (t *tree) switchView(from viewKey) {
+	to := t.vs.key()
+	if to == from {
 		return
 	}
-	t.selByCol[t.column] = t.selectedID()
-	t.column = c
-	folds, ok := t.foldsByCol[c]
+	t.selByKey[from] = t.selectedID()
+	folds, ok := t.foldsByKey[to]
 	if !ok {
 		folds = map[uint]bool{}
-		t.foldsByCol[c] = folds
+		t.foldsByKey[to] = folds
 	}
 	t.collapsed = folds
 	t.rebuild()
-	if !t.selectID(t.selByCol[c]) {
+	if !t.selectID(t.selByKey[to]) {
 		t.selectTop()
 	}
 }
