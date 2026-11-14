@@ -98,6 +98,22 @@ Moving a task between columns:
 - `m` grabs a task to reorder it (see Keys); grab mode steps over tasks hidden in
   the tab, and moves a task at most one category per key press.
 
+## Views
+
+Two view toggles change how the board is laid out. They are independent, can
+be combined, and last for the session (todo always opens on the Backlog tab).
+
+**All states (`k`).** Hides the tabs and shows every task, whatever its state,
+in one tree; the tab bar becomes an `All states · N tasks` line. Press `k`
+again to get the board back, on the tab you were on. In this view:
+
+- categories can be added, renamed, moved and deleted, as in Backlog, since
+  every category is shown;
+- a new task starts `open`, as in Backlog;
+- `f` offers every state, and its selection is the view's own — the tabs' state
+  filters don't apply here and are untouched by it;
+- `tab`, `shift+tab` and `1`–`4` only remind you to press `k`.
+
 ## Scripting / for agents
 
 Every interactive action is also a non-interactive subcommand, so an agent (or a
@@ -184,6 +200,7 @@ kind, `1` other. Errors go to stderr.
 | `D` | Remove every completed task (keeping any with unfinished sub-tasks) — asks to confirm |
 | `/` | Search / filter the list (see below) |
 | `f` | Filter the tab by state: tick states with `space`, `enter` applies, `esc` clears the filter |
+| `k` | Show every state in one list (tabs hidden) / back to the board — see Views |
 | `?` | Show the shortcuts dialog (`↑`/`↓` scroll it on a short terminal; `?`, `esc`, `q` or `enter` closes it) |
 | `q` | Quit |
 | `esc` | Clear an active search, then the state filter, or quit when there is neither |

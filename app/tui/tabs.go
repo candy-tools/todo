@@ -86,3 +86,9 @@ func tabBar(counts map[todo.Column]int, active todo.Column, width int) string {
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "   "), width, "")
 }
+
+// allStatesBar renders the line that replaces the tab bar in the unified view,
+// e.g. "All states · 12 tasks", so the header keeps its height.
+func allStatesBar(total, width int) string {
+	return ansi.Truncate(" "+selectedRowStyle.Render(fmt.Sprintf("All states · %d tasks", total)), width, "")
+}

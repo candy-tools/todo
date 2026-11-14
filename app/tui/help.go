@@ -43,6 +43,9 @@ var helpSections = []helpSection{
 		{"d", "Delete the selected item"},
 		{"D", "Remove every completed task"},
 	}},
+	{"Views", []helpBinding{
+		{"k", "All states in one list / back to the board"},
+	}},
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},
 		{"q", "Quit"},

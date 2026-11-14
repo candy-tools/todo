@@ -228,8 +228,10 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.mode, m.helpOffset = modeHelp, 0
 	case "f":
-		m.pick = newFilterPicker(m.view.column, m.view.states)
+		m.pick = newFilterPicker("Filter "+m.view.title()+" by state", m.view.columns(), m.view.filterSet())
 		m.mode = modeStateFilter
+	case "k":
+		m.setUnified(!m.view.all)
 	case "up", "w":
 		m.focused().moveUp()
 	case "down", "s":
@@ -244,6 +246,10 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focused().expand()
 	default:
 		if c, ok := tabKey(msg.String(), m.view.column); ok {
+			if m.view.all {
+				m.status = "press k to show the board"
+				return m, nil
+			}
 			m.setColumn(c)
 			return m, nil
 		}
@@ -1194,7 +1200,15 @@ func (m model) header(width int) string {
 		gap = 1
 	}
 	title := ansi.Truncate(" "+left+strings.Repeat(" ", gap)+right, width, "")
-	return title + "\n" + tabBar(m.doc.ColumnCounts(), m.view.column, width)
+	counts := m.doc.ColumnCounts()
+	if m.view.all {
+		total := 0
+		for _, n := range counts {
+			total += n
+		}
+		return title + "\n" + allStatesBar(total, width)
+	}
+	return title + "\n" + tabBar(counts, m.view.column, width)
 }
 
 func (m model) footer(width int) string {

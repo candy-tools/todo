@@ -56,16 +56,23 @@ func (p *picker) focus(st todo.Status) {
 	}
 }
 
-// newFilterPicker builds the "f" dialog for column c: the column's states, with
-// those already in the state filter ticked.
-func newFilterPicker(c todo.Column, current map[todo.Status]bool) picker {
-	p := picker{title: "Filter " + c.Title() + " by state", multi: true, checked: map[todo.Status]bool{}}
-	for _, st := range c.States() {
-		p.rows = append(p.rows, pickRow{state: st})
-		if current[st] {
-			p.checked[st] = true
+// newFilterPicker builds the "f" dialog titled title over the states of cols,
+// with those in current ticked: one column lists its states, several group
+// them under column headings (the unified view).
+func newFilterPicker(title string, cols []todo.Column, current map[todo.Status]bool) picker {
+	p := picker{title: title, multi: true, checked: map[todo.Status]bool{}}
+	for _, c := range cols {
+		if len(cols) > 1 {
+			p.rows = append(p.rows, pickRow{header: c.Title()})
+		}
+		for _, st := range c.States() {
+			p.rows = append(p.rows, pickRow{state: st})
+			if current[st] {
+				p.checked[st] = true
+			}
 		}
 	}
+	p.cursor = p.firstState()
 	return p
 }
 
