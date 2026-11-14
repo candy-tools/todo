@@ -198,3 +198,25 @@ func TestSplitEmptyDocument(t *testing.T) {
 		t.Errorf("n in an empty list: mode %v footer %q", m.mode, m.footer(200))
 	}
 }
+
+func TestSplitFilteredStateChangeNamesColumn(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] o\n- [ ] r\n")
+	m = setStatusExternally(t, m, path, "r", todo.Ready)
+	m.status = ""
+	m.setColumn(todo.ColNext)
+	m = filterTick(t, m, todo.Ready)
+	m = press(m, "v", "x")
+	m = selectTitle(t, m, "r")
+	m = pickState(t, m, todo.New) // still in Next, but the filter hides it now
+	if got := m.footer(200); !strings.Contains(got, "moved to Next — new") {
+		t.Errorf("footer = %q, want the state change, not a category move", got)
+	}
+}
+
+func TestSplitEnterOnAllAddsCategory(t *testing.T) {
+	m, _ := newTestModel(t, actionsDoc)
+	m = press(m, "v", "enter")
+	if m.mode != modeForm || m.target != targetAddCategory {
+		t.Errorf("enter on All should open the add-category form, mode %v target %v", m.mode, m.target)
+	}
+}

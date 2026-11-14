@@ -381,6 +381,9 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "enter":
+		if m.focused().onAll() {
+			return m.openForm(targetAddCategory) // the sidebar's All: a top-level category
+		}
 		return m.openForm(targetEdit)
 	case " ":
 		// Space folds a category. A task's state is set only through the t dialog.
@@ -936,8 +939,9 @@ func (m *model) noteLeftTab(id uint) bool {
 			task = it.Parent
 		}
 		// In the split view's task list a task can leave by moving to a
-		// category outside the one picked in the sidebar: name that category.
-		if m.focused().pane == paneTasks && slices.Contains(m.view.columns(), task.Status.Column()) {
+		// category outside the one picked in the sidebar — still in view, just
+		// out of scope: name that category.
+		if t := m.focused(); t.pane == paneTasks && t.visibleItems()[it] {
 			if c := task.EnclosingCategory(); c != nil {
 				m.status = "moved to " + c.Title
 				return true
