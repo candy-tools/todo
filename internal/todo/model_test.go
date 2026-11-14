@@ -262,3 +262,31 @@ func titles(items []*todo.Item) []string {
 	}
 	return out
 }
+
+func TestPlacement(t *testing.T) {
+	doc := todo.Parse("# A\n\n- [ ] t1\n- [ ] t2\n\n## B\n")
+	a := doc.Roots[0]
+	t1, t2, b := a.Children[0], a.Children[1], a.Children[2]
+	a.ID, t1.ID, t2.ID, b.ID = 1, 2, 3, 4
+	if p, af := doc.Placement(t1); p != 1 || af != 0 {
+		t.Errorf("t1: %d,%d", p, af)
+	}
+	if p, af := doc.Placement(t2); p != 1 || af != 2 {
+		t.Errorf("t2: %d,%d", p, af)
+	}
+	if p, af := doc.Placement(b); p != 1 || af != 3 {
+		t.Errorf("b: %d,%d", p, af)
+	}
+	if p, af := doc.Placement(a); p != 0 || af != 0 {
+		t.Errorf("a: %d,%d", p, af)
+	}
+}
+
+func TestDoneSubtrees(t *testing.T) {
+	doc := todo.Parse("# A\n\n- [x] done\n  - [x] d1\n- [x] mixed\n  - [ ] open\n  - [x] inner\n")
+	got := doc.DoneSubtrees()
+	// "done" (whole subtree) and "inner" (inside the kept "mixed"); never "d1" separately.
+	if len(got) != 2 || got[0].Title != "done" || got[1].Title != "inner" {
+		t.Fatalf("got %v", titles(got))
+	}
+}

@@ -26,6 +26,20 @@ func (d *Document) ByNumber(n int) (*Item, bool) {
 	return items[n-1], true
 }
 
+// ByID returns the item whose database ID equals id, or ok=false when none
+// matches. ID 0 means "not persisted", so it never matches.
+func (d *Document) ByID(id uint) (*Item, bool) {
+	if id == 0 {
+		return nil, false
+	}
+	for _, it := range d.Enumerate() {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return nil, false
+}
+
 // ByLine returns the item whose source line (Item.Line) equals line, or
 // ok=false when no item begins on that line.
 func (d *Document) ByLine(line int) (*Item, bool) {

@@ -71,6 +71,7 @@ func StatusFromName(name string) (Status, bool) {
 // sub-categories and tasks; tasks nest by list indentation and hold sub-tasks.
 // Only tasks use Status and Description; only categories use Level.
 type Item struct {
+	ID          uint // database node ID; 0 until the item is persisted
 	Kind        Kind
 	Title       string
 	Level       int    // Category only: header level 1..6
@@ -283,21 +284,47 @@ func fullyDone(it *Item) bool {
 	return done == total
 }
 
-// RemovableDone reports how many tasks RemoveDone would delete — every task
-// whose whole subtree is done. It does not modify the document, so callers can
-// size a confirmation prompt before committing to the removal.
-func (d *Document) RemovableDone() int {
-	n := 0
+// Placement returns where it sits in the tree as database IDs: parentID is the
+// parent's ID (0 for a root) and afterID is the ID of the sibling immediately
+// before it (0 when it is the first among its peers).
+func (d *Document) Placement(it *Item) (parentID, afterID uint) {
+	if it.Parent != nil {
+		parentID = it.Parent.ID
+	}
+	if list, idx, ok := d.siblings(it); ok && idx > 0 {
+		afterID = list[idx-1].ID
+	}
+	return parentID, afterID
+}
+
+// DoneSubtrees returns the outermost fully-done tasks (see fullyDone) in
+// pre-order. It does not descend into a returned item, but does descend into
+// every other item, so done tasks nested under a kept task are still found.
+func (d *Document) DoneSubtrees() []*Item {
+	var out []*Item
 	var walk func(items []*Item)
 	walk = func(items []*Item) {
 		for _, it := range items {
 			if fullyDone(it) {
-				n++
+				out = append(out, it)
+				continue
 			}
 			walk(it.Children)
 		}
 	}
 	walk(d.Roots)
+	return out
+}
+
+// RemovableDone reports how many tasks RemoveDone would delete — every task
+// whose whole subtree is done. It does not modify the document, so callers can
+// size a confirmation prompt before committing to the removal.
+func (d *Document) RemovableDone() int {
+	n := 0
+	for _, it := range d.DoneSubtrees() {
+		_, total := it.TaskCounts()
+		n += 1 + total
+	}
 	return n
 }
 
@@ -309,20 +336,10 @@ func (d *Document) RemovableDone() int {
 // while never discarding unfinished work.
 func (d *Document) RemoveDone() int {
 	removed := 0
-	var prune func(items []*Item) []*Item
-	prune = func(items []*Item) []*Item {
-		kept := items[:0]
-		for _, it := range items {
-			if fullyDone(it) {
-				_, total := it.TaskCounts()
-				removed += 1 + total // this task plus its (all-done) sub-tasks
-				continue             // drop the whole subtree
-			}
-			it.Children = prune(it.Children)
-			kept = append(kept, it)
-		}
-		return kept
+	for _, it := range d.DoneSubtrees() {
+		_, total := it.TaskCounts()
+		removed += 1 + total // this task plus its (all-done) sub-tasks
+		d.Remove(it)         // drops the whole subtree
 	}
-	d.Roots = prune(d.Roots)
 	return removed
 }
