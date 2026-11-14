@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 // buildTree returns a small task tree: parent → [c1 → [g1], c2], all not done.
@@ -221,7 +222,7 @@ func TestRemove(t *testing.T) {
 	}
 }
 
-func TestRemoveDone(t *testing.T) {
+func TestRemovableDoneCountsDoneLeaves(t *testing.T) {
 	d := &todo.Document{}
 	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
 	d.AppendRoot(cat)
@@ -229,15 +230,12 @@ func TestRemoveDone(t *testing.T) {
 	cat.AppendChild(todo.NewTask("b", "", false)) // open
 	cat.AppendChild(todo.NewTask("c", "", true))  // done
 
-	if n := d.RemoveDone(); n != 2 {
-		t.Fatalf("RemoveDone removed %d, want 2", n)
-	}
-	if got := titles(cat.Children); len(got) != 1 || got[0] != "b" {
-		t.Errorf("only the open task should remain, got %v", got)
+	if n := d.RemovableDone(); n != 2 {
+		t.Fatalf("RemovableDone = %d, want 2", n)
 	}
 }
 
-func TestRemoveDoneKeepsUnfinishedSubtree(t *testing.T) {
+func TestRemovableDoneKeepsUnfinishedSubtree(t *testing.T) {
 	d := &todo.Document{}
 	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
 	d.AppendRoot(cat)
@@ -248,23 +246,19 @@ func TestRemoveDoneKeepsUnfinishedSubtree(t *testing.T) {
 	// p2 is done but still holds an unfinished child -> it must be kept, so no
 	// unfinished work is discarded.
 	p2 := todo.NewTask("p2", "", true)
-	p2c := todo.NewTask("p2c", "", false)
-	p2.AppendChild(p2c)
+	p2.AppendChild(todo.NewTask("p2c", "", false))
 	cat.AppendChild(p1)
 	cat.AppendChild(p2)
 
-	if n := d.RemoveDone(); n != 2 {
-		t.Fatalf("RemoveDone removed %d, want 2 (only p1's subtree)", n)
+	if n := d.RemovableDone(); n != 2 {
+		t.Fatalf("RemovableDone = %d, want 2 (only p1's subtree)", n)
 	}
-	if got := titles(cat.Children); len(got) != 1 || got[0] != "p2" {
-		t.Fatalf("cat should keep only p2, got %v", got)
-	}
-	if len(p2.Children) != 1 || p2.Children[0] != p2c {
-		t.Errorf("p2 must still hold its unfinished child p2c")
+	if got := titles(d.DoneSubtrees()); len(got) != 1 || got[0] != "p1" {
+		t.Fatalf("only p1 should be removable, got %v", got)
 	}
 }
 
-func TestRemovableDoneMatchesRemoved(t *testing.T) {
+func TestRemovableDoneCountsNestedSubtree(t *testing.T) {
 	d := &todo.Document{}
 	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
 	d.AppendRoot(cat)
@@ -274,12 +268,8 @@ func TestRemovableDoneMatchesRemoved(t *testing.T) {
 	cat.AppendChild(p)
 	cat.AppendChild(todo.NewTask("y", "", false)) // open
 
-	want := d.RemovableDone()
-	if want != 3 {
-		t.Fatalf("RemovableDone = %d, want 3 (x, p, pc)", want)
-	}
-	if got := d.RemoveDone(); got != want {
-		t.Errorf("RemoveDone removed %d, RemovableDone predicted %d", got, want)
+	if got := d.RemovableDone(); got != 3 {
+		t.Fatalf("RemovableDone = %d, want 3 (x, p, pc)", got)
 	}
 }
 
@@ -292,7 +282,7 @@ func titles(items []*todo.Item) []string {
 }
 
 func TestPlacement(t *testing.T) {
-	doc := todo.Parse("# A\n\n- [ ] t1\n- [ ] t2\n\n## B\n")
+	doc := todotest.Parse(t, "# A\n\n- [ ] t1\n- [ ] t2\n\n## B\n")
 	a := doc.Roots[0]
 	t1, t2, b := a.Children[0], a.Children[1], a.Children[2]
 	a.ID, t1.ID, t2.ID, b.ID = 1, 2, 3, 4
@@ -311,7 +301,7 @@ func TestPlacement(t *testing.T) {
 }
 
 func TestDoneSubtrees(t *testing.T) {
-	doc := todo.Parse("# A\n\n- [x] done\n  - [x] d1\n- [x] mixed\n  - [ ] open\n  - [x] inner\n")
+	doc := todotest.Parse(t, "# A\n\n- [x] done\n  - [x] d1\n- [x] mixed\n  - [ ] open\n  - [x] inner\n")
 	got := doc.DoneSubtrees()
 	// "done" (whole subtree) and "inner" (inside the kept "mixed"); never "d1" separately.
 	if len(got) != 2 || got[0].Title != "done" || got[1].Title != "inner" {

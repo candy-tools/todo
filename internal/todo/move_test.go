@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 // find returns the first item in the document whose title matches, or nil.
@@ -24,7 +25,7 @@ func find(d *todo.Document, title string) *todo.Item {
 }
 
 func TestMoveDownSwapsWithNextSibling(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n- [ ] b\n- [ ] c\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n- [ ] c\n")
 	a := find(d, "a")
 	if !d.MoveDown(a) {
 		t.Fatal("MoveDown should report it moved")
@@ -35,7 +36,7 @@ func TestMoveDownSwapsWithNextSibling(t *testing.T) {
 }
 
 func TestMoveUpSwapsWithPrevSibling(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n- [ ] b\n- [ ] c\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n- [ ] c\n")
 	c := find(d, "c")
 	if !d.MoveUp(c) {
 		t.Fatal("MoveUp should report it moved")
@@ -46,7 +47,7 @@ func TestMoveUpSwapsWithPrevSibling(t *testing.T) {
 }
 
 func TestMoveUpClampsAtStart(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	if d.MoveUp(find(d, "a")) {
 		t.Error("MoveUp on the first sibling should be a no-op")
 	}
@@ -56,7 +57,7 @@ func TestMoveUpClampsAtStart(t *testing.T) {
 }
 
 func TestMoveDownClampsAtEnd(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	if d.MoveDown(find(d, "b")) {
 		t.Error("MoveDown on the last sibling should be a no-op")
 	}
@@ -66,7 +67,7 @@ func TestMoveDownTaskDescendsIntoSubcategory(t *testing.T) {
 	// A task that is the last one in its category flows down into that category's
 	// first subcategory, landing as the subcategory's first task (it can't sit
 	// after a subheader, so "down" carries it in).
-	d := todo.Parse("# Work\n\n- [ ] a\n- [ ] b\n\n## Sub\n\n- [ ] w1\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n\n## Sub\n\n- [ ] w1\n")
 	b := find(d, "b")
 	if !d.MoveDown(b) {
 		t.Fatal("MoveDown should carry the last task into the subcategory")
@@ -86,7 +87,7 @@ func TestMoveDownTaskDescendsIntoSubcategory(t *testing.T) {
 func TestMoveDownTaskBubblesToNextCategory(t *testing.T) {
 	// With no subcategory to descend into, the last task of a category crosses to
 	// become the first task of the next category in document order.
-	d := todo.Parse("# Work\n\n- [ ] b\n\n# Personal\n\n- [ ] p1\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] b\n\n# Personal\n\n- [ ] p1\n")
 	b := find(d, "b")
 	if !d.MoveDown(b) {
 		t.Fatal("MoveDown should carry the task across to the next category")
@@ -105,7 +106,7 @@ func TestMoveDownTaskBubblesToNextCategory(t *testing.T) {
 func TestMoveUpTaskAscendsToPreviousCategory(t *testing.T) {
 	// The first task of a category crosses up to become the last task of the
 	// previous category.
-	d := todo.Parse("# Work\n\n- [ ] a\n\n# Personal\n\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n\n# Personal\n\n- [ ] b\n")
 	b := find(d, "b")
 	if !d.MoveUp(b) {
 		t.Fatal("MoveUp should carry the first task back to the previous category")
@@ -121,7 +122,7 @@ func TestMoveUpTaskAscendsToPreviousCategory(t *testing.T) {
 func TestMoveUpTaskAscendsIntoParentCategory(t *testing.T) {
 	// The first task of a subcategory crosses up into its parent category, as that
 	// category's last task (before its subcategories).
-	d := todo.Parse("# Work\n\n- [ ] a\n\n## Sub\n\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n\n## Sub\n\n- [ ] b\n")
 	b := find(d, "b")
 	if !d.MoveUp(b) {
 		t.Fatal("MoveUp should lift the first subcategory task into the parent")
@@ -138,7 +139,7 @@ func TestMoveUpTaskDescendsIntoPreviousCategorysSubtree(t *testing.T) {
 	// Crossing up into a previous category that has its own subcategory lands the
 	// task at the end of that subtree (the visible row just above), not at a
 	// shallow spot — so up moves one line at a time.
-	d := todo.Parse("# Work\n\n## Sub\n\n- [ ] w1\n\n# Personal\n\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n## Sub\n\n- [ ] w1\n\n# Personal\n\n- [ ] b\n")
 	b := find(d, "b")
 	if !d.MoveUp(b) {
 		t.Fatal("MoveUp should carry the task into the previous category's subtree")
@@ -158,7 +159,7 @@ func TestMoveUpTaskDescendsIntoPreviousCategorysSubtree(t *testing.T) {
 func TestMoveTaskAcrossBoundaryIsReversible(t *testing.T) {
 	// "Natural" up/down: a ↑ across a boundary is undone by a ↓ — the task returns
 	// to where it started, even out of a nested previous category.
-	d := todo.Parse("# Work\n\n## Sub\n\n- [ ] w1\n\n# Personal\n\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n## Sub\n\n- [ ] w1\n\n# Personal\n\n- [ ] b\n")
 	b := find(d, "b")
 	if !d.MoveUp(b) || b.Parent.Title != "Sub" { // up: into the end of Work's subtree
 		t.Fatalf("MoveUp should land b in Sub, parent=%v", b.Parent)
@@ -174,7 +175,7 @@ func TestMoveTaskAcrossBoundaryIsReversible(t *testing.T) {
 func TestMoveSubtaskDoesNotCrossCategories(t *testing.T) {
 	// Sub-task nesting is changed with indent/outdent, not up/down: a lone subtask
 	// neither bubbles out nor crosses categories on up/down.
-	d := todo.Parse("# Work\n\n- [ ] p\n  - [ ] c1\n\n# Personal\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] p\n  - [ ] c1\n\n# Personal\n")
 	c1 := find(d, "c1")
 	if d.MoveDown(c1) {
 		t.Error("a subtask should not cross categories on MoveDown")
@@ -188,19 +189,19 @@ func TestMoveSubtaskDoesNotCrossCategories(t *testing.T) {
 }
 
 func TestMoveTaskAcrossCategoriesRoundTrips(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] b\n\n## Sub\n\n- [ ] w1\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] b\n\n## Sub\n\n- [ ] w1\n")
 	d.MoveDown(find(d, "b")) // b descends into Sub
-	re := todo.Parse(d.Render())
+	re := todotest.Parse(t, todotest.Render(d))
 	b := find(re, "b")
 	if b == nil || b.Parent == nil || b.Parent.Title != "Sub" {
-		t.Errorf("after round-trip b should nest under Sub:\n%s", d.Render())
+		t.Errorf("after round-trip b should nest under Sub:\n%s", todotest.Render(d))
 	}
 }
 
 func TestMoveDownSubcategoryDescendsIntoNextCategory(t *testing.T) {
 	// The last subcategory of a category crosses to become the first subcategory of
 	// the next category, re-levelled to sit one below its new parent.
-	d := todo.Parse("# Work\n\n## Sub\n\n- [ ] x\n\n# Personal\n")
+	d := todotest.Parse(t, "# Work\n\n## Sub\n\n- [ ] x\n\n# Personal\n")
 	sub := find(d, "Sub")
 	if !d.MoveDown(sub) {
 		t.Fatal("MoveDown should carry the subcategory across to the next category")
@@ -218,7 +219,7 @@ func TestMoveDownSubcategoryDescendsIntoNextCategory(t *testing.T) {
 }
 
 func TestMoveUpSubcategoryAscendsIntoPreviousCategory(t *testing.T) {
-	d := todo.Parse("# Work\n\n# Personal\n\n## Sub\n\n- [ ] x\n")
+	d := todotest.Parse(t, "# Work\n\n# Personal\n\n## Sub\n\n- [ ] x\n")
 	sub := find(d, "Sub")
 	if !d.MoveUp(sub) {
 		t.Fatal("MoveUp should carry the subcategory back into the previous category")
@@ -235,7 +236,7 @@ func TestMoveUpSubcategoryAscendsIntoPreviousCategory(t *testing.T) {
 func TestMoveCategoryAcrossRelevelsSubtreeAndRoundTrips(t *testing.T) {
 	// Crossing a subcategory that has its own subcategory re-levels the whole
 	// subtree and still round-trips.
-	d := todo.Parse("# Work\n\n## Sub\n\n### Deep\n\n# Personal\n")
+	d := todotest.Parse(t, "# Work\n\n## Sub\n\n### Deep\n\n# Personal\n")
 	sub, deep := find(d, "Sub"), find(d, "Deep")
 	if !d.MoveDown(sub) {
 		t.Fatal("MoveDown(Sub) should cross into Personal")
@@ -243,18 +244,18 @@ func TestMoveCategoryAcrossRelevelsSubtreeAndRoundTrips(t *testing.T) {
 	if sub.Level != 2 || deep.Level != 3 {
 		t.Errorf("levels after cross: Sub=%d Deep=%d, want 2 and 3", sub.Level, deep.Level)
 	}
-	re := todo.Parse(d.Render())
+	re := todotest.Parse(t, todotest.Render(d))
 	rs, rd := find(re, "Sub"), find(re, "Deep")
 	if rs == nil || rs.Parent == nil || rs.Parent.Title != "Personal" {
-		t.Errorf("after round-trip Sub should nest under Personal:\n%s", d.Render())
+		t.Errorf("after round-trip Sub should nest under Personal:\n%s", todotest.Render(d))
 	}
 	if rd == nil || rd.Parent == nil || rd.Parent.Title != "Sub" {
-		t.Errorf("after round-trip Deep should nest under Sub:\n%s", d.Render())
+		t.Errorf("after round-trip Deep should nest under Sub:\n%s", todotest.Render(d))
 	}
 }
 
 func TestMoveRootCategoriesReorder(t *testing.T) {
-	d := todo.Parse("# A\n\n# B\n")
+	d := todotest.Parse(t, "# A\n\n# B\n")
 	if !d.MoveDown(find(d, "A")) {
 		t.Fatal("root categories should reorder")
 	}
@@ -264,7 +265,7 @@ func TestMoveRootCategoriesReorder(t *testing.T) {
 }
 
 func TestIndentMakesTaskSubtaskOfPrevious(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	a, b := find(d, "a"), find(d, "b")
 	if !d.Indent(b) {
 		t.Fatal("Indent should report it moved")
@@ -281,7 +282,7 @@ func TestIndentMakesTaskSubtaskOfPrevious(t *testing.T) {
 }
 
 func TestIndentFirstItemIsNoOp(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	if d.Indent(find(d, "a")) {
 		t.Error("Indent on the first sibling (no predecessor) should be a no-op")
 	}
@@ -290,7 +291,7 @@ func TestIndentFirstItemIsNoOp(t *testing.T) {
 func TestIndentAcrossKindBlocked(t *testing.T) {
 	// A subcategory whose predecessor is a task can't indent (a category may only
 	// nest under a category).
-	d := todo.Parse("# Work\n\n- [ ] task\n\n## Sub\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] task\n\n## Sub\n")
 	if d.Indent(find(d, "Sub")) {
 		t.Error("a category should not indent under a preceding task")
 	}
@@ -299,7 +300,7 @@ func TestIndentAcrossKindBlocked(t *testing.T) {
 func TestIndentCategoryBecomesSubcategoryAndRelevels(t *testing.T) {
 	// A(1), B(1) where B already has a subcategory C(2). Indenting B under A makes
 	// B a level-2 subcategory, and C must follow to level 3.
-	d := todo.Parse("# A\n\n# B\n\n## C\n")
+	d := todotest.Parse(t, "# A\n\n# B\n\n## C\n")
 	a, b, c := find(d, "A"), find(d, "B"), find(d, "C")
 	if !d.Indent(b) {
 		t.Fatal("Indent(B) should move it under A")
@@ -315,22 +316,22 @@ func TestIndentCategoryBecomesSubcategoryAndRelevels(t *testing.T) {
 func TestIndentCategoryRoundTrips(t *testing.T) {
 	// After indenting a category, the re-levelled tree must serialise and reparse
 	// to the same nesting (the parser nests a header only under a shallower one).
-	d := todo.Parse("# A\n\n# B\n\n## C\n")
+	d := todotest.Parse(t, "# A\n\n# B\n\n## C\n")
 	d.Indent(find(d, "B"))
-	re := todo.Parse(d.Render())
+	re := todotest.Parse(t, todotest.Render(d))
 	b, c := find(re, "B"), find(re, "C")
 	if b == nil || b.Parent == nil || b.Parent.Title != "A" {
-		t.Errorf("after round-trip B should nest under A:\n%s", d.Render())
+		t.Errorf("after round-trip B should nest under A:\n%s", todotest.Render(d))
 	}
 	if c == nil || c.Parent == nil || c.Parent.Title != "B" {
-		t.Errorf("after round-trip C should nest under B:\n%s", d.Render())
+		t.Errorf("after round-trip C should nest under B:\n%s", todotest.Render(d))
 	}
 }
 
 func TestOutdentSubtaskBecomesSiblingOfParentAfterIt(t *testing.T) {
 	// Work > p > [c1, c2]. Outdenting c1 lifts it to be p's sibling, inserted
 	// right after p; c2 stays under p.
-	d := todo.Parse("# Work\n\n- [ ] p\n  - [ ] c1\n  - [ ] c2\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] p\n  - [ ] c1\n  - [ ] c2\n")
 	work, p, c1 := find(d, "Work"), find(d, "p"), find(d, "c1")
 	if !d.Outdent(c1) {
 		t.Fatal("Outdent(c1) should report it moved")
@@ -349,7 +350,7 @@ func TestOutdentSubtaskBecomesSiblingOfParentAfterIt(t *testing.T) {
 func TestOutdentTopLevelTaskBlocked(t *testing.T) {
 	// A task directly under a category can't outdent — it would become a root task
 	// (there are none) or land after a subcategory.
-	d := todo.Parse("# Work\n\n- [ ] a\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n")
 	if d.Outdent(find(d, "a")) {
 		t.Error("a top-level task should not outdent out of its category")
 	}
@@ -359,7 +360,7 @@ func TestOutdentTopLevelTaskBlocked(t *testing.T) {
 }
 
 func TestOutdentRootCategoryBlocked(t *testing.T) {
-	d := todo.Parse("# A\n")
+	d := todotest.Parse(t, "# A\n")
 	if d.Outdent(find(d, "A")) {
 		t.Error("a root category has no parent to outdent past")
 	}
@@ -368,7 +369,7 @@ func TestOutdentRootCategoryBlocked(t *testing.T) {
 func TestOutdentSubcategoryRelevels(t *testing.T) {
 	// A(1) > B(2) > C(3). Outdenting B lifts it to a root sibling of A at level 1,
 	// and C follows down to level 2.
-	d := todo.Parse("# A\n\n## B\n\n### C\n")
+	d := todotest.Parse(t, "# A\n\n## B\n\n### C\n")
 	b, c := find(d, "B"), find(d, "C")
 	if !d.Outdent(b) {
 		t.Fatal("Outdent(B) should move it to root")
@@ -385,14 +386,14 @@ func TestOutdentSubcategoryRelevels(t *testing.T) {
 }
 
 func TestOutdentCategoryRoundTrips(t *testing.T) {
-	d := todo.Parse("# A\n\n## B\n\n### C\n")
+	d := todotest.Parse(t, "# A\n\n## B\n\n### C\n")
 	d.Outdent(find(d, "B"))
-	re := todo.Parse(d.Render())
+	re := todotest.Parse(t, todotest.Render(d))
 	b, c := find(re, "B"), find(re, "C")
 	if b == nil || b.Parent != nil {
-		t.Errorf("after round-trip B should be a root:\n%s", d.Render())
+		t.Errorf("after round-trip B should be a root:\n%s", todotest.Render(d))
 	}
 	if c == nil || c.Parent == nil || c.Parent.Title != "B" {
-		t.Errorf("after round-trip C should still nest under B:\n%s", d.Render())
+		t.Errorf("after round-trip C should still nest under B:\n%s", todotest.Render(d))
 	}
 }

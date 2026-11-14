@@ -35,7 +35,6 @@ func ImportMarkdown(src []byte) (*Document, ImportReport, error) {
 		return nil, ImportReport{}, errors.New("markdown is not valid UTF-8")
 	}
 	doc, warnings := parseMarkdown(string(src))
-	doc.Preamble = ""
 
 	var loose, roots []*Item
 	for _, it := range doc.Roots {

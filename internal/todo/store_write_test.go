@@ -94,6 +94,12 @@ func TestAddKeepsOrder(t *testing.T) {
 			t.Fatalf("%s.Parent = %v, want A", c.Title, c.Parent)
 		}
 	}
+}
+
+func TestAddStoresItemFields(t *testing.T) {
+	s := newStore(t)
+	ids := addSample(t, s)
+	a := load(t, s).Roots[0]
 	t1, t2, b := a.Children[0], a.Children[1], a.Children[2]
 	if t1.ID != ids.t1 || t1.Kind != Task || t1.Status != Open || t1.Description != "d1" || t1.Level != 0 {
 		t.Fatalf("t1 = %+v; want open task with description d1", t1)

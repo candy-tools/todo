@@ -4,11 +4,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 func TestItemPath(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n  - [ ] a1\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n  - [ ] a1\n")
 	a1 := d.Roots[0].Children[0].Children[0]
 	got := a1.Path()
 	want := []string{"Work", "a", "a1"}
@@ -18,7 +18,7 @@ func TestItemPath(t *testing.T) {
 }
 
 func TestFindByPathRoundTrip(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n  - [ ] a1\n\n# Personal\n\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n  - [ ] a1\n\n# Personal\n\n- [ ] b\n")
 	a1 := d.Roots[0].Children[0].Children[0]
 	if got := d.FindByPath(a1.Path()); got != a1 {
 		t.Errorf("FindByPath(a1.Path()) should return a1")
@@ -30,7 +30,7 @@ func TestFindByPathRoundTrip(t *testing.T) {
 }
 
 func TestFindByPathUnknownIsNil(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n")
 	if got := d.FindByPath([]string{"Work", "nope"}); got != nil {
 		t.Errorf("an unknown path should return nil, got %v", got)
 	}

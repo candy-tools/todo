@@ -1,9 +1,9 @@
 # todo
 
-A minimalistic, keyboard-driven TODO manager for the terminal. It opens a plain
-markdown file as a task list — headers are categories, `- [ ]` items are tasks,
-and nested items are subtasks. Everything you do is written straight back to the
-file, so your todos stay readable, greppable, and git-friendly.
+A minimalistic, keyboard-driven TODO manager for the terminal. It opens a
+per-directory SQLite database (`.todo.db`) as a task list — categories hold
+tasks, and nested tasks are subtasks. Everything you do is saved straight away,
+and an existing `TODO.md` is imported automatically the first time you run it.
 
 Built with the [Charm](https://charm.sh) stack: [Bubble Tea](https://github.com/charmbracelet/bubbletea),
 [Bubbles](https://github.com/charmbracelet/bubbles), and [Lipgloss](https://github.com/charmbracelet/lipgloss),
@@ -52,8 +52,8 @@ Or grab a prebuilt `tar.gz` (`.zip` on Windows) for your OS/arch from the
 
 ## Documentation
 
-Usage — the task tree, every key, the search filter, live reload, and the
-markdown file format — is documented in
+Usage — the task tree, every key, the search filter, live reload, markdown
+import, and how the list is stored — is documented in
 **[DOCUMENTATION.md](DOCUMENTATION.md)**.
 
 ## Develop
@@ -73,9 +73,9 @@ make coverage     # enforce the per-package coverage threshold
 ### Run
 
 ```bash
-make run          # runs against example.md
+make run          # runs against .todo.db in the current directory
 # or plain go:
-go run . path/to/file.md
+go run . path/to/my.db
 ```
 
 ### Build

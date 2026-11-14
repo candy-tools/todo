@@ -173,7 +173,7 @@ func TestReloadDeferredDuringModal(t *testing.T) {
 
 func TestReloadIgnoresOwnRevision(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = send(m, storeReloadedMsg{doc: parseDoc("# Work\n\n- [ ] zzz\n"), rev: m.lastRev})
+	m = send(m, storeReloadedMsg{doc: parseDoc(t, "# Work\n\n- [ ] zzz\n"), rev: m.lastRev})
 	if find(m.doc, "zzz") != nil {
 		t.Errorf("a reload at the revision the model already has must be ignored")
 	}

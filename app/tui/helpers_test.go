@@ -42,8 +42,9 @@ func openSecond(t *testing.T, path string) *todo.Store {
 // parseDoc parses the markdown src and numbers its items 1, 2, … in document
 // order, standing in for the IDs a store load assigns, so trees built from it
 // can key folds by ID.
-func parseDoc(src string) *todo.Document {
-	d := todo.Parse(src)
+func parseDoc(t testing.TB, src string) *todo.Document {
+	t.Helper()
+	d := todotest.Parse(t, src)
 	for i, it := range d.Enumerate() {
 		it.ID = uint(i + 1)
 	}

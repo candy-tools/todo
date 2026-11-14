@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/app/metainfo"
-	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
@@ -259,7 +258,7 @@ func TestNewTaskInsertedBeforeSubcategory(t *testing.T) {
 	if s := find(m.doc, "shallow"); s == nil || s.Parent == nil || s.Parent.Title != "Work" {
 		t.Fatalf("shallow should be a task directly under Work")
 	}
-	reloaded := todo.Parse(todotest.Dump(t, path))
+	reloaded := todotest.Parse(t, todotest.Dump(t, path))
 	s := find(reloaded, "shallow")
 	if s == nil || s.Parent == nil || s.Parent.Title != "Work" {
 		t.Errorf("after reload shallow must still be under Work, not Backend:\n%s", todotest.Dump(t, path))

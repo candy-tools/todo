@@ -180,17 +180,9 @@ func (d *Document) Outdent(it *Item) bool {
 }
 
 // relevel sets cat's header Level and recurses into its sub-categories (each one
-// deeper), clamped to the 1..6 markdown header range. Tasks carry no Level and
-// are skipped. Keeping a category's Level below its sub-categories' is what lets
-// the markdown round-trip: the parser nests a header only under a shallower one,
-// so a sub-category must always outrank its parent.
+// deeper). Tasks carry no Level and are skipped. A category's Level is its depth
+// in the category tree, so a sub-category always outranks its parent.
 func relevel(cat *Item, level int) {
-	if level < 1 {
-		level = 1
-	}
-	if level > 6 {
-		level = 6
-	}
 	cat.Level = level
 	for _, c := range cat.Children {
 		if c.Kind == Category {

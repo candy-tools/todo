@@ -1,8 +1,7 @@
-// Package todo is the pure domain of the TODO app: the in-memory tree parsed
-// from a markdown file, the operations over it (toggle, cascade-complete, and
-// the snapshot/restore that powers accidental-complete undo), and the
-// markdown (de)serialization. It has no dependency on the TUI — everything
-// here is testable in isolation.
+// Package todo is the domain of the TODO app: the in-memory tree loaded from the
+// SQLite store, the operations over it (toggle, cascade-complete, and the
+// snapshot/restore that powers accidental-complete undo), the store itself, and
+// the one-time markdown import. It has no dependency on the TUI.
 package todo
 
 // Kind distinguishes a category (a markdown header) from a task (a checkbox
@@ -48,8 +47,20 @@ func (s Status) String() string {
 }
 
 // Marker returns the checkbox marker char for the status, e.g. "x" for Done. It
-// is markerFromStatus exposed for the CLI's list table; the two stay in sync.
-func (s Status) Marker() string { return markerFromStatus(s) }
+// is the inverse of statusFromMarker (see markdown.go) and is what the CLI's
+// list table shows; the two stay in sync.
+func (s Status) Marker() string {
+	switch s {
+	case Done:
+		return "x"
+	case InProgress:
+		return "/"
+	case Deferred:
+		return ">"
+	default: // Open
+		return " "
+	}
+}
 
 // StatusFromName parses a CLI status name into a Status; ok is false for an
 // unknown name.
@@ -75,19 +86,15 @@ type Item struct {
 	Kind        Kind
 	Title       string
 	Level       int    // Category only: header level 1..6
-	Line        int    // 1-based source line of the header/checkbox; 0 until parsed
 	Status      Status // Task only
 	Description string // Task only: free-form text shown in the details view
 	Children    []*Item
 	Parent      *Item // nil for a root item
 }
 
-// Document is a parsed TODO file: its root items plus any verbatim text that
-// appeared before the first header or task (preserved across a save so a title
-// or intro paragraph at the top of the file is never lost).
+// Document is the in-memory TODO tree: its root items.
 type Document struct {
-	Preamble string
-	Roots    []*Item
+	Roots []*Item
 }
 
 // IsTask reports whether the item is a task (rather than a category).
@@ -320,8 +327,9 @@ func (d *Document) DoneSubtrees() []*Item {
 	return out
 }
 
-// RemovableDone reports how many tasks RemoveDone would delete — every task
-// whose whole subtree is done. It does not modify the document, so callers can
+// RemovableDone reports how many tasks removing the completed ones would delete
+// — every task whose whole subtree is done (a done task that still holds an
+// unfinished sub-task is kept). It does not modify the document, so callers can
 // size a confirmation prompt before committing to the removal.
 func (d *Document) RemovableDone() int {
 	n := 0
@@ -330,20 +338,4 @@ func (d *Document) RemovableDone() int {
 		n += 1 + total
 	}
 	return n
-}
-
-// RemoveDone deletes every completed task from the document and returns how many
-// tasks were removed. A done task is dropped together with its subtree, but only
-// when that whole subtree is done: a done task that still holds an unfinished
-// sub-task is kept (the prune recurses into it, so done tasks nested deeper are
-// still removed). This mirrors single-item delete, which also removes a subtree,
-// while never discarding unfinished work.
-func (d *Document) RemoveDone() int {
-	removed := 0
-	for _, it := range d.DoneSubtrees() {
-		_, total := it.TaskCounts()
-		removed += 1 + total // this task plus its (all-done) sub-tasks
-		d.Remove(it)         // drops the whole subtree
-	}
-	return removed
 }

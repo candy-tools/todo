@@ -60,7 +60,7 @@ func TestMoveModeReorderPersists(t *testing.T) {
 	if m.tree.selected().ID != a {
 		t.Error("the cursor should follow the moved item")
 	}
-	reloaded := todo.Parse(todotest.Dump(t, path))
+	reloaded := todotest.Parse(t, todotest.Dump(t, path))
 	if got := titles(find(reloaded, "Work").Children); got[0] != "b" || got[1] != "a" {
 		t.Errorf("persisted order = %v, want [b a]", got)
 	}
@@ -161,7 +161,7 @@ func TestMoveModeCrossesCategoriesPersists(t *testing.T) {
 	if m.tree.selected().ID != b {
 		t.Error("the cursor should follow the item across categories")
 	}
-	reloaded := todo.Parse(todotest.Dump(t, path))
+	reloaded := todotest.Parse(t, todotest.Dump(t, path))
 	if got := titles(find(reloaded, "Personal").Children); len(got) != 2 || got[0] != "b" || got[1] != "p1" {
 		t.Errorf("persisted Personal children = %v, want [b p1]", got)
 	}

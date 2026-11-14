@@ -1,56 +1,66 @@
 # todo — documentation
 
 The full usage guide for [todo](README.md) — how the tree works, every key, the
-search filter, and the markdown file format. See the [README](README.md) for
+search filter, and how the list is stored. See the [README](README.md) for
 install and development instructions.
 
 ## Usage
 
 ```sh
-todo                 # opens TODO.md in the current directory
-todo path/to/file.md # opens a specific file
+todo                 # opens .todo.db in the current directory
+todo path/to/my.db   # opens a specific database
+todo import file.md  # imports a markdown file into the database
 ```
 
-With no argument it defaults to `TODO.md`. If the file doesn't exist yet it
-starts empty and is created on the first change.
+With no argument it defaults to `.todo.db`. If the database doesn't exist yet it
+is created empty.
+
+**First run with an existing `TODO.md`.** When `.todo.db` doesn't exist and a
+`TODO.md` is present in the current directory, todo imports it automatically,
+once, and prints a summary (plus a warning for anything it couldn't keep). The
+markdown file is left untouched and can be deleted afterwards; from then on the
+database is the source of truth.
+
+**Importing a markdown file.** `todo import file.md` reads a markdown file into
+the database (`-f/--file` picks a database other than `.todo.db`). It refuses to
+run when the database already has items; pass `--force` to replace them. The
+import understands headers as categories, `- [ ]` / `- [/]` / `- [>]` / `- [x]`
+checkbox lines as tasks (indentation nests subtasks) and indented text under a
+task as its description. Tasks outside any header are gathered under an
+`Uncategorized` category, and text it can't map (such as prose between items)
+is reported as a warning and dropped.
 
 The screen is a single collapsible **category/task tree**. Tasks that carry a
 description are marked with a small `≡` glyph; press `enter` (or `e`) on any item
 to open its dialog, which shows the item's status and subtask progress and lets
 you edit its title and description in place (`esc` cancels, `enter`/Save applies).
 
-An example task file:
+An example list, as the tree shows it:
 
-```markdown
-# Work
-
-- [ ] Ship v1.0 release
-  The release notes, tag, and announcement blog post.
-  - [x] Write changelog
-  - [ ] Cut the git tag
-- [x] Fix login bug
-
-## Backend
-
-- [ ] Migrate the database
-
-# Personal
-
-- [ ] Renew passport
-- [ ] Book dentist
+```text
+Work
+  [ ] Ship v1.0 release
+    [x] Write changelog
+    [ ] Cut the git tag
+  [x] Fix login bug
+  Backend
+    [ ] Migrate the database
+Personal
+  [ ] Renew passport
+  [ ] Book dentist
 ```
 
 ## Scripting / for agents
 
 Every interactive action is also a non-interactive subcommand, so an agent (or a
-script) can edit the file without opening the TUI. All commands take
-`-f/--file` (default `TODO.md`).
+script) can edit the list without opening the TUI. All commands take
+`-f/--file` (default `.todo.db`).
 
-Read the list — with numbers, line numbers, and JSON for the read-then-act loop:
+Read the list — with numbers, ids, and JSON for the read-then-act loop:
 
 ```sh
-todo list                 # aligned table: # · line · status · item
-todo list --json          # nested tree with number/line/title/status/path
+todo list                 # aligned table: # · id · status · item
+todo list --json          # nested tree with number/id/title/status/path
 todo list --filter build  # only matching items and their path
 ```
 
@@ -58,7 +68,7 @@ Address an existing item three ways — exactly one, mutually exclusive:
 
 ```sh
 --number N   # the # column from `todo list`
---line   N   # the item's line in the file
+--id     N   # the item's database id (the id column from `todo list`)
 --title  T   # the item's exact title (errors if more than one matches)
 ```
 
@@ -69,16 +79,17 @@ todo add --title "Cut the tag" --parent-title "Ship v1.0" [--desc "…"] [--stat
 todo add-category --title "Backend" [--parent-title "Work"]
 todo done     --title "Cut the tag" [--cascade]
 todo progress --number 4
-todo defer    --line 33
+todo defer    --id 33
 todo reopen   --title "Cut the tag" [--cascade]
 todo edit     --number 4 --set-title "…" --set-desc "…"
 todo rm       --number 4
 todo prune                # drop every fully-completed task
 ```
 
-`--number` and `--line` shift after any add/remove (the file is rewritten to
-canonical form on save); `--title` is stable. For a sequence of edits, re-run
-`todo list` between steps or address by `--title`.
+`--id` is stable: an item keeps its id for as long as it exists, so it is the
+safest way to address an item across a sequence of edits. `--number` shifts
+after any add/remove; `--title` is stable as long as it stays unique. Re-run
+`todo list` when you rely on `--number`.
 
 Exit codes: `0` ok, `2` usage, `3` not found, `4` ambiguous title, `5` wrong
 kind, `1` other. Errors go to stderr.
@@ -128,45 +139,25 @@ current query.
 
 Marking a parent task done completes **all** of its subtasks at once. If you did
 it by accident, just unmark the parent again and the previous subtask states are
-restored — that undo memory is kept in RAM for the session, so the file only
-ever records the current checkbox states.
+restored — that undo memory is kept in RAM for the session, so the database only
+ever records the current states.
 
 ## Live reload
 
-todo re-reads the open file about once a second and applies any change made
-outside the app — so you can edit the raw markdown in your editor, or let an
-agent update it, and watch it update live. Your selection and which items are
-folded are kept across a reload. The app writes atomically and ignores its own
-saves, so editing inside todo and watching from outside never fight each other.
+The open TUI notices changes made to the database by another process — most
+commonly `todo` CLI commands run by a script or an agent — and applies them
+within about a second, so you can watch the list update live. Your selection and
+which items are folded are kept across a reload. Changes made inside todo are
+written immediately, so editing in the TUI while a script edits from outside
+never fight each other.
 
-## File format
+## Storage
 
-The app owns a small, standard subset of markdown:
+The list lives in a single SQLite file, `.todo.db` by default, in the directory
+you run todo from. While todo has it open, SQLite also keeps two side files next
+to it, `.todo.db-wal` and `.todo.db-shm` (the write-ahead log and its shared
+memory); they are managed by SQLite and normally disappear when the last
+connection closes. The format is plain SQLite, so any SQLite tool can read it.
 
-```markdown
-# Work
-
-- [ ] Ship v1.0 release
-  The description sits indented under the task and shows in the item's dialog.
-  - [x] Write changelog
-  - [/] Cut the git tag
-- [x] Fix login bug
-
-## Backend
-
-- [>] Migrate the database
-```
-
-- **Headers** (`#`..`######`) are categories and nest by level.
-- **Tasks** are checkbox lines; indentation nests subtasks. Four states:
-  `- [ ]` open, `- [/]` in progress, `- [>]` deferred, `- [x]` done — all
-  standard markers that render on GitHub and in editors like Obsidian too.
-- **Indented text** under a task (that isn't a checkbox) is its description.
-- Text before the first header/task is preserved as-is; other free-form prose
-  between items is not part of the format.
-
-todo also keeps a short **guide block** — an HTML comment (so it stays invisible
-when the markdown is rendered) — at the very top of every saved file. It links
-back to this repo and documents the format above for whoever edits the file
-directly, human or agent. It's app-managed: todo rewrites it on every save, so
-there's no need to edit it by hand.
+Whether to commit `.todo.db*` to version control or ignore it is up to you. Keep
+in mind that it is a binary file, so git can't merge concurrent changes to it.

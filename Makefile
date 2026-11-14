@@ -42,8 +42,8 @@ verify: test vet lint license-check coverage ## run the full verification suite
 #==========================================================================================
 ##@ Running
 #==========================================================================================
-run: ## run against the sample file (example.md)
-	@go run . example.md
+run: ## run against .todo.db in the current directory
+	@go run .
 
 #==========================================================================================
 ##@ Building

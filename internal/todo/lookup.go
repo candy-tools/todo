@@ -40,20 +40,9 @@ func (d *Document) ByID(id uint) (*Item, bool) {
 	return nil, false
 }
 
-// ByLine returns the item whose source line (Item.Line) equals line, or
-// ok=false when no item begins on that line.
-func (d *Document) ByLine(line int) (*Item, bool) {
-	for _, it := range d.Enumerate() {
-		if it.Line == line {
-			return it, true
-		}
-	}
-	return nil, false
-}
-
 // ByTitle returns every item whose title equals title exactly (case-sensitive),
 // in document order. Zero results means no such item; more than one means the
-// title is ambiguous and the caller must disambiguate by number or line.
+// title is ambiguous and the caller must disambiguate by number or ID.
 func (d *Document) ByTitle(title string) []*Item {
 	var out []*Item
 	for _, it := range d.Enumerate() {

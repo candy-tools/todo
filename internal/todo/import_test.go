@@ -19,14 +19,14 @@ func TestImportExampleRoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := todotest.Dump(t, todotest.Seed(t, string(b)))
-	want := todotest.Render(todo.Parse(string(b)))
+	want := todotest.Render(todotest.Parse(t, string(b)))
 	if got == "" || got != want {
 		t.Fatalf("round trip differs\n got:\n%s\nwant:\n%s", got, want)
 	}
 }
 
 func TestImportSkipsGuide(t *testing.T) {
-	src := (&todo.Document{}).FileContent() + "\n# Main\n"
+	src := guideSample + "\n\n# Main\n"
 	_, rep, err := todo.ImportMarkdown([]byte(src))
 	if err != nil {
 		t.Fatal(err)

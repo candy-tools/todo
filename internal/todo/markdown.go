@@ -2,8 +2,6 @@ package todo
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -22,8 +20,8 @@ var (
 )
 
 // statusFromMarker maps a checkbox marker char (checkboxRe's group 2) to a
-// Status. It is the inverse of markerFromStatus (see render.go); the two must
-// agree, and both with checkboxRe's accepted set.
+// Status. It is the inverse of Status.Marker; the two must agree, and both with
+// checkboxRe's accepted set.
 func statusFromMarker(marker string) Status {
 	switch marker {
 	case "x", "X":
@@ -37,74 +35,12 @@ func statusFromMarker(marker string) Status {
 	}
 }
 
-// Load reads and parses the TODO file at path. A missing file is not an error:
-// it yields an empty document, so `todo new-file.md` starts a fresh list that
-// is written on the first save.
-func Load(path string) (*Document, error) {
-	b, err := os.ReadFile(path) //nolint:gosec // path is a user-provided CLI argument; reading it is the app's purpose
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &Document{}, nil
-		}
-		return nil, err
-	}
-	return Parse(string(b)), nil
-}
-
-// EnsureFile bootstraps path as a fresh, empty TODO file (the managed guide
-// block and no tasks) when it does not already exist, so running todo creates
-// the file up front rather than only writing it on the first edit.
-func EnsureFile(path string) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil // already exists — leave it (and any tasks in it) untouched
-	} else if !os.IsNotExist(err) {
-		return err // stat failed for another reason (e.g. permissions)
-	}
-	return (&Document{}).Save(path)
-}
-
-// Save writes the document back to path in canonical markdown form, led by the
-// app-managed guide block (see FileContent). It writes to a temporary file in
-// the same directory and renames it over the target: the rename is atomic, so a
-// concurrent reader — notably the app's own change-poll (see the tui package) —
-// never observes a half-written file.
-func (d *Document) Save(path string) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".todo-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	if _, err := f.WriteString(d.FileContent()); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	// CreateTemp makes the file 0600; todo files are meant to be user-readable.
-	if err := os.Chmod(tmp, 0o644); err != nil { //nolint:gosec // 0644 is intentional: todo files are meant to be readable and greppable
-		_ = os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
-// Parse turns markdown source into a Document. Headers become nested
-// categories; `- [ ]` items become tasks nested by indentation; indented
-// non-checkbox text under a task becomes that task's description. Text before
-// the first header/task is kept verbatim as the preamble; stray non-indented
-// prose elsewhere is dropped (the app owns the file format).
-func Parse(src string) *Document {
-	doc, _ := parseMarkdown(src)
-	return doc
-}
-
-// parseMarkdown is Parse that also reports what it did not keep: one warning,
+// parseMarkdown turns markdown source into a Document, for the one-time import.
+// Headers become nested categories; `- [ ]` items become tasks nested by
+// indentation; indented non-checkbox text under a task becomes that task's
+// description. It also reports what it did not keep: one warning,
 // `line N: <reason>` with the 1-based source line, for the first non-blank line
-// of text before the first node (non-guide preamble) and one for every line of
-// prose it drops.
+// of text before the first node and one for every line of prose it drops.
 func parseMarkdown(src string) (*Document, []string) {
 	doc := &Document{}
 	var warnings []string
@@ -113,11 +49,12 @@ func parseMarkdown(src string) (*Document, []string) {
 	}
 	preambleWarned := false
 	lines := strings.Split(src, "\n")
-	// The app-managed guide block is skipped below rather than stripped up
-	// front, so its lines still count toward every other line's real index
-	// (see guideRange and Item.Line). It must still be excluded from parsing
-	// itself: it is an HTML comment whose own example lines (`- [ ]`, `#`)
-	// would otherwise be mis-parsed as real tasks and headers.
+	// The app-managed guide block that older TODO.md files carry is skipped
+	// below rather than stripped up front, so its lines still count toward every
+	// other line's real index in the warnings (see guideRange). It must be
+	// excluded from parsing itself: it is an HTML comment whose own example
+	// lines (`- [ ]`, `#`) would otherwise be mis-parsed as real tasks and
+	// headers.
 	gStart, gEnd, hasGuide := guideRange(lines)
 
 	var catStack []*Item // open categories, by increasing Level
@@ -128,18 +65,12 @@ func parseMarkdown(src string) (*Document, []string) {
 	var taskStack []taskEntry // open tasks, by increasing indentation
 	var curTask *Item         // most recent task; receives description lines
 	var curTaskIndent int
-	var descBuf []string  // buffered description lines for curTask
-	var preamble []string // verbatim lines before the first node
+	var descBuf []string // buffered description lines for curTask
 	seenNode := false
 
 	flushDesc := func() {
 		if curTask != nil {
-			for len(descBuf) > 0 && strings.TrimSpace(descBuf[len(descBuf)-1]) == "" {
-				descBuf = descBuf[:len(descBuf)-1]
-			}
-			if len(descBuf) > 0 {
-				curTask.Description = dedent(descBuf)
-			}
+			curTask.Description = description(descBuf)
 		}
 		descBuf = nil
 	}
@@ -162,7 +93,7 @@ func parseMarkdown(src string) (*Document, []string) {
 			curTask = nil
 			taskStack = nil
 			level := len(m[1])
-			cat := &Item{Kind: Category, Level: level, Title: strings.TrimRight(m[2], " \t"), Line: lineNo}
+			cat := &Item{Kind: Category, Level: level, Title: strings.TrimRight(m[2], " \t")}
 			for len(catStack) > 0 && catStack[len(catStack)-1].Level >= level {
 				catStack = catStack[:len(catStack)-1]
 			}
@@ -178,7 +109,6 @@ func parseMarkdown(src string) (*Document, []string) {
 				Kind:   Task,
 				Title:  strings.TrimRight(m[3], " \t"),
 				Status: statusFromMarker(m[2]),
-				Line:   lineNo,
 			}
 			for len(taskStack) > 0 && taskStack[len(taskStack)-1].indent >= indent {
 				taskStack = taskStack[:len(taskStack)-1]
@@ -210,7 +140,6 @@ func parseMarkdown(src string) (*Document, []string) {
 		}
 		trimmed := strings.TrimSpace(line)
 		if !seenNode {
-			preamble = append(preamble, line)
 			if trimmed != "" && !preambleWarned {
 				preambleWarned = true
 				warn(lineNo, "text before the first heading is not imported")
@@ -221,13 +150,25 @@ func parseMarkdown(src string) (*Document, []string) {
 		}
 	}
 	flushDesc()
-	doc.Preamble = strings.Trim(strings.Join(preamble, "\n"), "\n")
 	return doc, warnings
 }
 
 // inGuide reports whether line index i falls inside the managed guide block
 // [start,end].
 func inGuide(i, start, end int, has bool) bool { return has && i >= start && i <= end }
+
+// description turns the buffered description lines into the task description:
+// trailing blank lines are dropped and the rest dedented. No lines (or only
+// blank ones) give "".
+func description(lines []string) string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return dedent(lines)
+}
 
 // leadingWhitespace counts the leading space/tab characters of s (each as one).
 func leadingWhitespace(s string) int {

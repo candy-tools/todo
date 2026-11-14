@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/candy-tools/todo/internal/todo"
 	"github.com/atotto/clipboard"
+	"github.com/candy-tools/todo/internal/todo"
 )
 
 // fakeClip records what the copy path wrote, standing in for the real system

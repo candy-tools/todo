@@ -3,11 +3,11 @@ package todo_test
 import (
 	"testing"
 
-	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 func TestEnumerateAndByNumber(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n  - [ ] a1\n- [ ] b\n")
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n  - [ ] a1\n- [ ] b\n")
 	items := d.Enumerate()
 	wantTitles := []string{"Work", "a", "a1", "b"}
 	if len(items) != len(wantTitles) {
@@ -29,18 +29,8 @@ func TestEnumerateAndByNumber(t *testing.T) {
 	}
 }
 
-func TestByLine(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n")
-	if it, ok := d.ByLine(3); !ok || it.Title != "a" {
-		t.Errorf("ByLine(3) = %v ok=%v, want a", it, ok)
-	}
-	if _, ok := d.ByLine(2); ok { // blank line, no item
-		t.Error("ByLine(2) should miss (blank line)")
-	}
-}
-
 func TestByTitle(t *testing.T) {
-	d := todo.Parse("# A\n\n- [ ] dup\n\n# B\n\n- [ ] dup\n- [ ] uniq\n")
+	d := todotest.Parse(t, "# A\n\n- [ ] dup\n\n# B\n\n- [ ] dup\n- [ ] uniq\n")
 	if got := d.ByTitle("uniq"); len(got) != 1 || got[0].Title != "uniq" {
 		t.Errorf("ByTitle(uniq) = %v, want one match", got)
 	}
@@ -53,7 +43,7 @@ func TestByTitle(t *testing.T) {
 }
 
 func TestByID(t *testing.T) {
-	doc := todo.Parse("# A\n\n- [ ] t\n")
+	doc := todotest.Parse(t, "# A\n\n- [ ] t\n")
 	doc.Roots[0].Children[0].ID = 7
 	if it, ok := doc.ByID(7); !ok || it.Title != "t" {
 		t.Fatal("ByID(7)")
