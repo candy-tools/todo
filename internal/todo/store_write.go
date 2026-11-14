@@ -76,6 +76,18 @@ func itemRows(tx *gorm.DB, ids ...uint) *gorm.DB {
 	return tx.Model(&dbItem{}).Where("node_id IN ? AND tenant = ?", ids, storeScope)
 }
 
+// requireItem returns ErrNotFound when the store holds no item id.
+func requireItem(tx *gorm.DB, id uint) error {
+	var count int64
+	if err := itemRows(tx, id).Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Edit sets the title of item id and, for a task, its description; a
 // category's description stays empty. Kind, status and placement are kept.
 func (s *Store) Edit(ctx context.Context, id uint, title, desc string) error {
@@ -117,12 +129,8 @@ func (s *Store) SetStatuses(ctx context.Context, states map[uint]Status) error {
 // time, to st.
 func (s *Store) CascadeStatus(ctx context.Context, id uint, st Status) error {
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
-		var count int64
-		if err := itemRows(tx, id).Count(&count).Error; err != nil {
+		if err := requireItem(tx, id); err != nil {
 			return err
-		}
-		if count == 0 {
-			return ErrNotFound
 		}
 		ids, err := tree.DescendantIds(ctx, id, 0, storeScope)
 		if err != nil {
@@ -133,9 +141,14 @@ func (s *Store) CascadeStatus(ctx context.Context, id uint, st Status) error {
 }
 
 // Move places item id, with its subtree, under parentID (0 for a root), after
-// the sibling afterID (0 places it first).
+// the sibling afterID (0 places it first). The existence check is the store's:
+// closure-tree's Update takes a missing node for a root one and reports a move
+// of it to the root as done.
 func (s *Store) Move(ctx context.Context, id, parentID, afterID uint) error {
-	return s.write(ctx, func(_ *gorm.DB, tree *closuretree.Tree) error {
+	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
+		if err := requireItem(tx, id); err != nil {
+			return err
+		}
 		return tree.Update(ctx, id, nil, &parentID, &afterID, storeScope)
 	})
 }

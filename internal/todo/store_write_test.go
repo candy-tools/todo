@@ -178,6 +178,27 @@ func TestMove(t *testing.T) {
 	}
 }
 
+func TestMoveMissingIsNotFound(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addSample(t, s)
+	before, err := s.Revision(ctx)
+	if err != nil {
+		t.Fatalf("Revision: %v", err)
+	}
+
+	// To the root is the case closure-tree's Update lets through silently.
+	if err := s.Move(ctx, 999, 0, 0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Move(999, root) = %v, want ErrNotFound", err)
+	}
+	if err := s.Move(ctx, 999, ids.A, 0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Move(999, A) = %v, want ErrNotFound", err)
+	}
+	if after, err := s.Revision(ctx); err != nil || after != before {
+		t.Fatalf("Revision after failed moves = %d, %v; want %d", after, err, before)
+	}
+}
+
 func TestDeleteSubtree(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
