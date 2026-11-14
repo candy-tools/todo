@@ -34,7 +34,7 @@ func listCmd() *cobra.Command {
 				if !ok {
 					return usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
 				}
-				visible = intersect(visible, doc.ColumnItems(col))
+				visible = doc.ColumnMatches(col, filter) // search within the column, as the TUI tab does
 			}
 			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
 				return writeListJSON(cmd.OutOrStdout(), doc, visible)
@@ -46,24 +46,6 @@ func listCmd() *cobra.Command {
 	c.Flags().String("filter", "", "only show items matching this text (and their path)")
 	c.Flags().String("column", "", "only show tasks in this board column: "+columnNames)
 	return c
-}
-
-// intersect returns the items in both sets; a nil set means "everything", so
-// the other set is returned as is.
-func intersect(a, b map[*todo.Item]bool) map[*todo.Item]bool {
-	if a == nil {
-		return b
-	}
-	if b == nil {
-		return a
-	}
-	out := map[*todo.Item]bool{}
-	for it := range a {
-		if b[it] {
-			out[it] = true
-		}
-	}
-	return out
 }
 
 // depthOf is the item's nesting depth from the roots (0 = top level), used to

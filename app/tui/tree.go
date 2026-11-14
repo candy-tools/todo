@@ -93,21 +93,10 @@ func (t *tree) shownBefore(it *todo.Item) int {
 }
 
 // visibleItems returns the items the current tab shows: the column's items
-// (todo.ColumnItems) and, while searching, only those on a path to a match that
-// is itself in the tab. Matching only in-tab items keeps a search from showing
-// a Backlog category whose sole match is a task in another column.
+// and, while searching, only those on a path to a match that is itself in the
+// tab (see todo.Document.ColumnMatches).
 func (t *tree) visibleItems() map[*todo.Item]bool {
-	inTab := t.doc.ColumnItems(t.column)
-	if !t.searching() {
-		return inTab
-	}
-	vis := t.doc.VisibleWhere(func(it *todo.Item) bool { return inTab[it] && it.Matches(t.filter) })
-	for it := range vis {
-		if !inTab[it] {
-			delete(vis, it)
-		}
-	}
-	return vis
+	return t.doc.ColumnMatches(t.column, t.filter)
 }
 
 // foldable reports whether it has a child the tab shows (folded or not), so it

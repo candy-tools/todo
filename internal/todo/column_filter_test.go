@@ -88,3 +88,21 @@ func TestCountInColumn(t *testing.T) {
 		t.Errorf("A backlog = %d, want 0", n)
 	}
 }
+
+func TestColumnMatchesBlankQueryIsColumn(t *testing.T) {
+	d := todotest.Parse(t, board)
+	checkVisible(t, d, d.ColumnMatches(todo.ColInProgress, "  "), map[string]bool{
+		"B": true, "working": true, "sub": true, "backlogTask": false,
+	})
+}
+
+func TestColumnMatchesOnlyInTab(t *testing.T) {
+	// beta matches but sits in Backlog, so the In Progress search must not keep
+	// its category C as a bare row.
+	d := todotest.Parse(t, "# C\n- [/] w\n- [ ] beta\n# Beta\n- [/] v\n# D\n- [/] betaWork\n  - [ ] s\n")
+	checkVisible(t, d, d.ColumnMatches(todo.ColInProgress, "beta"), map[string]bool{
+		"C": false, "w": false, "beta": false,
+		"Beta": true, "v": true, // a matching category keeps its in-tab subtree
+		"D": true, "betaWork": true, "s": true,
+	})
+}

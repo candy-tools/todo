@@ -193,3 +193,14 @@ func TestListJSONColumnAndStatus(t *testing.T) {
 		t.Errorf("a category has no column, got %q", items[0].Column)
 	}
 }
+
+func TestListColumnFilterMatchesWithinColumn(t *testing.T) {
+	path := todotest.Seed(t, "# C\n\n- [/] w\n- [ ] beta\n")
+	out, err := runCmd(t, "list", "--file", path, "--column", "progress", "--filter", "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := strings.SplitN(out, "\n", 2)[1]; strings.TrimSpace(rows) != "" {
+		t.Errorf("a match outside the column must show no rows, not even its category:\n%s", out)
+	}
+}

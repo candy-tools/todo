@@ -99,6 +99,25 @@ func (d *Document) ColumnItems(c Column) map[*Item]bool {
 	return visible
 }
 
+// ColumnMatches returns the items a board tab shows for column c while
+// searching for query: the in-tab items on a path to a match that is itself in
+// the tab (see VisibleWhere), so a match in another column never keeps its
+// category as a bare row. A blank query is no search: it returns ColumnItems(c).
+// The TUI tab and `list --column --filter` both use it, so they agree.
+func (d *Document) ColumnMatches(c Column, query string) map[*Item]bool {
+	inTab := d.ColumnItems(c)
+	if strings.TrimSpace(query) == "" {
+		return inTab
+	}
+	vis := d.VisibleWhere(func(it *Item) bool { return inTab[it] && it.Matches(query) })
+	for it := range vis {
+		if !inTab[it] {
+			delete(vis, it)
+		}
+	}
+	return vis
+}
+
 // ColumnCounts counts the top-level tasks in each board column.
 func (d *Document) ColumnCounts() map[Column]int {
 	counts := map[Column]int{}
