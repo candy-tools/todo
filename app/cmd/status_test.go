@@ -102,27 +102,6 @@ func TestProgressAndDefer(t *testing.T) {
 	}
 }
 
-func TestReopen(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [x] a\n")
-	if _, err := runCmd(t, "reopen", "--file", path, "--title", "a"); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(todotest.Dump(t, path), "- [ ] a") {
-		t.Error("reopen should return the task to open")
-	}
-}
-
-func TestReopenCascade(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [x] parent\n  - [x] child\n")
-	if _, err := runCmd(t, "reopen", "--file", path, "--title", "parent", "--cascade"); err != nil {
-		t.Fatal(err)
-	}
-	got := todotest.Dump(t, path)
-	if !strings.Contains(got, "- [ ] parent") || !strings.Contains(got, "  - [ ] child") {
-		t.Errorf("--cascade reopen should open the subtree:\n%s", got)
-	}
-}
-
 func TestSelectByID(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	id := strconv.Itoa(int(idOf(t, path, "b")))
@@ -135,5 +114,101 @@ func TestSelectByID(t *testing.T) {
 	}
 	if _, err := runCmd(t, "done", "--file", path, "--id", "999"); codeOf(t, err) != exitNotFound {
 		t.Error("an unknown --id should be not-found")
+	}
+}
+
+func TestStatusTo(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "ready"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(todotest.Dump(t, path), "- [ready] a") {
+		t.Errorf("a should be ready:\n%s", todotest.Dump(t, path))
+	}
+}
+
+func TestStatusToConfirmationLine(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	out, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "status: [review] a  (Work)") {
+		t.Errorf("unexpected confirmation: %q", out)
+	}
+}
+
+func TestStatusToInvalid(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	_, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "bogus")
+	if codeOf(t, err) != exitUsage {
+		t.Errorf("bad state should be a usage error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "followup") {
+		t.Errorf("error should list the states: %v", err)
+	}
+	if _, err := runCmd(t, "status", "--file", path, "--title", "a"); codeOf(t, err) != exitUsage {
+		t.Error("missing --to should be a usage error")
+	}
+}
+
+func TestStatusToProgressAlias(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "progress"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(todotest.Dump(t, path), "- [/] a") {
+		t.Errorf("progress should mean working:\n%s", todotest.Dump(t, path))
+	}
+}
+
+func TestReopenGoesToWorking(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [x] a\n")
+	if _, err := runCmd(t, "reopen", "--file", path, "--title", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(todotest.Dump(t, path), "- [/] a") {
+		t.Errorf("reopen should return the task to working:\n%s", todotest.Dump(t, path))
+	}
+}
+
+func TestReopenCascadeOpensSubtasks(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [x] parent\n  - [x] child\n")
+	if _, err := runCmd(t, "reopen", "--file", path, "--title", "parent", "--cascade"); err != nil {
+		t.Fatal(err)
+	}
+	got := todotest.Dump(t, path)
+	if !strings.Contains(got, "- [/] parent") || !strings.Contains(got, "  - [ ] child") {
+		t.Errorf("want working parent and open child:\n%s", got)
+	}
+}
+
+func TestReopenSubtaskGoesToOpen(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [x] child\n")
+	if _, err := runCmd(t, "reopen", "--file", path, "--title", "child"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(todotest.Dump(t, path), "  - [ ] child") {
+		t.Errorf("a reopened subtask should be open:\n%s", todotest.Dump(t, path))
+	}
+}
+
+func TestSubtaskBoardStateIsUsageError(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] child\n")
+	for _, args := range [][]string{
+		{"progress"}, {"defer"}, {"status", "--to", "review"},
+	} {
+		full := append(append([]string{}, args...), "--file", path, "--title", "child")
+		_, err := runCmd(t, full...)
+		if codeOf(t, err) != exitUsage {
+			t.Errorf("%v on a subtask should be a usage error, got %v", args, err)
+			continue
+		}
+		if !strings.Contains(err.Error(), "subtask can only be open or done") {
+			t.Errorf("%v: unclear message %q", args, err)
+		}
+	}
+	if !strings.Contains(todotest.Dump(t, path), "  - [ ] child") {
+		t.Error("the subtask must be unchanged")
 	}
 }

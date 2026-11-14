@@ -25,15 +25,42 @@ func listCmd() *cobra.Command {
 				return err
 			}
 			filter, _ := cmd.Flags().GetString("filter")
-			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
-				return writeListJSON(cmd.OutOrStdout(), doc, filter)
+			visible := doc.VisibleItems(filter) // nil => show everything
+			if colName, _ := cmd.Flags().GetString("column"); colName != "" {
+				col, ok := todo.ColumnFromName(colName)
+				if !ok {
+					return usageErr(fmt.Sprintf("invalid --column %q (backlog|next|progress|done)", colName))
+				}
+				visible = intersect(visible, doc.ColumnItems(col))
 			}
-			return writeListTable(cmd.OutOrStdout(), doc, filter)
+			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+				return writeListJSON(cmd.OutOrStdout(), doc, visible)
+			}
+			return writeListTable(cmd.OutOrStdout(), doc, visible)
 		},
 	}
 	c.Flags().Bool("json", false, "output the tree as JSON")
 	c.Flags().String("filter", "", "only show items matching this text (and their path)")
+	c.Flags().String("column", "", "only show tasks in this board column: backlog|next|progress|done")
 	return c
+}
+
+// intersect returns the items in both sets; a nil set means "everything", so
+// the other set is returned as is.
+func intersect(a, b map[*todo.Item]bool) map[*todo.Item]bool {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	out := map[*todo.Item]bool{}
+	for it := range a {
+		if b[it] {
+			out[it] = true
+		}
+	}
+	return out
 }
 
 // depthOf is the item's nesting depth from the roots (0 = top level), used to
@@ -46,19 +73,19 @@ func depthOf(it *todo.Item) int {
 	return n
 }
 
-func writeListTable(w io.Writer, doc *todo.Document, filter string) error {
-	visible := doc.VisibleItems(filter) // nil => show everything
-	_, _ = fmt.Fprintln(w, "  #    id  st   item")
+// writeListTable prints the tree as a table; visible (nil => all) limits the rows.
+func writeListTable(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool) error {
+	_, _ = fmt.Fprintln(w, "  #    id  state     item")
 	for i, it := range doc.Enumerate() {
 		if visible != nil && !visible[it] {
 			continue
 		}
 		st := "--"
 		if it.IsTask() {
-			st = "[" + it.Status.Marker() + "]"
+			st = it.Status.String()
 		}
 		indent := strings.Repeat("  ", depthOf(it))
-		_, _ = fmt.Fprintf(w, "%3d %5d  %-4s %s%s\n", i+1, it.ID, st, indent, it.Title)
+		_, _ = fmt.Fprintf(w, "%3d %5d  %-9s %s%s\n", i+1, it.ID, st, indent, it.Title)
 	}
 	return nil
 }
@@ -71,9 +98,11 @@ type jsonItem struct {
 	Kind        string     `json:"kind"`
 	Title       string     `json:"title"`
 	Status      string     `json:"status,omitempty"`
+	Column      string     `json:"column,omitempty"`
 	Level       int        `json:"level,omitempty"`
 	Path        []string   `json:"path"`
 	Description string     `json:"description,omitempty"`
+	Plan        string     `json:"plan,omitempty"`
 	DoneCount   int        `json:"doneCount"`
 	TotalCount  int        `json:"totalCount"`
 	Children    []jsonItem `json:"children"`
@@ -101,7 +130,9 @@ func toJSONItem(it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]b
 	if it.IsTask() {
 		ji.Kind = "task"
 		ji.Status = it.Status.String()
+		ji.Column = it.Status.Column().String()
 		ji.Description = it.Description
+		ji.Plan = it.Plan
 	} else {
 		ji.Kind = "category"
 		ji.Level = it.Level
@@ -115,8 +146,7 @@ func toJSONItem(it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]b
 	return ji
 }
 
-func writeListJSON(w io.Writer, doc *todo.Document, filter string) error {
-	visible := doc.VisibleItems(filter)
+func writeListJSON(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool) error {
 	nums := numberMap(doc)
 	roots := []jsonItem{}
 	for _, r := range doc.Roots {
