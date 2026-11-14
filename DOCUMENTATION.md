@@ -77,7 +77,7 @@ The board has four columns, shown as tabs (with a task count each): **Backlog**,
   moved or deleted in **Backlog**.
 - **Subtasks** go one level deep: a subtask cannot have subtasks of its own. A
   subtask is only ever `open` or `done`, has no board state, and is shown in its
-  parent's column. Only a task that is `open` or `done` can hold subtasks.
+  parent's column. A task in any state can hold subtasks.
 - **New tasks** take the first state of the tab they are added in (Backlog
   `open`, Next `new`, In Progress `working`, Done `done`). A new subtask is open.
 - **Plan.** Each task has an optional plan link — a path or reference to where
@@ -92,7 +92,7 @@ Moving a task between columns:
   this session, its subtasks get their previous states back; otherwise they keep
   their current ones.
 - `m` grabs a task to reorder it (see Keys); grab mode steps over tasks hidden in
-  the tab.
+  the tab, and moves a task at most one category per key press.
 
 ## Scripting / for agents
 
@@ -174,7 +174,7 @@ kind, `1` other. Errors go to stderr.
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it) |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
 | `c` | Add a category (a subcategory when a category is selected) — Backlog only |
-| `e` | Edit the selected item's title (and a task's description) |
+| `e` | Edit the selected item's title (and a task's description and plan) |
 | `y` | Copy the selected item to the clipboard — a task's title and full (multi-line) description as plain text |
 | `d` | Delete the selected item (and its subtree) — asks to confirm |
 | `D` | Remove every completed task (keeping any with unfinished sub-tasks) — asks to confirm |
@@ -182,9 +182,9 @@ kind, `1` other. Errors go to stderr.
 | `q` | Quit |
 | `esc` | Clear an active search, or quit when there is none |
 
-Tasks always live under a category — there are no root-level tasks. The tree
-always ends with a **`+ new category`** row: select it and press `c` (or
-`enter`) to add a top-level category. On an existing category, `c` adds a
+Tasks always live under a category — there are no root-level tasks. On the
+Backlog tab the tree always ends with a **`+ new category`** row: select it and
+press `c` (or `enter`) to add a top-level category. On an existing category, `c` adds a
 subcategory instead.
 
 In the add/edit dialog: `tab` moves between fields (title, description, plan),
@@ -239,10 +239,18 @@ that it is a binary file, so git can't merge concurrent changes to it.
 Opening a database made by an older todo migrates it once to schema v2:
 
 - It first writes a backup next to the database, `<db>.bak` (e.g. `.todo.db.bak`).
-  An existing `.bak` is kept, not overwritten.
+  An existing backup is never overwritten: when `<db>.bak` already exists, the
+  backup goes to the first free `<db>.bak.1`, `<db>.bak.2`, ….
 - Nesting deeper than one subtask level is flattened.
 - Subtask states become `open` / `done`.
 - Older todo versions refuse an upgraded database.
 
-To go back, copy the `.bak` over the database file. Don't open the `.bak`
-directly with `-f`: that would migrate the backup itself.
+To go back:
+
+1. Quit todo (the TUI and any running `todo` command).
+2. Delete the `<db>-wal` and `<db>-shm` side files next to the database, if
+   they exist.
+3. Copy the backup over the database file: `<db>.bak`, or the highest-numbered
+   `<db>.bak.N` when there are several, as that one is the newest.
+
+Don't open a backup directly with `-f`: that would migrate the backup itself.
