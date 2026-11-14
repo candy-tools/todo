@@ -236,25 +236,29 @@ func (it *Item) TaskCounts() (done, total int) {
 	return done, total
 }
 
-// DoneStates records the Status of a set of tasks, so a cascade-complete can be
-// reverted to the exact prior state — including a child that was InProgress or
-// Deferred. It is the in-memory snapshot behind the "I marked the parent done by
-// accident" undo.
-type DoneStates map[*Item]Status
+// DoneStates records the Status of a set of tasks by item ID, so a
+// cascade-complete can be reverted to the exact prior state — including a child
+// that was InProgress or Deferred. It is the in-memory snapshot behind the "I
+// marked the parent done by accident" undo; keyed by ID, it outlives a reload of
+// the document, and it is what Store.SetStatuses writes back.
+type DoneStates map[uint]Status
 
-// SnapshotDone captures the Status of it and all its descendant tasks.
+// SnapshotDone captures the Status of it and all its descendant tasks, by ID.
 func SnapshotDone(it *Item) DoneStates {
-	s := DoneStates{it: it.Status}
+	s := DoneStates{it.ID: it.Status}
 	for _, d := range it.Descendants() {
-		s[d] = d.Status
+		s[d.ID] = d.Status
 	}
 	return s
 }
 
-// RestoreDone re-applies a snapshot's recorded statuses.
-func RestoreDone(s DoneStates) {
-	for it, st := range s {
-		it.Status = st
+// ApplyStatuses sets the in-memory Status of every item of d whose ID s
+// records. IDs d does not hold (an item deleted since the snapshot) are skipped.
+func (d *Document) ApplyStatuses(s DoneStates) {
+	for _, it := range d.Enumerate() {
+		if st, ok := s[it.ID]; ok {
+			it.Status = st
+		}
 	}
 }
 

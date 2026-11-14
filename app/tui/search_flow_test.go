@@ -108,7 +108,7 @@ func TestClearFilterFromMainViewKeepsFocus(t *testing.T) {
 
 func TestClearFilterRevealsItemInsideCollapsedParent(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n")
-	m.tree.collapsed[find(m.doc, "Task A")] = true // the match is hidden in the unfiltered tree
+	m.tree.collapsed[find(m.doc, "Task A").ID] = true // the match is hidden in the unfiltered tree
 	m = press(m, "/")
 	m = typeText(m, "cat") // filtering reveals the match regardless of the fold
 	m = press(m, "down", "down")

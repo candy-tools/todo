@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 // titles lists the titles of a sibling slice, for order assertions.
@@ -51,15 +52,15 @@ func TestMoveModeGrabRequiresRealItem(t *testing.T) {
 func TestMoveModeReorderPersists(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	m = press(m, "down") // task a
-	a := m.tree.selected()
+	a := m.tree.selected().ID
 	m = press(m, "m", "down") // grab a, move it down past b
 	if got := titles(find(m.doc, "Work").Children); got[0] != "b" || got[1] != "a" {
 		t.Errorf("in-memory order = %v, want [b a]", got)
 	}
-	if m.tree.selected() != a {
+	if m.tree.selected().ID != a {
 		t.Error("the cursor should follow the moved item")
 	}
-	reloaded := todo.Parse(readFile(t, path))
+	reloaded := todo.Parse(todotest.Dump(t, path))
 	if got := titles(find(reloaded, "Work").Children); got[0] != "b" || got[1] != "a" {
 		t.Errorf("persisted order = %v, want [b a]", got)
 	}
@@ -73,8 +74,8 @@ func TestMoveModeIndentMakesSubtask(t *testing.T) {
 	if len(a.Children) != 1 || a.Children[0].Title != "b" {
 		t.Fatalf("b should be a subtask of a, a.children=%v", titles(a.Children))
 	}
-	if !strings.Contains(readFile(t, path), "  - [ ] b") {
-		t.Errorf("subtask indentation not persisted:\n%s", readFile(t, path))
+	if !strings.Contains(todotest.Dump(t, path), "  - [ ] b") {
+		t.Errorf("subtask indentation not persisted:\n%s", todotest.Dump(t, path))
 	}
 }
 
@@ -106,12 +107,12 @@ func TestMoveModeOutdentTopTaskIsBlocked(t *testing.T) {
 
 func TestMoveModeCategoryReorder(t *testing.T) {
 	m, _ := newTestModel(t, "# A\n\n# B\n")
-	a := m.tree.selected() // A is the first row
+	a := m.tree.selected().ID // A is the first row
 	m = press(m, "m", "down")
 	if got := titles(m.doc.Roots); got[0] != "B" || got[1] != "A" {
 		t.Errorf("root order = %v, want [B A]", got)
 	}
-	if m.tree.selected() != a {
+	if m.tree.selected().ID != a {
 		t.Error("the cursor should follow the moved category")
 	}
 }
@@ -152,15 +153,15 @@ func TestMoveModeGrabbedRowIsMarked(t *testing.T) {
 func TestMoveModeCrossesCategoriesPersists(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] b\n\n# Personal\n\n- [ ] p1\n")
 	m = press(m, "down") // task b (last in Work)
-	b := m.tree.selected()
+	b := m.tree.selected().ID
 	m = press(m, "m", "down") // grab b, move it down across into Personal
 	if got := titles(find(m.doc, "Personal").Children); len(got) != 2 || got[0] != "b" || got[1] != "p1" {
 		t.Errorf("in-memory Personal children = %v, want [b p1]", got)
 	}
-	if m.tree.selected() != b {
+	if m.tree.selected().ID != b {
 		t.Error("the cursor should follow the item across categories")
 	}
-	reloaded := todo.Parse(readFile(t, path))
+	reloaded := todo.Parse(todotest.Dump(t, path))
 	if got := titles(find(reloaded, "Personal").Children); len(got) != 2 || got[0] != "b" || got[1] != "p1" {
 		t.Errorf("persisted Personal children = %v, want [b p1]", got)
 	}
@@ -177,8 +178,11 @@ func TestMoveModeCrossIntoCollapsedCategoryFollows(t *testing.T) {
 		t.Fatalf("expected to be on task b, got %v", b)
 	}
 	m = press(m, "m", "down") // grab b, descend into (collapsed) Sub
-	if b.Parent == nil || b.Parent.Title != "Sub" {
+	if b = find(m.doc, "b"); b.Parent == nil || b.Parent.Title != "Sub" {
 		t.Fatalf("b should have descended into Sub, parent=%v", b.Parent)
+	}
+	if !m.tree.grabbed {
+		t.Error("b should stay grabbed across the move's reload")
 	}
 	if m.tree.selected() != b {
 		t.Error("the cursor should follow b into the revealed subcategory")

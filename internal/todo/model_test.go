@@ -89,10 +89,24 @@ func TestCascadeSetDone(t *testing.T) {
 
 func TestSnapshotRestore(t *testing.T) {
 	parent, c1, c2, g1 := buildTree()
+	for i, it := range []*todo.Item{parent, c1, c2, g1} {
+		it.ID = uint(i + 1)
+	}
+	doc := &todo.Document{}
+	doc.AppendRoot(parent)
 	// A mixed prior state: c2 already done, the rest not.
 	c2.Status = todo.Done
 
 	snap := todo.SnapshotDone(parent)
+	want := todo.DoneStates{1: todo.Open, 2: todo.Open, 3: todo.Done, 4: todo.Open}
+	if len(snap) != len(want) {
+		t.Fatalf("snapshot = %v, want %v", snap, want)
+	}
+	for id, st := range want {
+		if snap[id] != st {
+			t.Errorf("snapshot[%d] = %v, want %v", id, snap[id], st)
+		}
+	}
 	// Accidental complete: everything forced done.
 	todo.CascadeSetDone(parent, true)
 	if !c1.IsDone() || !g1.IsDone() {
@@ -100,12 +114,26 @@ func TestSnapshotRestore(t *testing.T) {
 	}
 
 	// Undo: restore exactly the prior mixed state.
-	todo.RestoreDone(snap)
+	doc.ApplyStatuses(snap)
 	if parent.IsDone() || c1.IsDone() || g1.IsDone() {
 		t.Errorf("restore should have undone parent/c1/g1")
 	}
 	if !c2.IsDone() {
 		t.Errorf("restore should have kept c2 done (its prior state)")
+	}
+}
+
+func TestApplyStatusesSkipsMissingIDs(t *testing.T) {
+	parent, c1, _, _ := buildTree()
+	parent.ID, c1.ID = 1, 2
+	doc := &todo.Document{}
+	doc.AppendRoot(parent)
+	doc.ApplyStatuses(todo.DoneStates{2: todo.InProgress, 99: todo.Done})
+	if c1.Status != todo.InProgress {
+		t.Errorf("c1 = %v, want in progress", c1.Status)
+	}
+	if parent.Status != todo.Open {
+		t.Errorf("parent = %v, want open (not in the snapshot)", parent.Status)
 	}
 }
 

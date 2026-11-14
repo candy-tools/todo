@@ -36,11 +36,18 @@ func newRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			path, _, err := resolvePath(c, args)
+			path, isDefault, err := resolvePath(c, args)
 			if err != nil {
 				return err
 			}
-			return tui.Run(path)
+			// Opening creates the store when it is missing (or imports TODO.md),
+			// so launching todo always starts from a real database on disk.
+			st, notice, err := openStore(c, path, isDefault)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = st.Close() }()
+			return tui.Run(st, notice)
 		},
 	}
 	cmd.PersistentFlags().StringP("file", "f", defaultFile, "the todo database to operate on")

@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/candy-tools/todo/internal/todo"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -64,7 +63,7 @@ func TestHighlightPreservesOriginalCase(t *testing.T) {
 }
 
 func TestTreeFilterHidesNonMatches(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n  - [ ] Buy supplies\n- [ ] Task B\n\n# Home\n\n- [ ] Groceries\n")
+	d := parseDoc("# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n  - [ ] Buy supplies\n- [ ] Task B\n\n# Home\n\n- [ ] Groceries\n")
 	tr := newTree(d)
 	tr.setFilter("cat")
 	got := rowTitles(tr)
@@ -75,9 +74,9 @@ func TestTreeFilterHidesNonMatches(t *testing.T) {
 }
 
 func TestTreeFilterShowsMatchInsideCollapsedParent(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n")
+	d := parseDoc("# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n")
 	tr := newTree(d)
-	tr.collapsed[find(d, "Task A")] = true // collapse the parent of the match
+	tr.collapsed[find(d, "Task A").ID] = true // collapse the parent of the match
 	tr.setFilter("cat")
 	if got := rowTitles(tr); !contains(got, "Explore catacombs") {
 		t.Errorf("filtering should reveal matches inside a collapsed parent, got %v", got)
@@ -85,7 +84,7 @@ func TestTreeFilterShowsMatchInsideCollapsedParent(t *testing.T) {
 }
 
 func TestTreeFilterHidesPlaceholder(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] catnip\n")
+	d := parseDoc("# Work\n\n- [ ] catnip\n")
 	tr := newTree(d)
 	tr.setFilter("cat")
 	for _, r := range tr.rows {
@@ -96,7 +95,7 @@ func TestTreeFilterHidesPlaceholder(t *testing.T) {
 }
 
 func TestTreeClearFilterRestoresTree(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n  - [ ] Buy supplies\n")
+	d := parseDoc("# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n  - [ ] Buy supplies\n")
 	tr := newTree(d)
 	before := len(tr.rows)
 	tr.setFilter("cat")
@@ -107,7 +106,7 @@ func TestTreeClearFilterRestoresTree(t *testing.T) {
 }
 
 func TestTreeRowHighlightsMatch(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] Explore catacombs\n")
+	d := parseDoc("# Work\n\n- [ ] Explore catacombs\n")
 	tr := newTree(d)
 	tr.setFilter("cat")
 	got := tr.rowString(treeRow{item: find(d, "Explore catacombs")}, false)
