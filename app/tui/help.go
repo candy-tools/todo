@@ -45,6 +45,8 @@ var helpSections = []helpSection{
 	}},
 	{"Views", []helpBinding{
 		{"k", "All states in one list / back to the board"},
+		{"v", "Split: categories sidebar + task list"},
+		{"x", "Switch pane (split view)"},
 	}},
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},

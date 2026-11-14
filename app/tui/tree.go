@@ -94,6 +94,24 @@ func newTree(doc *todo.Document, v *viewState) tree {
 	return t
 }
 
+// newSidebar builds the split view's sidebar for doc, shown through v.
+func newSidebar(doc *todo.Document, v *viewState) tree {
+	t := newTree(doc, v)
+	t.setPane(paneCategories)
+	t.selectTop()
+	return t
+}
+
+// useFolds makes the folds of view key k the tree's current ones.
+func (t *tree) useFolds(k viewKey) {
+	folds, ok := t.foldsByKey[k]
+	if !ok {
+		folds = map[uint]bool{}
+		t.foldsByKey[k] = folds
+	}
+	t.collapsed = folds
+}
+
 // searching reports whether a search query filters the rows.
 func (t *tree) searching() bool { return t.vs.searching() }
 

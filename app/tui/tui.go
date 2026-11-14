@@ -68,10 +68,17 @@ type model struct {
 	// view is the tab, search query and state filter every tree shows the
 	// list through; the model changes it (setColumn, setFilter, setStates)
 	// and rebuilds the trees.
-	view   *viewState
-	tree   tree
-	width  int
-	height int
+	view *viewState
+	// tree is the main pane: the category/task tree, or — in the split view —
+	// the task list of the category picked in side, the sidebar.
+	tree tree
+	side tree
+	// split is the split view ("v"): side on the left, tree as a task list on
+	// the right. sideFocus is whether the keys go to the sidebar ("x" flips it).
+	split     bool
+	sideFocus bool
+	width     int
+	height    int
 
 	// lastRev is the store revision doc reflects: the one todo last loaded,
 	// which after its own write is the revision that write produced. The poll
@@ -143,6 +150,7 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		doc:       doc,
 		view:      v,
 		tree:      newTree(doc, v),
+		side:      newSidebar(doc, v),
 		mode:      modeMain,
 		snapshots: map[uint]todo.DoneStates{},
 		lastRev:   rev,
@@ -162,6 +170,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the cursor stays on screen across a resize.
 		m.tree.viewHeight = m.treeViewHeight()
 		m.tree.reconcileOffset()
+		m.side.viewHeight = m.treeViewHeight()
+		m.side.reconcileOffset()
 		if m.mode == modeForm {
 			m.form.setWidth(msg.Width)
 		}
@@ -175,28 +185,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case storeReloadedMsg:
 		return m.handleReload(msg)
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
+		nm, cmd := m.updateKey(msg)
+		// In the split view the task list follows the sidebar's category,
+		// whatever the key did to it.
+		if mm, ok := nm.(model); ok && mm.split {
+			mm.syncScope()
+			return mm, cmd
 		}
-		// The search bar (opened with "/" from the main view) captures keys while
-		// it is focused, ahead of the main-view bindings.
-		if m.searching {
-			return m.updateSearch(msg)
-		}
-		switch m.mode {
-		case modeForm:
-			return m.updateForm(msg)
-		case modeConfirm:
-			return m.updateConfirm(msg)
-		case modeHelp:
-			return m.updateHelp(msg)
-		case modeStatePick:
-			return m.updateStatePick(msg)
-		case modeStateFilter:
-			return m.updateStateFilter(msg)
-		default:
-			return m.updateMain(msg)
-		}
+		return nm, cmd
 	}
 	// Non-key messages (cursor blink, etc.) drive the focused text input.
 	if m.mode == modeForm {
@@ -210,6 +206,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// updateKey routes a key press to the search bar (which captures keys while it
+// is focused, ahead of the main-view bindings), the open dialog, or the main
+// view.
+func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+	if m.searching {
+		return m.updateSearch(msg)
+	}
+	switch m.mode {
+	case modeForm:
+		return m.updateForm(msg)
+	case modeConfirm:
+		return m.updateConfirm(msg)
+	case modeHelp:
+		return m.updateHelp(msg)
+	case modeStatePick:
+		return m.updateStatePick(msg)
+	case modeStateFilter:
+		return m.updateStateFilter(msg)
+	default:
+		return m.updateMain(msg)
+	}
 }
 
 func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -232,6 +254,12 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeStateFilter
 	case "k":
 		m.setUnified(!m.view.all)
+	case "v":
+		m.toggleSplit()
+	case "x":
+		if m.split {
+			m.sideFocus = !m.sideFocus
+		}
 	case "up", "w":
 		m.focused().moveUp()
 	case "down", "s":
@@ -1160,8 +1188,16 @@ func (m model) mainView(dim bool) string {
 	if bodyH < 3 {
 		bodyH = 3
 	}
-	box := titledBox("Tasks", m.tree.view(w-2, m.treeViewHeight()), w, bodyH, !dim)
-	return m.header(w) + "\n" + box + "\n" + m.footer(w)
+	var body string
+	if m.split {
+		sw := sidebarWidth(w)
+		left := titledBox("Categories", m.side.view(sw-2, m.treeViewHeight()), sw, bodyH, !dim && m.sideFocus)
+		right := titledBox("Tasks", m.tree.view(w-sw-2, m.treeViewHeight()), w-sw, bodyH, !dim && !m.sideFocus)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	} else {
+		body = titledBox("Tasks", m.tree.view(w-2, m.treeViewHeight()), w, bodyH, !dim)
+	}
+	return m.header(w) + "\n" + body + "\n" + m.footer(w)
 }
 
 // treeViewHeight is how many task rows the tree pane can show at the current
@@ -1248,6 +1284,9 @@ func (m model) footer(width int) string {
 	}
 	// The full key list lives in the "?" dialog; the footer only points at it.
 	parts := []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
+	if m.split {
+		parts = append(parts, hint("x", "Pane"))
+	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }
 

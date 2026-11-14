@@ -128,19 +128,21 @@ func (v *viewState) newTaskState() todo.Status {
 	return v.column.FirstState()
 }
 
-// setColumn switches every tree to the board tab for column c; each tree
-// gets back that tab's folds and selection (see tree.switchView). The search
-// and the state filter carry over.
+// setColumn switches every tree to the board tab for column c: the main tree
+// gets back that tab's folds and selection (see tree.switchView), the sidebar
+// that tab's folds while keeping its category (or falling back to All). The
+// search and the state filter carry over.
 func (m *model) setColumn(c todo.Column) {
 	from := m.view.key()
 	m.view.column = c
+	m.refreshSide()
 	m.tree.switchView(from)
 }
 
 // setUnified turns the unified view on or off. Every tree switches to that
-// view's own folds; the selected item stays selected when the destination
-// shows it, else the cursor goes to the top row. The tab is kept, so turning
-// it off returns to the last tab.
+// view's own folds; the main tree's selected item stays selected when the
+// destination shows it, else its cursor goes to the top row. The tab is kept,
+// so turning it off returns to the last tab.
 func (m *model) setUnified(on bool) {
 	if m.view.all == on {
 		return
@@ -148,6 +150,7 @@ func (m *model) setUnified(on bool) {
 	sel := m.tree.selectedID()
 	from := m.view.key()
 	m.view.all = on
+	m.refreshSide()
 	m.tree.switchView(from)
 	if !m.tree.selectID(sel) {
 		m.tree.selectTop()
@@ -155,18 +158,20 @@ func (m *model) setUnified(on bool) {
 }
 
 // setFilter applies a search query (empty clears it) and rebuilds, resetting
-// the cursor to the first row so results start at the top.
+// the main tree's cursor to the first row so results start at the top.
 func (m *model) setFilter(q string) {
 	m.view.filter = q
+	m.refreshSide()
 	m.tree.cursor = 0
 	m.tree.rebuild()
 }
 
 // setStates replaces the current view's state filter with next (nil or empty
-// turns it off for the view) and rebuilds, resetting the cursor to the first
-// row.
+// turns it off for the view) and rebuilds, resetting the main tree's cursor to
+// the first row.
 func (m *model) setStates(next map[todo.Status]bool) {
 	m.view.setActiveStates(next)
+	m.refreshSide()
 	m.tree.cursor = 0
 	m.tree.rebuild()
 }
@@ -174,19 +179,86 @@ func (m *model) setStates(next map[todo.Status]bool) {
 // clearStates turns the current view's state filter off (other tabs keep
 // theirs), keeping the item under the cursor selected.
 func (m *model) clearStates() {
-	sel := m.tree.selected()
+	t := m.focused()
+	sel := t.selected()
 	m.setStates(nil)
-	if sel != nil && !m.tree.onPlaceholder() {
-		m.tree.revealItem(sel)
+	if sel != nil && !t.onPlaceholder() {
+		t.revealItem(sel)
 	}
 }
 
-// focused returns the tree the item keys act on: the one pane there is.
-func (m *model) focused() *tree { return &m.tree }
+// refreshSide rebuilds the sidebar for the current view — its folds, and its
+// category or All when the view no longer shows it — and points the main
+// tree's task list at that category. The main tree is rebuilt by the caller.
+func (m *model) refreshSide() {
+	m.side.useFolds(m.view.key())
+	m.side.refreshSidebar()
+	m.tree.scope = m.side.selectedID()
+}
 
-// adoptAll swaps doc, a fresh load of the list, into every tree (see
-// tree.adopt): the focused tree selects focusID (or goes back onto the
-// placeholder row when onPH).
+// syncScope points the task list at the sidebar's category, after a key moved
+// the sidebar (or anything else changed it).
+func (m *model) syncScope() { m.tree.setScope(m.side.selectedID()) }
+
+// toggleSplit turns the split view on or off. On, the sidebar starts on All
+// with the focus, and the task list keeps the selected task. Off, the tree
+// selects what had focus: the task list's task, or the sidebar's category.
+func (m *model) toggleSplit() {
+	if !m.split {
+		sel := m.tree.selectedID()
+		m.split, m.sideFocus = true, true
+		m.side.refreshSidebar()
+		m.side.selectTop()
+		m.tree.scope = 0
+		m.tree.setPane(paneTasks)
+		if !m.tree.selectID(sel) {
+			m.tree.selectTop()
+		}
+		return
+	}
+	target := m.tree.selected()
+	if m.sideFocus {
+		if it := m.side.selected(); it != nil && !m.side.onPlaceholder() {
+			target = it
+		}
+	}
+	m.split, m.sideFocus = false, false
+	m.tree.setPane(paneMixed)
+	if target != nil {
+		m.tree.revealItem(target)
+	}
+}
+
+// sidebarWidth is the split view's sidebar width for a terminal w wide: 30%,
+// kept between 20 and 40 columns.
+func sidebarWidth(w int) int { return min(max(w*30/100, 20), 40) }
+
+// focused returns the tree the item keys act on: the sidebar while it has the
+// split view's focus, else the main tree.
+func (m *model) focused() *tree {
+	if m.split && m.sideFocus {
+		return &m.side
+	}
+	return &m.tree
+}
+
+// adoptAll swaps doc, a fresh load of the list, into both trees (see
+// tree.adopt). The focused tree selects focusID (or goes back onto the
+// placeholder row when onPH); the other keeps its own selection. The sidebar
+// goes first and falls back to All when its category is gone, so the task
+// list is rebuilt for the category that is left.
 func (m *model) adoptAll(doc *todo.Document, focusID uint, onPH bool) {
-	m.tree.adopt(doc, focusID, onPH)
+	sideID, sidePH := m.side.selectedID(), m.side.onPlaceholder()
+	mainID, mainPH := m.tree.selectedID(), m.tree.onPlaceholder()
+	if m.split && m.sideFocus {
+		sideID, sidePH = focusID, onPH
+	} else {
+		mainID, mainPH = focusID, onPH
+	}
+	m.side.adopt(doc, sideID, sidePH)
+	if !(sideID != 0 && m.side.selectedID() == sideID) && !(sidePH && m.side.onPlaceholder()) {
+		m.side.selectTop()
+	}
+	m.tree.scope = m.side.selectedID()
+	m.tree.adopt(doc, mainID, mainPH)
 }

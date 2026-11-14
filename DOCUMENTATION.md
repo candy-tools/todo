@@ -114,6 +114,33 @@ again to get the board back, on the tab you were on. In this view:
   filters don't apply here and are untouched by it;
 - `tab`, `shift+tab` and `1`–`4` only remind you to press `k`.
 
+**Split by category (`v`).** Shows the categories as a tree in a left sidebar
+(**Categories**) and the tasks of the selected one in a list on the right
+(**Tasks**). Press `x` to move the keys between the two panes; `v` again goes
+back to the single tree, on the item that had focus.
+
+```text
+╭─ Categories ─────────╮╭─ Tasks ─────────────────────────╮
+│  All                 ││❯ ○ Ship v1.0 release open       │
+│❯ ▾ Work (2/5)        ││  ── Backend                     │
+│      Backend (0/1)   ││  ○ Migrate the database open    │
+│    Personal (0/2)    ││                                 │
+│  + new category      ││                                 │
+╰──────────────────────╯╰─────────────────────────────────╯
+```
+
+- The sidebar starts on **All**, which lists every task. Walking down the tree
+  narrows the list: a category shows its own tasks first, then each
+  subcategory's under a `── Backend` heading.
+- The list follows the current tab (or every state with `k`), and a search or
+  state filter narrows both panes: the sidebar keeps only categories with
+  matches. When the selected category disappears (switching tab, filtering,
+  deleting it) the sidebar falls back to All.
+- Categories are edited in the sidebar (`enter`/`e`, `c`, `d`, `m`) under the
+  usual rules; `n`/`N` there add a task to the selected category. In the list,
+  the task keys work as usual; `n` in an empty list adds to the selected
+  category.
+
 ## Scripting / for agents
 
 Every interactive action is also a non-interactive subcommand, so an agent (or a
@@ -201,6 +228,8 @@ kind, `1` other. Errors go to stderr.
 | `/` | Search / filter the list (see below) |
 | `f` | Filter the tab by state: tick states with `space`, `enter` applies, `esc` clears the filter |
 | `k` | Show every state in one list (tabs hidden) / back to the board — see Views |
+| `v` | Split view: categories sidebar + task list / back to the single tree — see Views |
+| `x` | In the split view, move the keys between the sidebar and the task list |
 | `?` | Show the shortcuts dialog (`↑`/`↓` scroll it on a short terminal; `?`, `esc`, `q` or `enter` closes it) |
 | `q` | Quit |
 | `esc` | Clear an active search, then the state filter, or quit when there is neither |

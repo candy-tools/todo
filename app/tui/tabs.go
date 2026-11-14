@@ -19,12 +19,7 @@ func (t *tree) switchView(from viewKey) {
 		return
 	}
 	t.selByKey[from] = t.selectedID()
-	folds, ok := t.foldsByKey[to]
-	if !ok {
-		folds = map[uint]bool{}
-		t.foldsByKey[to] = folds
-	}
-	t.collapsed = folds
+	t.useFolds(to)
 	t.rebuild()
 	if !t.selectID(t.selByKey[to]) {
 		t.selectTop()
