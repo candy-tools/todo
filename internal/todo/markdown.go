@@ -1,6 +1,7 @@
 package todo
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -96,7 +97,21 @@ func (d *Document) Save(path string) error {
 // the first header/task is kept verbatim as the preamble; stray non-indented
 // prose elsewhere is dropped (the app owns the file format).
 func Parse(src string) *Document {
+	doc, _ := parseMarkdown(src)
+	return doc
+}
+
+// parseMarkdown is Parse that also reports what it did not keep: one warning,
+// `line N: <reason>` with the 1-based source line, for the first non-blank line
+// of text before the first node (non-guide preamble) and one for every line of
+// prose it drops.
+func parseMarkdown(src string) (*Document, []string) {
 	doc := &Document{}
+	var warnings []string
+	warn := func(lineNo int, format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf("line %d: ", lineNo)+fmt.Sprintf(format, args...))
+	}
+	preambleWarned := false
 	lines := strings.Split(src, "\n")
 	// The app-managed guide block is skipped below rather than stripped up
 	// front, so its lines still count toward every other line's real index
@@ -193,14 +208,21 @@ func Parse(src string) *Document {
 			flushDesc()
 			curTask = nil
 		}
+		trimmed := strings.TrimSpace(line)
 		if !seenNode {
 			preamble = append(preamble, line)
+			if trimmed != "" && !preambleWarned {
+				preambleWarned = true
+				warn(lineNo, "text before the first heading is not imported")
+			}
+		} else if trimmed != "" {
+			// Stray prose between items after a task closed — dropped.
+			warn(lineNo, "unrecognised line dropped: %q", trimmed)
 		}
-		// Otherwise: stray prose between items after a task closed — dropped.
 	}
 	flushDesc()
 	doc.Preamble = strings.Trim(strings.Join(preamble, "\n"), "\n")
-	return doc
+	return doc, warnings
 }
 
 // inGuide reports whether line index i falls inside the managed guide block

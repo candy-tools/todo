@@ -3,7 +3,7 @@ package todo
 import "strings"
 
 // markerFromStatus maps a Status to its checkbox marker char, the inverse of
-// statusFromMarker (see parse.go); the two must stay in sync.
+// statusFromMarker (see markdown.go); the two must stay in sync.
 func markerFromStatus(s Status) string {
 	switch s {
 	case Done:

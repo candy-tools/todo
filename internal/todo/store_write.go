@@ -51,12 +51,18 @@ func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretre
 // first), and returns its new ID.
 func (s *Store) add(ctx context.Context, row *dbItem, parentID, afterID uint) (uint, error) {
 	err := s.write(ctx, func(_ *gorm.DB, tree *closuretree.Tree) error {
-		return tree.Add(ctx, row, &parentID, &afterID, storeScope)
+		return addRow(ctx, tree, row, parentID, afterID)
 	})
 	if err != nil {
 		return 0, err
 	}
 	return row.NodeId, nil
+}
+
+// addRow inserts row through tree (bound to the caller's transaction) under
+// parentID, after the sibling afterID; row.NodeId holds its ID afterwards.
+func addRow(ctx context.Context, tree *closuretree.Tree, row *dbItem, parentID, afterID uint) error {
+	return tree.Add(ctx, row, &parentID, &afterID, storeScope)
 }
 
 // AddCategory adds a category under parentID (0 for a root), after the sibling
