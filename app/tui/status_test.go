@@ -18,6 +18,7 @@ func TestSetInProgress(t *testing.T) {
 		t.Errorf("in-progress not persisted:\n%s", todotest.Dump(t, path))
 	}
 	// p again returns it to open.
+	m = showOn(t, m, todo.ColInProgress, "a")
 	m = press(m, "p")
 	if got := find(m.doc, "a").Status; got != todo.Open {
 		t.Errorf("p on an in-progress task should return it to open, got %v", got)
@@ -43,7 +44,9 @@ func TestSetDeferred(t *testing.T) {
 func TestStatusFlagSwitchesStates(t *testing.T) {
 	// p then > moves straight from in-progress to deferred (not back to open).
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(m, "down", "p", ">")
+	m = press(m, "down", "p")
+	m = showOn(t, m, todo.ColInProgress, "a")
+	m = press(m, ">")
 	if got := find(m.doc, "a").Status; got != todo.Deferred {
 		t.Errorf("> on an in-progress task should defer it, got %v", got)
 	}

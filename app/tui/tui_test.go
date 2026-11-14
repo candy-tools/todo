@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/app/metainfo"
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
@@ -67,6 +68,7 @@ func TestCascadeCompleteAndRevert(t *testing.T) {
 	}
 
 	// Unmark the parent: children restore to the prior mixed state.
+	m = showOn(t, m, todo.ColDone, "parent")
 	m = press(m, "space")
 	if find(m.doc, "parent").IsDone() {
 		t.Errorf("parent should be undone")
@@ -84,8 +86,8 @@ func TestManualChildToggleInvalidatesSnapshot(t *testing.T) {
 	m = press(m, "down")  // parent
 	m = press(m, "space") // cascade all done (snapshot: all were false)
 
-	m = press(m, "down")  // c1
-	m = press(m, "space") // manual toggle c1 off -> invalidates parent's snapshot
+	m = showOn(t, m, todo.ColDone, "c1") // the done parent and its subtasks left Backlog
+	m = press(m, "space")                // manual toggle c1 off -> invalidates parent's snapshot
 
 	m = press(m, "up")    // parent
 	m = press(m, "space") // unmark parent (no snapshot now)
@@ -503,7 +505,7 @@ func TestClearDoneNoOpWhenNothingDone(t *testing.T) {
 func TestDeleteAfterCancelledClear(t *testing.T) {
 	// A cancelled clear must reset the confirm action, otherwise the next single
 	// delete would wrongly clear every completed task.
-	m, _ := newTestModel(t, "# Work\n\n- [x] a\n- [x] c\n- [ ] b\n")
+	m, _ := newTestModelOn(t, "# Work\n\n- [x] a\n- [x] c\n- [ ] b\n", todo.ColDone)
 	m = press(m, "D", "esc") // open the clear-done confirm, then cancel it
 	m = press(m, "down")     // select task a
 	m = press(m, "d", "y")   // delete only a
@@ -554,7 +556,7 @@ func TestViewSmoke(t *testing.T) {
 // of both the old view and edit dialogs: the item's read-only status and subtask
 // progress, plus its editable title/description with Save.
 func TestEditDialogCombinesViewAndEdit(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [x] parent\n  the description\n  - [x] child\n")
+	m, _ := newTestModelOn(t, "# Work\n\n- [x] parent\n  the description\n  - [x] child\n", todo.ColDone)
 	m = press(m, "down") // task "parent" (done, has a description and a subtask)
 	m = press(m, "enter")
 	if m.mode != modeForm {

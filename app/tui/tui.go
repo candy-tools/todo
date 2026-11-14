@@ -216,9 +216,24 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right", "l":
 		m.tree.expand()
 	default:
+		if c, ok := tabKey(msg.String(), m.tree.column); ok {
+			m.tree.setColumn(c)
+			return m, nil
+		}
 		return m.updateMainItemKey(msg)
 	}
 	return m, nil
+}
+
+// msgCategoriesInBacklog is the footer hint for a category key pressed outside
+// the Backlog tab: a category made or kept elsewhere would show only while it
+// holds that tab's tasks, so categories are managed in Backlog alone.
+const msgCategoriesInBacklog = "categories are managed in Backlog"
+
+// categoryLocked reports whether rename, delete or move of it is refused: it is
+// a category and the tab is not Backlog.
+func (m model) categoryLocked(it *todo.Item) bool {
+	return it != nil && it.Kind == todo.Category && m.tree.column != todo.ColBacklog
 }
 
 // escOrQuit clears an active filter (dismissing the search the same way it's
@@ -290,10 +305,15 @@ func (m model) updatePlaceholderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // startMove picks up the selected item for moving. It is a no-op on the
-// placeholder row, and refuses while a filter is active — the filtered view hides
-// siblings and ignores folding, so reordering against it would be misleading.
+// placeholder row or an empty tab, refuses a category outside Backlog, and
+// refuses while a filter is active — the filtered view hides siblings and
+// ignores folding, so reordering against it would be misleading.
 func (m model) startMove() (tea.Model, tea.Cmd) {
-	if m.tree.onPlaceholder() {
+	if m.tree.onPlaceholder() || m.tree.selected() == nil {
+		return m, nil
+	}
+	if m.categoryLocked(m.tree.selected()) {
+		m.status = msgCategoriesInBacklog
 		return m, nil
 	}
 	if m.tree.filter != "" {
@@ -417,10 +437,15 @@ func (m model) searchWidth() int {
 }
 
 // openDelete opens the confirm dialog for the selected item (focused on the
-// safe Cancel button). A no-op when nothing is selected.
+// safe Cancel button). A no-op when nothing is selected; a category outside
+// Backlog is refused with a footer hint.
 func (m model) openDelete() (tea.Model, tea.Cmd) {
 	sel := m.tree.selected()
 	if sel == nil || m.tree.onPlaceholder() {
+		return m, nil
+	}
+	if m.categoryLocked(sel) {
+		m.status = msgCategoriesInBacklog
 		return m, nil
 	}
 	m.deleting = sel
@@ -631,7 +656,9 @@ func itemCopyText(it *todo.Item) string {
 	return it.Title
 }
 
-// openForm prepares and opens the add/edit modal for the given target.
+// openForm prepares and opens the add/edit modal for the given target. Outside
+// Backlog it refuses to add, rename or delete a category, and it refuses a
+// subtask under a subtask.
 func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	sel := m.tree.selected()
 	switch t {
@@ -640,15 +667,27 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 			m.status = "Add a category first (press c) — tasks live under a category."
 			return m, nil
 		}
+		if t == targetAddChild && sel.IsSubtask() {
+			m.status = "subtasks can't have subtasks"
+			return m, nil
+		}
 		m.form = newForm("", "", true, false)
 	case targetEdit:
 		if sel == nil || m.tree.onPlaceholder() {
+			return m, nil
+		}
+		if m.categoryLocked(sel) {
+			m.status = msgCategoriesInBacklog
 			return m, nil
 		}
 		m.editing = sel
 		m.form = newForm(sel.Title, sel.Description, sel.IsTask(), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
+		if m.tree.column != todo.ColBacklog {
+			m.status = msgCategoriesInBacklog
+			return m, nil
+		}
 		m.form = newForm("", "", false, false)
 	}
 	m.target = t
@@ -711,9 +750,11 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		if m.editing.IsTask() {
 			m.editing.Description = desc
 		}
-		id := m.editing.ID
+		// The dialog has no plan field yet, so the item's plan is written back
+		// unchanged rather than cleared.
+		id, plan := m.editing.ID, m.editing.Plan
 		m.commit(id, func(ctx context.Context) error {
-			return m.store.Edit(ctx, id, todo.Fields{Title: title, Description: desc})
+			return m.store.Edit(ctx, id, todo.Fields{Title: title, Description: desc, Plan: plan})
 		})
 		return m, nil
 	}
@@ -749,6 +790,11 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		parent.AppendTask(added)
 		delete(m.tree.collapsed, parent.ID)
 	}
+	// A new task enters the current tab in its column's first state, so it shows
+	// where it was added; a new subtask starts open (subtasks are open or done).
+	if added.Kind == todo.Task && !added.IsSubtask() {
+		added.Status = m.tree.column.FirstState()
+	}
 
 	parentID, afterID := m.doc.Placement(added)
 	var newID uint
@@ -757,7 +803,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		if added.Kind == todo.Category {
 			newID, err = m.store.AddCategory(ctx, title, parentID, afterID)
 		} else {
-			newID, err = m.store.AddTask(ctx, todo.Fields{Title: title, Description: desc}, todo.Open, parentID, afterID)
+			newID, err = m.store.AddTask(ctx, todo.Fields{Title: title, Description: desc}, added.Status, parentID, afterID)
 		}
 		return err
 	})
@@ -834,7 +880,7 @@ func (m model) mainView(dim bool) string {
 	if w == 0 {
 		w, h = 80, 24
 	}
-	bodyH := h - 2
+	bodyH := h - headerHeight - 1 // the footer takes the last line
 	if bodyH < 3 {
 		bodyH = 3
 	}
@@ -852,7 +898,7 @@ func (m model) treeViewHeight() int {
 	if m.width == 0 {
 		h = 24 // matches mainView's fallback when the terminal size is unknown
 	}
-	bodyH := h - 2
+	bodyH := h - headerHeight - 1
 	if bodyH < 3 {
 		bodyH = 3
 	}
@@ -863,6 +909,12 @@ func (m model) treeViewHeight() int {
 	return vh
 }
 
+// headerHeight is how many lines the header takes: the title line and the tab
+// bar.
+const headerHeight = 2
+
+// header renders the title line (app, version, file, overall progress) and,
+// under it, the board's tab bar.
 func (m model) header(width int) string {
 	done, total := overallCounts(m.doc)
 	left := headerAppStyle.Render("todo") + " " + headerHintSty.Render(m.version) + "  " + headerHintSty.Render(filepath.Base(m.store.Path()))
@@ -871,7 +923,8 @@ func (m model) header(width int) string {
 	if gap < 1 {
 		gap = 1
 	}
-	return ansi.Truncate(" "+left+strings.Repeat(" ", gap)+right, width, "")
+	title := ansi.Truncate(" "+left+strings.Repeat(" ", gap)+right, width, "")
+	return title + "\n" + tabBar(m.doc.ColumnCounts(), m.tree.column, width)
 }
 
 func (m model) footer(width int) string {
