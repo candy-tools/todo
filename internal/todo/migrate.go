@@ -16,58 +16,90 @@ import (
 // as it was before the upgrade.
 func BackupPath(dbPath string) string { return dbPath + ".bak" }
 
-// errAlreadyUpgraded ends an upgrade write that finds the store already on
-// schema 2, because another process migrated it first. Returning an error rolls
-// the empty transaction back, so the revision is not bumped a second time.
-var errAlreadyUpgraded = errors.New("store already upgraded")
+// errNotBackedUp stops a migration that finds a v1 store inside its transaction
+// after the check before it found none, so no backup was taken: a v1 todo
+// created the file in between. migrate starts over, which backs it up.
+var errNotBackedUp = errors.New("v1 store was not backed up")
 
 // migrate brings the store to schemaVersion. It refuses a store from a newer
-// todo, backs up a v1 store before its schema changes, creates or extends the
-// tables, then writes the meta row of a new store or upgrades a v1 one.
+// todo, backs up a v1 store before its schema changes, then, in one write
+// transaction, creates or extends the tables and writes the meta row of a new
+// store or upgrades a v1 one.
 func (s *Store) migrate() error {
-	version, err := s.storedSchemaVersion()
+	err := s.migrateOnce()
+	if errors.Is(err, errNotBackedUp) {
+		err = s.migrateOnce()
+	}
+	return err
+}
+
+// migrateOnce is one migration attempt. The backup runs first, outside any
+// transaction, because VACUUM INTO cannot run inside one. Everything after it
+// runs in a single transaction, which takes the write lock as it begins: when
+// several processes open the file at once, they migrate one after the other,
+// and each decides from the version as the one before it left it. A new store
+// is created once and a v1 store upgraded once; a failed upgrade rolls the
+// schema changes back with the data.
+func (s *Store) migrateOnce() error {
+	ctx := context.Background()
+	version, err := storedSchemaVersion(s.db)
 	if err != nil {
 		return err
 	}
 	if version > schemaVersion {
 		return newerSchemaError(version)
 	}
+	backedUp := false
 	if version == 1 {
 		if err := s.backup(); err != nil {
 			return fmt.Errorf("back up to %s: %w", BackupPath(s.path), err)
 		}
+		backedUp = true
 	}
-	tree, err := closuretree.New(s.db, dbItem{})
-	if err != nil {
-		return err
-	}
-	if err := tree.Migrate(); err != nil {
-		return err
-	}
-	if err := s.db.AutoMigrate(&dbMeta{}); err != nil {
-		return err
-	}
-	switch version {
-	case 0:
-		return s.db.Where(dbMeta{ID: 1}).
-			Attrs(dbMeta{Revision: 0, SchemaVersion: schemaVersion}).
-			FirstOrCreate(&dbMeta{}).Error
-	case 1:
-		if err := s.upgradeToV2(context.Background()); err != nil {
-			return fmt.Errorf("upgrade to schema 2: %w", err)
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		version, err := storedSchemaVersion(tx)
+		if err != nil {
+			return err
 		}
-	}
-	return nil
+		if version > schemaVersion {
+			return newerSchemaError(version)
+		}
+		if version == 1 && !backedUp {
+			return errNotBackedUp
+		}
+		tree, err := closuretree.New(tx, dbItem{})
+		if err != nil {
+			return err
+		}
+		if err := tree.Migrate(); err != nil {
+			return err
+		}
+		if err := tx.AutoMigrate(&dbMeta{}); err != nil {
+			return err
+		}
+		switch version {
+		case 0:
+			return tx.Where(dbMeta{ID: 1}).
+				Attrs(dbMeta{Revision: 0, SchemaVersion: schemaVersion}).
+				FirstOrCreate(&dbMeta{}).Error
+		case 1:
+			if err := upgradeToV2(ctx, tx); err != nil {
+				return fmt.Errorf("upgrade to schema 2: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
-// storedSchemaVersion reads the schema version from the meta row. A new store,
-// without a meta table or row yet, is version 0.
-func (s *Store) storedSchemaVersion() (int, error) {
-	if !s.db.Migrator().HasTable(&dbMeta{}) {
+// storedSchemaVersion reads the schema version from the meta row through db,
+// which may be a transaction handle. A new store, without a meta table or row
+// yet, is version 0.
+func storedSchemaVersion(db *gorm.DB) (int, error) {
+	if !db.Migrator().HasTable(&dbMeta{}) {
 		return 0, nil
 	}
 	var metas []dbMeta
-	if err := s.db.Where("id = ?", 1).Limit(1).Find(&metas).Error; err != nil {
+	if err := db.Where("id = ?", 1).Limit(1).Find(&metas).Error; err != nil {
 		return 0, err
 	}
 	if len(metas) == 0 {
@@ -113,17 +145,17 @@ func sqlString(v string) string {
 // below a subtask moves up to its top-level task, at its reading-order place
 // (see Document.FlattenSubtasks), every subtask's status becomes Open or Done,
 // and the meta row records version 2. The moves go through closure-tree, so the
-// closure table stays consistent. A store another process has upgraded since
-// is left alone.
-func (s *Store) upgradeToV2(ctx context.Context) error {
-	err := s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
-		var m dbMeta
-		if err := tx.First(&m, 1).Error; err != nil {
-			return err
-		}
-		if m.SchemaVersion >= 2 {
-			return errAlreadyUpgraded
-		}
+// closure table stays consistent. It runs in the transaction tx the caller
+// holds. A store already on schema 2 is left alone, its revision included.
+func upgradeToV2(ctx context.Context, tx *gorm.DB) error {
+	version, err := storedSchemaVersion(tx)
+	if err != nil {
+		return err
+	}
+	if version >= 2 {
+		return nil
+	}
+	return writeIn(ctx, tx, func(tx *gorm.DB, tree *closuretree.Tree) error {
 		doc, err := loadDocument(ctx, tx)
 		if err != nil {
 			return err
@@ -141,10 +173,6 @@ func (s *Store) upgradeToV2(ctx context.Context) error {
 		}
 		return tx.Model(&dbMeta{}).Where("id = ?", 1).Update("schema_version", 2).Error
 	})
-	if errors.Is(err, errAlreadyUpgraded) {
-		return nil
-	}
-	return err
 }
 
 // writeSubtaskStatuses stores the status every subtask of doc holds in memory,

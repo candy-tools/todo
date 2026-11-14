@@ -35,35 +35,42 @@ type Fields struct {
 // newer todo has upgraded is refused with ErrNewerSchema before fn runs.
 func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretree.Tree) error) error {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if _, err := revisionIn(ctx, tx); err != nil {
-			return err
-		}
-		tree, err := closuretree.New(tx, dbItem{})
-		if err != nil {
-			return err
-		}
-		if err := fn(tx, tree); err != nil {
-			return err
-		}
-		if err := tx.Model(&dbMeta{}).Where("id = ?", 1).
-			Update("revision", gorm.Expr("revision + 1")).Error; err != nil {
-			return err
-		}
-		need, err := tree.NeedsRenormalizeAny(ctx, storeScope, closuretree.DefaultHalvingsBuffer)
-		if err != nil {
-			return err
-		}
-		if need {
-			if _, err := tree.RenormalizeAll(ctx, storeScope, closuretree.DefaultHalvingsBuffer); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeIn(ctx, tx, fn)
 	})
 	if errors.Is(err, closuretree.ErrNodeNotFound) || errors.Is(err, closuretree.ErrParentNotFound) {
 		return ErrNotFound
 	}
 	return err
+}
+
+// writeIn is the body of a write, run in the transaction tx the caller holds:
+// the newer-schema check, fn with a closure-tree bound to tx, the revision bump
+// and any renormalization. The caller commits or rolls back.
+func writeIn(ctx context.Context, tx *gorm.DB, fn func(tx *gorm.DB, tree *closuretree.Tree) error) error {
+	if _, err := revisionIn(ctx, tx); err != nil {
+		return err
+	}
+	tree, err := closuretree.New(tx, dbItem{})
+	if err != nil {
+		return err
+	}
+	if err := fn(tx, tree); err != nil {
+		return err
+	}
+	if err := tx.Model(&dbMeta{}).Where("id = ?", 1).
+		Update("revision", gorm.Expr("revision + 1")).Error; err != nil {
+		return err
+	}
+	need, err := tree.NeedsRenormalizeAny(ctx, storeScope, closuretree.DefaultHalvingsBuffer)
+	if err != nil {
+		return err
+	}
+	if need {
+		if _, err := tree.RenormalizeAll(ctx, storeScope, closuretree.DefaultHalvingsBuffer); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // kindAndParent reads row id as it is in the write's transaction (tree is bound

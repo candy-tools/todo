@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	closuretree "github.com/go-bumbu/closure-tree"
@@ -294,13 +295,71 @@ func TestMigrateRunsOnce(t *testing.T) {
 	}
 }
 
-// TestUpgradeToV2SkipsUpgradedStore covers a migration that lost the race: the
-// store was upgraded between its version check and its write, so the write
-// changes nothing and does not bump the revision.
+// TestMigrateParallelOpens opens one file from several handles released at the
+// same moment, as agents running the CLI side by side do: every open succeeds,
+// and the store is created or upgraded exactly once.
+func TestMigrateParallelOpens(t *testing.T) {
+	const handles, iterations = 4, 8
+	cases := []struct {
+		name    string
+		path    func(t *testing.T) string
+		wantRev int64
+	}{
+		{"v1", seedV1, 1},
+		{"new", func(t *testing.T) string { return filepath.Join(t.TempDir(), ".todo.db") }, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for range iterations {
+				path := tc.path(t)
+				stores := make([]*Store, handles)
+				errs := make([]error, handles)
+				start := make(chan struct{})
+				var wg sync.WaitGroup
+				for i := range handles {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						<-start
+						stores[i], errs[i] = OpenStore(path)
+					}()
+				}
+				close(start)
+				wg.Wait()
+				for i, s := range stores {
+					if s != nil {
+						t.Cleanup(func() { _ = s.Close() })
+					}
+					if errs[i] != nil {
+						t.Fatalf("handle %d: OpenStore: %v", i+1, errs[i])
+					}
+				}
+				want := snapshot(load(t, stores[0]))
+				for i, s := range stores {
+					if got := snapshot(load(t, s)); got != want {
+						t.Errorf("handle %d sees\n%s\nwant\n%s", i+1, got, want)
+					}
+					if rev, err := s.Revision(context.Background()); err != nil || rev != tc.wantRev {
+						t.Errorf("handle %d: revision = %d (err=%v), want %d", i+1, rev, err, tc.wantRev)
+					}
+				}
+				if v := storedVersion(t, stores[0].db); v != 2 {
+					t.Errorf("schema_version = %d, want 2", v)
+				}
+			}
+		})
+	}
+}
+
+// TestUpgradeToV2SkipsUpgradedStore covers an upgrade run on a store that is
+// already on schema 2: it changes nothing and does not bump the revision.
 func TestUpgradeToV2SkipsUpgradedStore(t *testing.T) {
 	s := openStore(t, seedV1(t))
 	want := snapshot(load(t, s))
-	if err := s.upgradeToV2(context.Background()); err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		return upgradeToV2(context.Background(), tx)
+	})
+	if err != nil {
 		t.Fatalf("upgradeToV2 on a v2 store: %v", err)
 	}
 	if got := snapshot(load(t, s)); got != want {

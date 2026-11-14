@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	closuretree "github.com/go-bumbu/closure-tree"
 	"github.com/go-bumbu/db/gormdb"
@@ -68,11 +69,7 @@ type Store struct {
 // OpenStore opens the SQLite store at path, creating the file and its schema
 // when they do not exist yet.
 func OpenStore(path string) (*Store, error) {
-	db, err := gormdb.Open(gormdb.Cfg{
-		Driver: gormdb.DriverSqlite,
-		Sqlite: gormdb.SqliteCfg{Path: path},
-		Logger: logger.Discard,
-	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+	db, err := openDB(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -82,6 +79,43 @@ func OpenStore(path string) (*Store, error) {
 		return nil, fmt.Errorf("prepare %s: %w", path, err)
 	}
 	return s, nil
+}
+
+// openBusyWait is how long openDB retries an open that SQLite reports busy, and
+// openBusyDelay the pause between attempts. The wait matches the busy timeout
+// the connections get.
+const (
+	openBusyWait  = 5 * time.Second
+	openBusyDelay = 10 * time.Millisecond
+)
+
+// sqliteBusy is SQLite's SQLITE_BUSY result code.
+const sqliteBusy = 5
+
+// openDB opens the SQLite file at path. Processes that open a new file at the
+// same time each switch it to WAL mode, and SQLite fails all but one of them
+// with SQLITE_BUSY at once, without waiting out the busy timeout, to avoid a
+// deadlock. Such an open is retried: once the file is in WAL mode, the switch
+// is a no-op.
+func openDB(path string) (*gorm.DB, error) {
+	deadline := time.Now().Add(openBusyWait)
+	for {
+		db, err := gormdb.Open(gormdb.Cfg{
+			Driver: gormdb.DriverSqlite,
+			Sqlite: gormdb.SqliteCfg{Path: path},
+			Logger: logger.Discard,
+		}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+		if err == nil || !isBusy(err) || time.Now().After(deadline) {
+			return db, err
+		}
+		time.Sleep(openBusyDelay)
+	}
+}
+
+// isBusy reports whether err is SQLite's SQLITE_BUSY, extended codes included.
+func isBusy(err error) bool {
+	var coded interface{ Code() int }
+	return errors.As(err, &coded) && coded.Code()&0xff == sqliteBusy
 }
 
 // StoreExists reports whether a store file exists at path.
