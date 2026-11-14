@@ -30,7 +30,7 @@ func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "todo [db-file]",
 		Short:         "A minimalistic terminal TODO manager",
-		Long:          "todo opens a SQLite database as a keyboard-driven task list of categories,\ntasks and subtasks.\n\nWith no argument it uses .todo.db in the current directory. When that database\ndoes not exist yet and a TODO.md is present, TODO.md is imported on first run.\nUse `todo import <file.md>` to import a markdown file explicitly.",
+		Long:          "todo opens a SQLite database as a keyboard-driven task list of categories,\ntasks and subtasks, shown as a kanban board with Backlog, Next, In Progress and\nDone tabs. Each task has a state; set one from the command line with\n`todo status --to <state>`.\n\nWith no argument it uses .todo.db in the current directory. When that database\ndoes not exist yet and a TODO.md is present, TODO.md is imported on first run.\nUse `todo import <file.md>` to import a markdown file explicitly.",
 		Version:       metainfo.Version,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,

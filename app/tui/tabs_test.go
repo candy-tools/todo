@@ -451,7 +451,7 @@ func TestNewTaskWithPlan(t *testing.T) {
 	m = press(m, "tab")
 	m = press(m, "tab")
 	m = typeText(m, "docs/n.md")
-	m = press(m, "enter")
+	press(m, "enter")
 	if it := storedItem(t, path, "fresh"); it.Plan != "docs/n.md" {
 		t.Errorf("new task plan = %q, want docs/n.md", it.Plan)
 	}

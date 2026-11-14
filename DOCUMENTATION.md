@@ -33,18 +33,20 @@ task as its description. Tasks outside any header are gathered under an
 `Uncategorized` category, and text it can't map (such as prose between items)
 is reported as a warning and dropped.
 
-The screen is a single collapsible **category/task tree**. Tasks that carry a
+The screen is a **kanban board**: one tab per column, each showing a collapsible
+**category/task tree** of the tasks in that column. Tasks that carry a
 description are marked with a small `≡` glyph; press `enter` (or `e`) on any item
-to open its dialog, which shows the item's status and subtask progress and lets
-you edit its title and description in place (`esc` cancels, `enter`/Save applies).
+to open its dialog, which shows the item's column, state and subtask progress and
+lets you edit its title, description and plan in place (`esc` cancels,
+`enter`/Save applies).
 
-An example list, as the tree shows it:
+An example tab, as the tree shows it:
 
 ```text
 ▾ Work (2/5)
   ▾ ○ Ship v1.0 release
       ● Write changelog
-      ◐ Cut the git tag
+      ○ Cut the git tag
     ● Fix login bug
   ▾ Backend (0/1)
       ○ Migrate the database
@@ -54,9 +56,41 @@ An example list, as the tree shows it:
 + new category
 ```
 
-A task's glyph shows its status: `○` open, `◐` in progress, `⏸` deferred, `●`
-done. `▾` / `▸` mark an expanded / collapsed item, and a category shows how many
-of its tasks are done.
+A task's glyph shows its state: `○` open, `⏸` deferred, `◌` new, `◉` ready, `◐`
+working, `◑` review, `◒` followup, `●` done. `▾` / `▸` mark an expanded /
+collapsed item, and a category shows how many of its tasks are done.
+
+## Board
+
+The board has four columns, shown as tabs (with a task count each): **Backlog**,
+**Next**, **In Progress** and **Done**. A task's column comes from its state:
+
+| Column | States (in `t` cycle order) |
+|--------|-----------------------------|
+| Backlog | `open`, `deferred` |
+| Next | `new`, `ready` |
+| In Progress | `working`, `review`, `followup` |
+| Done | `done` |
+
+- **Categories** group tasks in every tab, but they can only be added, renamed,
+  moved or deleted in **Backlog**.
+- **Subtasks** go one level deep: a subtask cannot have subtasks of its own. A
+  subtask is only ever `open` or `done`, has no board state, and is shown in its
+  parent's column. Only a task that is `open` or `done` can hold subtasks.
+- **New tasks** take the first state of the tab they are added in (Backlog
+  `open`, Next `new`, In Progress `working`, Done `done`). A new subtask is open.
+- **Plan.** Each task has an optional plan link — a path or reference to where
+  its plan lives — edited in the task's dialog. A `ready` task with no plan is
+  flagged **`⚠ no plan`** in its dialog.
+
+Moving a task between columns:
+
+- `]` / `[` move it to the next / previous column; it lands in that column's
+  first state. `t` cycles the state inside its column.
+- Moving a task out of Done with `[` sets it `working` and restores its subtasks'
+  previous states.
+- `m` grabs a task to reorder it (see Keys); grab mode steps over tasks hidden in
+  the tab.
 
 ## Scripting / for agents
 
@@ -67,13 +101,19 @@ script) can edit the list without opening the TUI. All commands take
 Read the list — with numbers, ids, and JSON for the read-then-act loop:
 
 ```sh
-todo list                 # aligned table: # · id · status · item
-todo list --json          # nested tree with number/id/title/status/path
+todo list                 # aligned table: # · id · state · item
+todo list --json          # nested tree with number/id/title/status/column/plan/path
 todo list --filter build  # only matching items and their path
+todo list --column next   # only tasks in one column: backlog|next|progress|done
 ```
 
-The `st` column of `todo list` reads `[ ]` open, `[/]` in progress, `[>]`
-deferred, `[x]` done, and `--` for a category.
+The `state` column of `todo list` shows the task's state name (`open`, `ready`,
+`working`, …), and `--` for a category. In JSON, `status` is the state name,
+`column` is the task's column (`backlog`, `next`, `progress` or `done`; a
+subtask reports its parent's column) and `plan` is the plan link.
+
+**Breaking change:** JSON `status` now says `"working"` where it used to say
+`"progress"`. On input, `progress` is still accepted as an alias of `working`.
 
 Address an existing item three ways — exactly one, mutually exclusive:
 
@@ -86,16 +126,26 @@ Address an existing item three ways — exactly one, mutually exclusive:
 Common actions:
 
 ```sh
-todo add --title "Cut the tag" --parent-title "Ship v1.0" [--desc "…"] [--status open|progress|deferred|done]
+todo add --title "Cut the tag" --parent-title "Ship v1.0" [--desc "…"] [--plan docs/plan.md] [--status open|working|deferred|done|new|ready|review|followup]
 todo add-category --title "Backend" [--parent-title "Work"]
+todo status   --number 4 --to ready
 todo done     --title "Cut the tag" [--cascade]
-todo progress --number 4
-todo defer    --id 33
+todo progress --number 4   # shortcut: status --to working
+todo defer    --id 33      # shortcut: status --to deferred
 todo reopen   --title "Cut the tag" [--cascade]
-todo edit     --number 4 --set-title "…" --set-desc "…"
+todo edit     --number 4 --set-title "…" --set-desc "…" --set-plan "docs/plan.md"
 todo rm       --number 4
 todo prune                # drop every fully-completed task
 ```
+
+`status --to <state>` sets any state: `open`, `working`, `deferred`, `done`,
+`new`, `ready`, `review` or `followup` (`progress` is accepted for `working`).
+`add --status` defaults to `open`. `edit --set-plan ""` clears a task's plan.
+`reopen` sets a task `working`, or `open` for a subtask. `--cascade` on `done` /
+`reopen` applies the change to the task's subtasks too.
+
+Breaking the board's rules — a subtask under a subtask, or a board state on a
+subtask — exits with code `2`.
 
 `--id` is stable: an item keeps its id for as long as it exists, so it is the
 safest way to address an item across a sequence of edits. `--number` shifts
@@ -109,17 +159,19 @@ kind, `1` other. Errors go to stderr.
 
 | Key | Action |
 |-----|--------|
+| `tab` / `shift+tab` | Next / previous board tab |
+| `1`–`4` | Jump to Backlog / Next / In Progress / Done |
 | `↑` / `↓` (or `w`/`s`, `k`/`j`) | Move the selection |
 | `PgUp` / `PgDn` | Move the selection by 10 rows |
 | `←` / `→` (or `h`/`l`) | Collapse / expand (Left on a leaf jumps to the parent) |
-| `enter` | Open the selected item's dialog — its status/progress plus its editable title & description |
-| `space` | Toggle a task done, or fold / unfold a header (category) |
-| `x` | Toggle a task done |
-| `p` | Toggle a task **in progress** (`[/]`) — press again to clear it |
-| `>` | Toggle a task **deferred** (`[>]`) — press again to clear it |
+| `enter` | Open the selected item's dialog — its column/state/progress plus its editable title, description & plan |
+| `]` / `[` | Move the task to the next / previous column (it takes that column's first state) |
+| `t` | Cycle the task's state within its column |
+| `x` / `space` | On a subtask, toggle done. On a task, complete it with its subtasks, or undo / reopen it. On a category, `space` folds / unfolds it |
+| `m` | Grab the task to reorder it (arrows move it, `enter`/`esc`/`m` drops it) |
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it) |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
-| `c` | Add a category (a subcategory when a category is selected) |
+| `c` | Add a category (a subcategory when a category is selected) — Backlog only |
 | `e` | Edit the selected item's title (and a task's description) |
 | `y` | Copy the selected item to the clipboard — a task's title and full (multi-line) description as plain text |
 | `d` | Delete the selected item (and its subtree) — asks to confirm |
@@ -133,13 +185,16 @@ always ends with a **`+ new category`** row: select it and press `c` (or
 `enter`) to add a top-level category. On an existing category, `c` adds a
 subcategory instead.
 
-In the add/edit dialog: `tab` moves between fields, `enter` saves (it inserts a
-newline while you're in the description box), `esc` cancels.
+In the add/edit dialog: `tab` moves between fields (title, description, plan),
+`enter` saves (it inserts a newline while you're in the description box), `esc`
+cancels.
+
+Grab mode (`m`) is refused while a search is active.
 
 ## Search
 
-Press `/` to filter the list as you type — a grep over task/category titles and
-task descriptions. The whole path to every match is kept, so a hit deep in a
+Press `/` to filter the current tab as you type — a grep over task/category
+titles and task descriptions. The whole path to every match is kept, so a hit deep in a
 subtask keeps its parent tasks and category visible (searching `cat` still shows
 the tree down to a "catacombs" subtask), while non-matching branches are hidden;
 the matched text is highlighted. `enter` keeps the filter and returns you to
@@ -148,10 +203,11 @@ current query.
 
 ## Completing a parent
 
-Marking a parent task done completes **all** of its subtasks at once. If you did
-it by accident, just unmark the parent again and the previous subtask states are
-restored — that undo memory is kept in RAM for the session, so the database only
-ever records the current states.
+Pressing `x` / `space` on a parent task completes it and **all** of its subtasks
+at once. If you did it by accident, press `x` again right away and the task's
+exact previous state and its subtasks' states are restored — that undo memory is
+kept in RAM for the session, so the database only ever records the current
+states. A done task with no undo history reopens to `working`.
 
 ## Live reload
 
@@ -175,3 +231,16 @@ you. If you commit it, commit `.todo.db` only — never `.todo.db-wal` or
 `.todo.db-shm`. While todo is running, recent changes may still sit in the WAL
 rather than in `.todo.db` itself, so commit after quitting todo. Keep in mind
 that it is a binary file, so git can't merge concurrent changes to it.
+
+## Upgrading
+
+Opening a database made by an older todo migrates it once to schema v2:
+
+- It first writes a backup next to the database, `<db>.bak` (e.g. `.todo.db.bak`).
+  An existing `.bak` is kept, not overwritten.
+- Nesting deeper than one subtask level is flattened.
+- Subtask states become `open` / `done`.
+- Older todo versions refuse an upgraded database.
+
+To go back, copy the `.bak` over the database file. Don't open the `.bak`
+directly with `-f`: that would migrate the backup itself.

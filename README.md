@@ -2,7 +2,9 @@
 
 A minimalistic, keyboard-driven TODO manager for the terminal. It opens a
 per-directory SQLite database (`.todo.db`) as a task list — categories hold
-tasks, and nested tasks are subtasks. Everything you do is saved straight away,
+tasks, and nested tasks are subtasks. The list is a kanban board with one tab per
+column — Backlog, Next, In Progress and Done — and you move tasks across the
+columns with a key. Everything you do is saved straight away,
 and an existing `TODO.md` is imported automatically the first time you run it.
 
 Built with the [Charm](https://charm.sh) stack: [Bubble Tea](https://github.com/charmbracelet/bubbletea),
