@@ -13,8 +13,14 @@ import (
 )
 
 // BackupPath returns where the migration keeps a copy of the store at dbPath
-// as it was before the upgrade.
-func BackupPath(dbPath string) string { return dbPath + ".bak" }
+// as it was before the upgrade: <dbPath>.bak for n = 0, <dbPath>.bak.<n>
+// otherwise.
+func BackupPath(dbPath string, n int) string {
+	if n == 0 {
+		return dbPath + ".bak"
+	}
+	return fmt.Sprintf("%s.bak.%d", dbPath, n)
+}
 
 // errNotBackedUp stops a migration that finds a v1 store inside its transaction
 // after the check before it found none, so no backup was taken: a v1 todo
@@ -52,7 +58,7 @@ func (s *Store) migrateOnce() error {
 	backedUp := false
 	if version == 1 {
 		if err := s.backup(); err != nil {
-			return fmt.Errorf("back up to %s: %w", BackupPath(s.path), err)
+			return fmt.Errorf("back up %s: %w", s.path, err)
 		}
 		backedUp = true
 	}
@@ -108,19 +114,15 @@ func storedSchemaVersion(db *gorm.DB) (int, error) {
 	return metas[0].SchemaVersion, nil
 }
 
-// backup copies the store, as it is now, to BackupPath. An existing backup is
-// kept: a migration that is retried, or that races another process, never
-// replaces the copy of the original v1 store. The copy is made with VACUUM
-// INTO, which reads a consistent snapshot of a WAL-mode database, into a
-// temporary file next to the store, and only the finished file is linked (or
-// renamed) into place, so BackupPath never holds a partial copy.
+// backup copies the store, as it is now, to the first free BackupPath: .bak,
+// or .bak.1, .bak.2, … when that is taken. An existing backup is never
+// replaced, so a retried or racing migration, or an older run, keeps its copy.
+// The copy is made with VACUUM INTO, which reads a consistent snapshot of a
+// WAL-mode database, into a temporary file next to the store, and only the
+// finished file is linked (or renamed) into place, so a backup path never
+// holds a partial copy.
 func (s *Store) backup() error {
-	bak := BackupPath(s.path)
-	exists, err := StoreExists(bak)
-	if err != nil || exists {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(bak), ".todo-backup-*.db")
+	f, err := os.CreateTemp(filepath.Dir(s.path), ".todo-backup-*.db")
 	if err != nil {
 		return err
 	}
@@ -132,8 +134,12 @@ func (s *Store) backup() error {
 	if err := s.db.Exec("VACUUM INTO " + sqlString(tmp)).Error; err != nil {
 		return err
 	}
-	_, err = placeStore(tmp, bak)
-	return err
+	for n := 0; ; n++ {
+		placed, err := placeStore(tmp, BackupPath(s.path, n))
+		if err != nil || placed {
+			return err
+		}
+	}
 }
 
 // sqlString quotes v as an SQL string literal.

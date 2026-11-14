@@ -206,23 +206,17 @@ func TestMigrateV1WritesBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bak := BackupPath(path)
+	bak := BackupPath(path, 0)
 	if bak != path+".bak" {
-		t.Fatalf("BackupPath = %q, want %q", bak, path+".bak")
+		t.Fatalf("BackupPath(path, 0) = %q, want %q", bak, path+".bak")
 	}
-	if ok, err := StoreExists(bak); err != nil || !ok {
-		t.Fatalf("backup %s missing (err=%v)", bak, err)
+	if got, want := BackupPath(path, 2), path+".bak.2"; got != want {
+		t.Fatalf("BackupPath(path, 2) = %q, want %q", got, want)
 	}
-	// A plain handle, not OpenStore, which would migrate the backup too.
-	db, err := gormdb.Open(gormdb.Cfg{
-		Driver: gormdb.DriverSqlite,
-		Sqlite: gormdb.SqliteCfg{Path: bak},
-		Logger: logger.Discard,
-	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
-	if err != nil {
-		t.Fatalf("open backup: %v", err)
+	if _, err := os.Stat(BackupPath(path, 1)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a first backup wrote .bak.1 too (stat err=%v)", err)
 	}
-	defer func() { _ = gormdb.Close(db) }()
+	db := openPlain(t, bak)
 	if v := storedVersion(t, db); v != 1 {
 		t.Errorf("backup schema_version = %d, want 1", v)
 	}
@@ -250,18 +244,95 @@ func TestMigrateV1WritesBackup(t *testing.T) {
 	}
 }
 
+// openPlain opens the store file at path through a plain handle, not
+// OpenStore, which would migrate it. It closes with the test.
+func openPlain(t *testing.T, path string) *gorm.DB {
+	t.Helper()
+	if ok, err := StoreExists(path); err != nil || !ok {
+		t.Fatalf("store %s missing (err=%v)", path, err)
+	}
+	db, err := gormdb.Open(gormdb.Cfg{
+		Driver: gormdb.DriverSqlite,
+		Sqlite: gormdb.SqliteCfg{Path: path},
+		Logger: logger.Discard,
+	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+	if err != nil {
+		t.Fatalf("open backup: %v", err)
+	}
+	t.Cleanup(func() { _ = gormdb.Close(db) })
+	return db
+}
+
+// TestMigrateKeepsExistingBackup covers a store whose .bak (and .bak.1) already
+// exist: they stay untouched, and the v1 store is backed up to the first free
+// numbered name instead.
 func TestMigrateKeepsExistingBackup(t *testing.T) {
 	path := seedV1(t)
-	old := []byte("an older backup")
-	if err := os.WriteFile(BackupPath(path), old, 0o600); err != nil {
-		t.Fatal(err)
+	old := map[int][]byte{0: []byte("an older backup"), 1: []byte("another older backup")}
+	for n, data := range old {
+		if err := os.WriteFile(BackupPath(path, n), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	s := openStore(t, path)
 	if v := storedVersion(t, s.db); v != 2 {
 		t.Errorf("schema_version = %d, want 2", v)
 	}
-	if got, err := os.ReadFile(BackupPath(path)); err != nil || !bytes.Equal(got, old) {
-		t.Errorf("backup = %q (err=%v), want it unchanged: %q", got, err, old)
+	for n, data := range old {
+		if got, err := os.ReadFile(BackupPath(path, n)); err != nil || !bytes.Equal(got, data) {
+			t.Errorf("backup %d = %q (err=%v), want it unchanged: %q", n, got, err, data)
+		}
+	}
+	if v := storedVersion(t, openPlain(t, BackupPath(path, 2))); v != 1 {
+		t.Errorf(".bak.2 schema_version = %d, want 1", v)
+	}
+}
+
+// dumpTables renders every row of the items, closure and meta tables through
+// db, so two states of one file compare equal only when nothing changed.
+func dumpTables(t *testing.T, db *gorm.DB) string {
+	t.Helper()
+	var b strings.Builder
+	for _, table := range []string{"items", "closure_tree_rel_items", "meta"} {
+		var rows []map[string]any
+		if err := db.Table(table).Order("rowid").Find(&rows).Error; err != nil {
+			t.Fatalf("read %s: %v", table, err)
+		}
+		fmt.Fprintf(&b, "%s: %v\n", table, rows)
+	}
+	return b.String()
+}
+
+// TestMigrateFailureRollsBack makes the upgrade's last step fail, with a
+// trigger refusing the schema_version update, after the moves and status
+// writes ran: the open fails, and the file keeps its v1 data and schema, the
+// plan column not added.
+func TestMigrateFailureRollsBack(t *testing.T) {
+	path := seedV1(t)
+	db := openPlain(t, path)
+	const trigger = "CREATE TRIGGER fail_upgrade BEFORE UPDATE OF schema_version ON meta " +
+		"BEGIN SELECT RAISE(ABORT, 'injected upgrade failure'); END"
+	if err := db.Exec(trigger).Error; err != nil {
+		t.Fatal(err)
+	}
+	before := dumpTables(t, db)
+
+	s, err := OpenStore(path)
+	if err == nil {
+		_ = s.Close()
+		t.Fatal("OpenStore succeeded, want the injected upgrade failure")
+	}
+	if !strings.Contains(err.Error(), "injected upgrade failure") {
+		t.Fatalf("OpenStore error = %v, want the injected upgrade failure", err)
+	}
+	if v := storedVersion(t, db); v != 1 {
+		t.Errorf("schema_version = %d, want 1", v)
+	}
+	if db.Migrator().HasColumn(&dbItem{}, "plan") {
+		t.Error("the plan column survived the failed upgrade")
+	}
+	if got := dumpTables(t, db); got != before {
+		t.Errorf("the failed upgrade changed the store:\n%s\nwant\n%s", got, before)
 	}
 }
 
@@ -376,7 +447,7 @@ func TestNewStoreIsV2(t *testing.T) {
 	if v := storedVersion(t, s.db); v != 2 {
 		t.Errorf("schema_version = %d, want 2", v)
 	}
-	if _, err := os.Stat(BackupPath(path)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(BackupPath(path, 0)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("new store has a backup (stat err=%v), want none", err)
 	}
 }
