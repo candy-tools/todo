@@ -1,6 +1,9 @@
 package todo
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Matches reports whether query occurs, case-insensitively, in the item's
 // title — or, for a task, in its description. The query is a plain substring
@@ -71,18 +74,19 @@ func (d *Document) VisibleWhere(match func(*Item) bool) map[*Item]bool {
 	return visible
 }
 
-// inColumn reports whether it is a top-level task sitting in column c.
-func inColumn(it *Item, c Column) bool {
-	return it.Kind == Task && !it.IsSubtask() && it.Status.Column() == c
+// inColumns reports whether it is a top-level task sitting in one of cols.
+func inColumns(it *Item, cols []Column) bool {
+	return it.Kind == Task && !it.IsSubtask() && slices.Contains(cols, it.Status.Column())
 }
 
-// ColumnItems returns the items to show on the board tab for column c: the
-// top-level tasks in c, their subtasks, and the category path above them. The
-// Backlog tab also shows every category, so empty categories stay reachable for
-// adding tasks. The result is never nil; an empty map means nothing shows.
-func (d *Document) ColumnItems(c Column) map[*Item]bool {
-	visible := d.VisibleWhere(func(it *Item) bool { return inColumn(it, c) })
-	if c == ColBacklog {
+// ColumnItems returns the items to show for the board columns cols (one tab,
+// or several at once): the top-level tasks in any of them, their subtasks, and
+// the category path above them. When cols includes Backlog every category is
+// shown too, so empty categories stay reachable for adding tasks. The result
+// is never nil; an empty map means nothing shows.
+func (d *Document) ColumnItems(cols ...Column) map[*Item]bool {
+	visible := d.VisibleWhere(func(it *Item) bool { return inColumns(it, cols) })
+	if slices.Contains(cols, ColBacklog) {
 		var walk func(it *Item)
 		walk = func(it *Item) {
 			if it.Kind == Category {
@@ -99,13 +103,13 @@ func (d *Document) ColumnItems(c Column) map[*Item]bool {
 	return visible
 }
 
-// ColumnMatches returns the items a board tab shows for column c while
-// searching for query: the in-tab items on a path to a match that is itself in
-// the tab (see VisibleWhere), so a match in another column never keeps its
-// category as a bare row. A blank query is no search: it returns ColumnItems(c).
-// The TUI tab and `list --column --filter` both use it, so they agree.
-func (d *Document) ColumnMatches(c Column, query string) map[*Item]bool {
-	inTab := d.ColumnItems(c)
+// ColumnMatches returns the items shown for the columns cols while searching
+// for query: the in-view items on a path to a match that is itself in view
+// (see VisibleWhere), so a match in another column never keeps its category as
+// a bare row. A blank query is no search: it returns ColumnItems(cols...).
+// The TUI and `list --column --filter` both use it, so they agree.
+func (d *Document) ColumnMatches(query string, cols ...Column) map[*Item]bool {
+	inTab := d.ColumnItems(cols...)
 	if strings.TrimSpace(query) == "" {
 		return inTab
 	}
@@ -118,12 +122,12 @@ func (d *Document) ColumnMatches(c Column, query string) map[*Item]bool {
 	return vis
 }
 
-// KeepStates narrows vis, a tab's visible set for column c (see ColumnItems and
-// ColumnMatches), to the top-level tasks of c whose status is in states, their
-// subtasks and the category path above them. Categories left without such a
-// task drop out. It returns a new map and leaves vis untouched.
-func (d *Document) KeepStates(vis map[*Item]bool, c Column, states map[Status]bool) map[*Item]bool {
-	keep := d.VisibleWhere(func(it *Item) bool { return inColumn(it, c) && states[it.Status] })
+// KeepStates narrows vis, a visible set for the columns cols (see ColumnItems
+// and ColumnMatches), to the top-level tasks in cols whose status is in
+// states, their subtasks and the category path above them. Categories left
+// without such a task drop out. It returns a new map and leaves vis untouched.
+func (d *Document) KeepStates(vis map[*Item]bool, states map[Status]bool, cols ...Column) map[*Item]bool {
+	keep := d.VisibleWhere(func(it *Item) bool { return inColumns(it, cols) && states[it.Status] })
 	out := make(map[*Item]bool, len(keep))
 	for it := range keep {
 		if vis[it] {

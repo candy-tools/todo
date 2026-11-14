@@ -91,7 +91,7 @@ func TestCountInColumn(t *testing.T) {
 
 func TestColumnMatchesBlankQueryIsColumn(t *testing.T) {
 	d := todotest.Parse(t, board)
-	checkVisible(t, d, d.ColumnMatches(todo.ColInProgress, "  "), map[string]bool{
+	checkVisible(t, d, d.ColumnMatches("  ", todo.ColInProgress), map[string]bool{
 		"B": true, "working": true, "sub": true, "backlogTask": false,
 	})
 }
@@ -100,7 +100,7 @@ func TestColumnMatchesOnlyInTab(t *testing.T) {
 	// beta matches but sits in Backlog, so the In Progress search must not keep
 	// its category C as a bare row.
 	d := todotest.Parse(t, "# C\n- [/] w\n- [ ] beta\n# Beta\n- [/] v\n# D\n- [/] betaWork\n  - [ ] s\n")
-	checkVisible(t, d, d.ColumnMatches(todo.ColInProgress, "beta"), map[string]bool{
+	checkVisible(t, d, d.ColumnMatches("beta", todo.ColInProgress), map[string]bool{
 		"C": false, "w": false, "beta": false,
 		"Beta": true, "v": true, // a matching category keeps its in-tab subtree
 		"D": true, "betaWork": true, "s": true,
@@ -109,7 +109,7 @@ func TestColumnMatchesOnlyInTab(t *testing.T) {
 
 func TestKeepStates(t *testing.T) {
 	d := parse("# A\n- [ ] open\n  - [ ] sub\n- [>] deferred\n# B\n- [ ] other\n# Empty\n")
-	vis := d.KeepStates(d.ColumnItems(todo.ColBacklog), todo.ColBacklog, map[todo.Status]bool{todo.Open: true})
+	vis := d.KeepStates(d.ColumnItems(todo.ColBacklog), map[todo.Status]bool{todo.Open: true}, todo.ColBacklog)
 	for _, title := range []string{"A", "open", "sub", "B", "other"} {
 		if !vis[findByTitle(d, title)] {
 			t.Errorf("%q should be kept", title)
@@ -120,4 +120,24 @@ func TestKeepStates(t *testing.T) {
 			t.Errorf("%q should be dropped", title)
 		}
 	}
+}
+
+func TestColumnItemsUnion(t *testing.T) {
+	d := todotest.Parse(t, "# A\n- [ ] o\n# B\n- [x] d\n# E\n")
+	findByTitle(d, "o").Status = todo.Ready // o now in Next
+	checkVisible(t, d, d.ColumnItems(todo.ColNext, todo.ColDone), map[string]bool{
+		"A": true, "o": true, "B": true, "d": true,
+		"E": false, // empty category: Backlog isn't in the set
+	})
+	if vis := d.ColumnItems(todo.Columns()...); !vis[findByTitle(d, "E")] {
+		t.Error("a set with Backlog shows every category")
+	}
+}
+
+func TestKeepStatesAcrossColumns(t *testing.T) {
+	d := todotest.Parse(t, "# A\n- [ ] o\n- [ ] r\n- [x] d\n")
+	findByTitle(d, "r").Status = todo.Ready
+	all := todo.Columns()
+	got := d.KeepStates(d.ColumnItems(all...), map[todo.Status]bool{todo.Ready: true, todo.Done: true}, all...)
+	checkVisible(t, d, got, map[string]bool{"A": true, "r": true, "d": true, "o": false})
 }

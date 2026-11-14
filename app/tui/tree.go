@@ -127,9 +127,9 @@ func (t *tree) shownBefore(it *todo.Item) int {
 // tab (see todo.Document.ColumnMatches), narrowed to the state filter when it
 // is on for the tab (see todo.Document.KeepStates).
 func (t *tree) visibleItems() map[*todo.Item]bool {
-	vis := t.doc.ColumnMatches(t.column, t.filter)
+	vis := t.doc.ColumnMatches(t.filter, t.column)
 	if len(t.tabStates()) > 0 {
-		vis = t.doc.KeepStates(vis, t.column, t.states)
+		vis = t.doc.KeepStates(vis, t.states, t.column)
 	}
 	return vis
 }

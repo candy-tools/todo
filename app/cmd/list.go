@@ -34,7 +34,7 @@ func listCmd() *cobra.Command {
 				if !ok {
 					return usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
 				}
-				visible = doc.ColumnMatches(col, filter) // search within the column, as the TUI tab does
+				visible = doc.ColumnMatches(filter, col) // search within the column, as the TUI tab does
 			}
 			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
 				return writeListJSON(cmd.OutOrStdout(), doc, visible)
