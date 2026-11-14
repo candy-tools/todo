@@ -336,9 +336,9 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	switch msg.String() {
 	case "up", "w", "k":
-		return m.applyMove(m.stepPastShown(m.doc.MoveUp))
+		return m.applyMove(m.stepPastShown(m.doc.MoveUp, m.doc.MoveDown))
 	case "down", "s", "j":
-		return m.applyMove(m.stepPastShown(m.doc.MoveDown))
+		return m.applyMove(m.stepPastShown(m.doc.MoveDown, m.doc.MoveUp))
 	case "left", "h":
 		return m.applyMove(m.doc.Outdent)
 	case "right", "l":
@@ -353,19 +353,27 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // row the tab shows. Every tab can hide items between its rows (Backlog hides
 // the other columns' tasks, other tabs hide Backlog's, a search hides
 // non-matches), so op repeats until the item has passed a row that was shown
-// before the move, or op refuses; it reports whether the item moved at all.
-// Where nothing is hidden, the first step already passes a shown row.
-func (m model) stepPastShown(op func(*todo.Item) bool) func(*todo.Item) bool {
+// before the move or has entered another parent (one category per key press,
+// as when nothing is hidden). If op refuses first, the item only stepped over
+// hidden siblings, so undo walks it back and the move is a no-op; it reports
+// whether the item moved. Where nothing is hidden, the first step already
+// passes a shown row.
+func (m model) stepPastShown(op, undo func(*todo.Item) bool) func(*todo.Item) bool {
 	return func(it *todo.Item) bool {
-		start := m.tree.shownBefore(it)
-		moved := false
+		start, parent := m.tree.shownBefore(it), it.Parent
+		steps := 0
 		for op(it) {
-			moved = true
-			if m.tree.shownBefore(it) != start {
-				break
+			steps++
+			if it.Parent != parent || m.tree.shownBefore(it) != start {
+				return true
 			}
 		}
-		return moved
+		// Every step was a swap with a hidden sibling under the same parent, which
+		// undo swaps straight back.
+		for ; steps > 0; steps-- {
+			undo(it)
+		}
+		return false
 	}
 }
 

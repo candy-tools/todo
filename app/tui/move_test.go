@@ -185,14 +185,14 @@ func TestGrabMoveStepsOverHiddenTasks(t *testing.T) {
 	if got := m.tree.selected(); got == nil || got.Title != "w2" {
 		t.Errorf("the cursor should follow w2, got %v", got)
 	}
-	// One down passes w1; a second has no visible row left to pass, so it steps
-	// over the hidden b until the move runs out.
+	// One down passes w1; a second has no visible row left to pass (only the
+	// hidden b, then the move runs out), so it is a no-op.
 	m = press(m, "m", "down")
 	if got, want := storedChildren(t, path, "C"), []string{"w1", "w2", "b"}; !equalStrings(got, want) {
 		t.Errorf("stored order under C after down = %v, want %v", got, want)
 	}
 	m = press(m, "down", "m")
-	if got, want := storedChildren(t, path, "C"), []string{"w1", "b", "w2"}; !equalStrings(got, want) {
+	if got, want := storedChildren(t, path, "C"), []string{"w1", "w2", "b"}; !equalStrings(got, want) {
 		t.Errorf("stored order under C after a second down = %v, want %v", got, want)
 	}
 
@@ -247,15 +247,56 @@ func TestGrabEndsWhenItemLeavesTab(t *testing.T) {
 	}
 }
 
-func TestGrabMoveCrossesHiddenCategory(t *testing.T) {
-	m, path := newTestModelOn(t, "# A\n- [/] w\n# B\n- [ ] x\n# C\n- [/] v\n", todo.ColInProgress)
+func TestGrabMoveDownStepsOneHiddenCategory(t *testing.T) {
+	m, path := newTestModelOn(t, "# A\n- [/] w\n# B\n- [ ] x\n# C\n- [ ] y\n# D\n- [ ] z\n", todo.ColInProgress)
 	m = selectTitle(t, m, "w")
 	m = press(m, "m", "down")
-	if got, want := storedChildren(t, path, "C"), []string{"w", "v"}; !equalStrings(got, want) {
-		t.Errorf("w must step over the hidden B into C, C = %v, want %v", got, want)
+	if got, want := storedChildren(t, path, "B"), []string{"w", "x"}; !equalStrings(got, want) {
+		t.Errorf("one down must carry w into the next category only, B = %v, want %v", got, want)
 	}
-	if got := storedChildren(t, path, "B"); !equalStrings(got, []string{"x"}) {
-		t.Errorf("B = %v, want [x]", got)
+	if got := m.tree.selected(); got == nil || got.Title != "w" || !m.tree.grabbed {
+		t.Errorf("w stays selected and grabbed, got %v (grabbed %v)", got, m.tree.grabbed)
+	}
+	// The second down steps over the hidden x and on into C, one category again.
+	m = press(m, "down")
+	if got, want := storedChildren(t, path, "C"), []string{"w", "y"}; !equalStrings(got, want) {
+		t.Errorf("a second down must carry w into C, C = %v, want %v", got, want)
+	}
+	if got := storedChildren(t, path, "D"); !equalStrings(got, []string{"z"}) {
+		t.Errorf("D = %v, want [z]", got)
+	}
+}
+
+func TestGrabMoveUpStepsOneHiddenCategory(t *testing.T) {
+	m, path := newTestModelOn(t, "# A\n- [ ] x\n# B\n- [ ] y\n# C\n- [ ] z\n# D\n- [/] w\n", todo.ColInProgress)
+	m = selectTitle(t, m, "w")
+	m = press(m, "m", "up")
+	if got, want := storedChildren(t, path, "C"), []string{"z", "w"}; !equalStrings(got, want) {
+		t.Errorf("one up must carry w into the previous category only, C = %v, want %v", got, want)
+	}
+	// The second up steps over the hidden z and on into B.
+	m = press(m, "up")
+	if got, want := storedChildren(t, path, "B"), []string{"y", "w"}; !equalStrings(got, want) {
+		t.Errorf("a second up must carry w into B, B = %v, want %v", got, want)
+	}
+	if got := m.tree.selected(); got == nil || got.Title != "w" || !m.tree.grabbed {
+		t.Errorf("w stays selected and grabbed, got %v (grabbed %v)", got, m.tree.grabbed)
+	}
+}
+
+func TestGrabMovePastOnlyHiddenRowsIsNoop(t *testing.T) {
+	m, path := newTestModelOn(t, "# A\n- [/] w\n- [ ] x\n", todo.ColInProgress)
+	m = selectTitle(t, m, "w")
+	before := storeRev(t, m)
+	m = press(m, "m", "down")
+	if got, want := titles(find(m.doc, "A").Children), []string{"w", "x"}; !equalStrings(got, want) {
+		t.Errorf("in-memory order under A = %v, want %v", got, want)
+	}
+	if storeRev(t, m) != before {
+		t.Errorf("a move with no shown row to pass wrote to the store")
+	}
+	if got := storedChildren(t, path, "A"); !equalStrings(got, []string{"w", "x"}) {
+		t.Errorf("stored order under A = %v, want [w x]", got)
 	}
 	if got := m.tree.selected(); got == nil || got.Title != "w" || !m.tree.grabbed {
 		t.Errorf("w stays selected and grabbed, got %v (grabbed %v)", got, m.tree.grabbed)
