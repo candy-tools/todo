@@ -18,7 +18,18 @@ import (
 const storeScope = "todo"
 
 // schemaVersion is the version recorded in the meta row of a new store.
-const schemaVersion = 1
+const schemaVersion = 2
+
+// ErrNewerSchema is returned when the store was written by a newer todo, whose
+// schema this binary does not know and must not read or write. It is wrapped
+// with the version found.
+var ErrNewerSchema = errors.New("database was created by a newer todo")
+
+// newerSchemaError returns ErrNewerSchema wrapped with the schema version found
+// in the meta row.
+func newerSchemaError(version int) error {
+	return fmt.Errorf("%w (schema %d); upgrade todo", ErrNewerSchema, version)
+}
 
 // dbItem is a node of the task tree: closure-tree owns its identity, scope and
 // position, and this adds the payload. The table is closure-tree's node table;
@@ -29,6 +40,7 @@ type dbItem struct {
 	Title       string `gorm:"not null"`
 	Status      int    `gorm:"not null"`
 	Description string `gorm:"not null"`
+	Plan        string `gorm:"not null;default:''"`
 
 	// Children is filled by TreeDescendants only, which needs the field to link
 	// the nodes it reads into a tree.
@@ -106,7 +118,7 @@ func (s *Store) checkSchemaVersion() error {
 		return err
 	}
 	if len(metas) == 1 && metas[0].SchemaVersion > schemaVersion {
-		return fmt.Errorf("database was created by a newer todo (schema %d); upgrade todo", metas[0].SchemaVersion)
+		return newerSchemaError(metas[0].SchemaVersion)
 	}
 	return nil
 }
@@ -135,10 +147,15 @@ func (s *Store) Revision(ctx context.Context) (int64, error) {
 }
 
 // revisionIn reads the revision through db, which may be a transaction handle.
+// It returns ErrNewerSchema when a newer todo has since upgraded the store, so
+// a process left running stops reading a schema it does not know.
 func revisionIn(ctx context.Context, db *gorm.DB) (int64, error) {
 	var m dbMeta
 	if err := db.WithContext(ctx).First(&m, 1).Error; err != nil {
 		return 0, err
+	}
+	if m.SchemaVersion > schemaVersion {
+		return 0, newerSchemaError(m.SchemaVersion)
 	}
 	return m.Revision, nil
 }
@@ -185,6 +202,7 @@ func itemFromRow(r *dbItem, parent *Item) *Item {
 		Title:       r.Title,
 		Status:      Status(r.Status),
 		Description: r.Description,
+		Plan:        r.Plan,
 		Parent:      parent,
 	}
 	if it.Kind == Category {

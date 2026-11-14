@@ -713,7 +713,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		}
 		id := m.editing.ID
 		m.commit(id, func(ctx context.Context) error {
-			return m.store.Edit(ctx, id, title, desc)
+			return m.store.Edit(ctx, id, todo.Fields{Title: title, Description: desc})
 		})
 		return m, nil
 	}
@@ -757,7 +757,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		if added.Kind == todo.Category {
 			newID, err = m.store.AddCategory(ctx, title, parentID, afterID)
 		} else {
-			newID, err = m.store.AddTask(ctx, title, desc, todo.Open, parentID, afterID)
+			newID, err = m.store.AddTask(ctx, todo.Fields{Title: title, Description: desc}, todo.Open, parentID, afterID)
 		}
 		return err
 	})

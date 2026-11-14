@@ -105,9 +105,9 @@ func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
 func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, parentID uint) error {
 	var afterID uint
 	for _, it := range items {
-		row := &dbItem{Kind: int(it.Kind), Title: it.Title, Status: int(it.Status), Description: it.Description}
+		row := &dbItem{Kind: int(it.Kind), Title: it.Title, Status: int(it.Status), Description: it.Description, Plan: it.Plan}
 		if it.Kind == Category {
-			row.Status, row.Description = 0, ""
+			row.Status, row.Description, row.Plan = 0, "", ""
 		}
 		if err := addRow(ctx, tree, row, parentID, afterID); err != nil {
 			return err

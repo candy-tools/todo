@@ -15,7 +15,7 @@ import (
 // CLI command or an agent writing while the TUI runs.
 func externalAddTask(t *testing.T, path, title string, parentID, afterID uint) uint {
 	t.Helper()
-	id, err := openSecond(t, path).AddTask(context.Background(), title, "", todo.Open, parentID, afterID)
+	id, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: title}, todo.Open, parentID, afterID)
 	if err != nil {
 		t.Fatalf("external add: %v", err)
 	}
@@ -271,9 +271,9 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 		t.Fatalf("precondition: the cascade must leave a snapshot, got %d", len(m.snapshots))
 	}
 
-	// An agent flags c1 in progress through a second handle; no poll runs.
+	// An agent reopens c1 through a second handle; no poll runs.
 	c1 := find(m.doc, "c1").ID
-	if err := openSecond(t, path).SetStatuses(context.Background(), map[uint]todo.Status{c1: todo.Working}); err != nil {
+	if err := openSecond(t, path).SetStatuses(context.Background(), map[uint]todo.Status{c1: todo.Open}); err != nil {
 		t.Fatalf("external write: %v", err)
 	}
 
@@ -289,15 +289,16 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 		t.Errorf("status = %q, want the external-reload notice", m.status)
 	}
 
-	// Un-toggle the parent: c1 keeps the agent's status.
+	// Un-toggle the parent: c1 keeps the agent's status, and c2 stays done
+	// because the dropped snapshot no longer restores it.
 	m = press(m, "up", "up", "up", "space")
 	if got := m.tree.selected().Title; got != "parent" {
 		t.Fatalf("precondition: expected parent selected, got %q", got)
 	}
-	if got := find(m.doc, "c1").Status; got != todo.Working {
-		t.Errorf("c1 = %v after un-toggle, want in progress (the agent's change)", got)
+	if got := find(m.doc, "c1").Status; got != todo.Open {
+		t.Errorf("c1 = %v after un-toggle, want open (the agent's change)", got)
 	}
-	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] parent\n  - [/] c1\n  - [x] c2\n- [/] other\n"; got != want {
+	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [x] c2\n- [/] other\n"; got != want {
 		t.Errorf("store after un-toggle:\n%s\nwant:\n%s", got, want)
 	}
 }

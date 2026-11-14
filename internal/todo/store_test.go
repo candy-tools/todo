@@ -2,10 +2,15 @@ package todo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/go-bumbu/db/gormdb"
+	"github.com/go-bumbu/db/gormdb/sqlite"
+	"gorm.io/gorm/logger"
 )
 
 // newStore opens a fresh store in a temporary directory, closed with the test.
@@ -54,6 +59,53 @@ func TestOpenStoreRefusesNewerSchema(t *testing.T) {
 	want := fmt.Sprintf("database was created by a newer todo (schema %d); upgrade todo", schemaVersion+1)
 	if !strings.Contains(err.Error(), want) {
 		t.Errorf("err = %q; want it to contain %q", err, want)
+	}
+	if !errors.Is(err, ErrNewerSchema) {
+		t.Errorf("err = %v; want it to wrap ErrNewerSchema", err)
+	}
+}
+
+// bumpSchemaVersion records a schema version newer than this binary's in the
+// store at path through a second database handle, standing in for a newer todo
+// that migrated the file while s stays open.
+func bumpSchemaVersion(t *testing.T, path string) {
+	t.Helper()
+	db, err := gormdb.Open(gormdb.Cfg{
+		Driver: gormdb.DriverSqlite,
+		Sqlite: gormdb.SqliteCfg{Path: path},
+		Logger: logger.Discard,
+	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+	if err != nil {
+		t.Fatalf("open second handle: %v", err)
+	}
+	defer func() { _ = gormdb.Close(db) }()
+	if err := db.Model(&dbMeta{}).Where("id = ?", 1).Update("schema_version", schemaVersion+1).Error; err != nil {
+		t.Fatalf("bump schema version: %v", err)
+	}
+}
+
+func TestLoadRefusesNewerSchema(t *testing.T) {
+	s := newStore(t)
+	bumpSchemaVersion(t, s.Path())
+
+	if _, _, err := s.Load(context.Background()); !errors.Is(err, ErrNewerSchema) {
+		t.Fatalf("Load = %v, want ErrNewerSchema", err)
+	}
+}
+
+func TestWriteRefusesNewerSchema(t *testing.T) {
+	s := newStore(t)
+	bumpSchemaVersion(t, s.Path())
+
+	if _, err := s.AddCategory(context.Background(), "C", 0, 0); !errors.Is(err, ErrNewerSchema) {
+		t.Fatalf("AddCategory = %v, want ErrNewerSchema", err)
+	}
+	var count int64
+	if err := s.db.Model(&dbItem{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("store holds %d items after the refused write, want 0", count)
 	}
 }
 

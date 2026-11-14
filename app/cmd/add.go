@@ -42,7 +42,7 @@ func addCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if _, err := s.AddTask(ctx, title, desc, st, parentID, afterID); err != nil {
+				if _, err := s.AddTask(ctx, todo.Fields{Title: title, Description: desc}, st, parentID, afterID); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.Marker(), task.Title, categoryPath(task))

@@ -68,8 +68,8 @@ func addSample(t *testing.T, s *Store) sampleIDs {
 	ctx := context.Background()
 	var ids sampleIDs
 	ids.A = mustID(t)(s.AddCategory(ctx, "A", 0, 0))
-	ids.t1 = mustID(t)(s.AddTask(ctx, "t1", "d1", Open, ids.A, 0))
-	ids.t2 = mustID(t)(s.AddTask(ctx, "t2", "", Working, ids.A, ids.t1))
+	ids.t1 = mustID(t)(s.AddTask(ctx, Fields{Title: "t1", Description: "d1"}, Open, ids.A, 0))
+	ids.t2 = mustID(t)(s.AddTask(ctx, Fields{Title: "t2"}, Working, ids.A, ids.t1))
 	ids.B = mustID(t)(s.AddCategory(ctx, "B", ids.A, ids.t2))
 	return ids
 }
@@ -116,10 +116,10 @@ func TestEditKeepsKind(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
-	task := mustID(t)(s.AddTask(ctx, "t", "", Deferred, c, 0))
+	task := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Deferred, c, 0))
 
-	mustOK(t, s.Edit(ctx, c, "C2", "x"))
-	mustOK(t, s.Edit(ctx, task, "t2", "desc"))
+	mustOK(t, s.Edit(ctx, c, Fields{Title: "C2", Description: "x"}))
+	mustOK(t, s.Edit(ctx, task, Fields{Title: "t2", Description: "desc"}))
 
 	doc := load(t, s)
 	if got := item(t, doc, c); got.Kind != Category || got.Title != "C2" || got.Description != "" {
@@ -128,7 +128,7 @@ func TestEditKeepsKind(t *testing.T) {
 	if got := item(t, doc, task); got.Kind != Task || got.Title != "t2" || got.Description != "desc" || got.Status != Deferred {
 		t.Fatalf("task after Edit = %+v; want deferred task t2 described desc", got)
 	}
-	if err := s.Edit(ctx, 999, "x", ""); !errors.Is(err, ErrNotFound) {
+	if err := s.Edit(ctx, 999, Fields{Title: "x"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Edit(999) = %v, want ErrNotFound", err)
 	}
 }
@@ -136,7 +136,7 @@ func TestEditKeepsKind(t *testing.T) {
 func TestSetStatusesBackToOpen(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	id := mustID(t)(s.AddTask(ctx, "t", "desc", Done, 0, 0))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "desc"}, Done, 0, 0))
 
 	mustOK(t, s.SetStatuses(ctx, map[uint]Status{id: Open, 999: Done}))
 
@@ -146,19 +146,29 @@ func TestSetStatusesBackToOpen(t *testing.T) {
 	}
 }
 
-func TestCascadeStatus(t *testing.T) {
+func TestCascadeDoneAndReopen(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	p := mustID(t)(s.AddTask(ctx, "p", "", Open, 0, 0))
-	c1 := mustID(t)(s.AddTask(ctx, "c1", "", Working, p, 0))
-	c2 := mustID(t)(s.AddTask(ctx, "c2", "", Open, p, c1))
+	p := mustID(t)(s.AddTask(ctx, Fields{Title: "p"}, Review, 0, 0))
+	c1 := mustID(t)(s.AddTask(ctx, Fields{Title: "c1"}, Open, p, 0))
+	c2 := mustID(t)(s.AddTask(ctx, Fields{Title: "c2"}, Done, p, c1))
 
 	mustOK(t, s.CascadeStatus(ctx, p, Done))
-
 	doc := load(t, s)
 	for _, id := range []uint{p, c1, c2} {
 		if got := item(t, doc, id); got.Status != Done {
-			t.Fatalf("%s status = %v, want done", got.Title, got.Status)
+			t.Fatalf("after Cascade(done): %s status = %v, want done", got.Title, got.Status)
+		}
+	}
+
+	mustOK(t, s.CascadeStatus(ctx, p, Working))
+	doc = load(t, s)
+	if got := item(t, doc, p); got.Status != Working {
+		t.Fatalf("after Cascade(working): p status = %v, want working", got.Status)
+	}
+	for _, id := range []uint{c1, c2} {
+		if got := item(t, doc, id); got.Status != Open {
+			t.Fatalf("after Cascade(working): %s status = %v, want open", got.Title, got.Status)
 		}
 	}
 }
@@ -208,9 +218,9 @@ func TestMoveMissingIsNotFound(t *testing.T) {
 func TestDeleteSubtree(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	p := mustID(t)(s.AddTask(ctx, "p", "", Open, 0, 0))
-	c := mustID(t)(s.AddTask(ctx, "c", "", Open, p, 0))
-	mustID(t)(s.AddTask(ctx, "keep", "", Open, 0, p))
+	p := mustID(t)(s.AddTask(ctx, Fields{Title: "p"}, Open, 0, 0))
+	c := mustID(t)(s.AddTask(ctx, Fields{Title: "c"}, Open, p, 0))
+	mustID(t)(s.AddTask(ctx, Fields{Title: "keep"}, Open, 0, p))
 
 	mustOK(t, s.Delete(ctx, p))
 
@@ -235,8 +245,8 @@ func TestPruneUsesFreshData(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s1.Close() })
 	a := mustID(t)(s1.AddCategory(ctx, "A", 0, 0))
-	done := mustID(t)(s1.AddTask(ctx, "done", "", Done, a, 0))
-	d1 := mustID(t)(s1.AddTask(ctx, "d1", "", Done, done, 0))
+	done := mustID(t)(s1.AddTask(ctx, Fields{Title: "done"}, Done, a, 0))
+	d1 := mustID(t)(s1.AddTask(ctx, Fields{Title: "d1"}, Done, done, 0))
 
 	// A second process adds an open subtask under done after s1 last looked.
 	s2, err := OpenStore(path)
@@ -244,7 +254,7 @@ func TestPruneUsesFreshData(t *testing.T) {
 		t.Fatalf("OpenStore s2: %v", err)
 	}
 	t.Cleanup(func() { _ = s2.Close() })
-	fresh := mustID(t)(s2.AddTask(ctx, "fresh", "", Open, done, d1))
+	fresh := mustID(t)(s2.AddTask(ctx, Fields{Title: "fresh"}, Open, done, d1))
 
 	n, err := s1.Prune(ctx)
 	if err != nil {
@@ -293,8 +303,8 @@ func TestEveryWriteBumpsRevision(t *testing.T) {
 		fn   func() error
 	}{
 		{"AddCategory", func() (err error) { c, err = s.AddCategory(ctx, "C", 0, 0); return err }},
-		{"AddTask", func() (err error) { task, err = s.AddTask(ctx, "t", "", Open, c, 0); return err }},
-		{"Edit", func() error { return s.Edit(ctx, task, "t2", "d") }},
+		{"AddTask", func() (err error) { task, err = s.AddTask(ctx, Fields{Title: "t"}, Open, c, 0); return err }},
+		{"Edit", func() error { return s.Edit(ctx, task, Fields{Title: "t2", Description: "d"}) }},
 		{"SetStatuses", func() error { return s.SetStatuses(ctx, map[uint]Status{task: Done}) }},
 		{"CascadeStatus", func() error { return s.CascadeStatus(ctx, task, Done) }},
 		{"Move", func() error { return s.Move(ctx, task, 0, c) }},
@@ -325,11 +335,11 @@ func TestManyInsertsBetweenSiblingsStayOrdered(t *testing.T) {
 	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
 	// head keeps t0's sort order off zero: bisecting towards 0.0 never runs out
 	// of float64 precision, bisecting towards 10.0 does after about 50 halvings.
-	head := mustID(t)(s.AddTask(ctx, "head", "", Open, c, 0))
-	first := mustID(t)(s.AddTask(ctx, "t0", "", Open, c, head))
+	head := mustID(t)(s.AddTask(ctx, Fields{Title: "head"}, Open, c, 0))
+	first := mustID(t)(s.AddTask(ctx, Fields{Title: "t0"}, Open, c, head))
 	const n = 60
 	for i := 1; i <= n; i++ {
-		mustID(t)(s.AddTask(ctx, fmt.Sprintf("t%d", i), "", Open, c, first))
+		mustID(t)(s.AddTask(ctx, Fields{Title: fmt.Sprintf("t%d", i)}, Open, c, first))
 	}
 
 	// Each insert lands right after t0, so the newest comes first after it.
@@ -339,5 +349,181 @@ func TestManyInsertsBetweenSiblingsStayOrdered(t *testing.T) {
 	}
 	if got := titles(item(t, load(t, s), c).Children); !reflect.DeepEqual(got, want) {
 		t.Fatalf("order after %d inserts = %v, want %v", n, got, want)
+	}
+}
+
+// rejects runs a write that must fail with want, and checks that it left the
+// store untouched: the revision did not move.
+func rejects(t *testing.T, s *Store, want error, write func() error) {
+	t.Helper()
+	ctx := context.Background()
+	before, err := s.Revision(ctx)
+	if err != nil {
+		t.Fatalf("Revision: %v", err)
+	}
+	if err := write(); !errors.Is(err, want) {
+		t.Fatalf("write = %v, want %v", err, want)
+	}
+	if after, err := s.Revision(ctx); err != nil || after != before {
+		t.Fatalf("revision after a rejected write = %d, %v; want %d", after, err, before)
+	}
+}
+
+// taskTree is category C holding task task (in state st) with one open subtask
+// sub.
+type taskTree struct{ C, task, sub uint }
+
+func addTaskTree(t *testing.T, s *Store, st Status) taskTree {
+	t.Helper()
+	ctx := context.Background()
+	var ids taskTree
+	ids.C = mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	ids.task = mustID(t)(s.AddTask(ctx, Fields{Title: "task"}, st, ids.C, 0))
+	ids.sub = mustID(t)(s.AddTask(ctx, Fields{Title: "sub"}, Open, ids.task, 0))
+	return ids
+}
+
+func TestPlanRoundTrip(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "d", Plan: "docs/p.md"}, Ready, c, 0))
+
+	if got := item(t, load(t, s), id); got.Plan != "docs/p.md" || got.Description != "d" {
+		t.Fatalf("task after AddTask = %+v; want plan docs/p.md, description d", got)
+	}
+
+	mustOK(t, s.Edit(ctx, id, Fields{Title: "t2", Description: "d2"}))
+	if got := item(t, load(t, s), id); got.Plan != "" || got.Title != "t2" || got.Description != "d2" || got.Status != Ready {
+		t.Fatalf("task after Edit = %+v; want ready task t2 described d2 with no plan", got)
+	}
+}
+
+func TestEditCategoryIgnoresPlan(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+
+	mustOK(t, s.Edit(ctx, c, Fields{Title: "C2", Description: "x", Plan: "docs/p.md"}))
+
+	if got := item(t, load(t, s), c); got.Title != "C2" || got.Description != "" || got.Plan != "" {
+		t.Fatalf("category after Edit = %+v; want C2 with no description or plan", got)
+	}
+}
+
+func TestAddUnderSubtaskIsTooDeep(t *testing.T) {
+	s := newStore(t)
+	ids := addTaskTree(t, s, Open)
+	rejects(t, s, ErrTooDeep, func() error {
+		_, err := s.AddTask(context.Background(), Fields{Title: "deep"}, Open, ids.sub, 0)
+		return err
+	})
+}
+
+func TestAddSubtaskWithBoardStateRejected(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addTaskTree(t, s, Working)
+	rejects(t, s, ErrSubtaskStatus, func() error {
+		_, err := s.AddTask(ctx, Fields{Title: "r"}, Review, ids.task, ids.sub)
+		return err
+	})
+	// The classic states stay allowed for a subtask, and any state for a task.
+	mustID(t)(s.AddTask(ctx, Fields{Title: "d"}, Done, ids.task, ids.sub))
+	mustID(t)(s.AddTask(ctx, Fields{Title: "r"}, Review, ids.C, ids.task))
+}
+
+func TestMoveTaskWithChildrenUnderTaskIsTooDeep(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addTaskTree(t, s, Open)
+	other := mustID(t)(s.AddTask(ctx, Fields{Title: "other"}, Open, ids.C, ids.task))
+
+	rejects(t, s, ErrTooDeep, func() error { return s.Move(ctx, ids.task, other, 0) })
+	// A childless task under a subtask would be depth 3 as well.
+	rejects(t, s, ErrTooDeep, func() error { return s.Move(ctx, other, ids.sub, 0) })
+}
+
+func TestMoveIntoSubtaskNormalizesStatus(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	parent := mustID(t)(s.AddTask(ctx, Fields{Title: "parent"}, Working, c, 0))
+	rev := mustID(t)(s.AddTask(ctx, Fields{Title: "rev"}, Review, c, parent))
+	done := mustID(t)(s.AddTask(ctx, Fields{Title: "done"}, Done, c, rev))
+
+	mustOK(t, s.Move(ctx, rev, parent, 0))
+	mustOK(t, s.Move(ctx, done, parent, rev))
+
+	doc := load(t, s)
+	if got := item(t, doc, rev); got.Status != Open || got.Parent == nil || got.Parent.ID != parent {
+		t.Fatalf("rev after the move = %+v; want an open subtask of parent", got)
+	}
+	if got := item(t, doc, done); got.Status != Done {
+		t.Fatalf("done after the move = %v, want done", got.Status)
+	}
+	if got := item(t, doc, parent); got.Status != Working {
+		t.Fatalf("parent = %v after the moves, want working", got.Status)
+	}
+}
+
+func TestMoveSubtaskOutTakesParentState(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addTaskTree(t, s, Ready)
+
+	mustOK(t, s.Move(ctx, ids.sub, ids.C, ids.task))
+
+	got := item(t, load(t, s), ids.sub)
+	if got.Status != Ready || got.Parent == nil || got.Parent.ID != ids.C {
+		t.Fatalf("sub after the move = %+v; want a ready task of C", got)
+	}
+}
+
+func TestMoveTaskBetweenCategoriesKeepsStatus(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	a := mustID(t)(s.AddCategory(ctx, "A", 0, 0))
+	b := mustID(t)(s.AddCategory(ctx, "B", 0, a))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Review, a, 0))
+
+	mustOK(t, s.Move(ctx, id, b, 0))
+
+	if got := item(t, load(t, s), id); got.Status != Review {
+		t.Fatalf("status after moving to another category = %v, want review", got.Status)
+	}
+}
+
+func TestSetStatusesRejectsBoardStateOnSubtask(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addTaskTree(t, s, Open)
+
+	rejects(t, s, ErrSubtaskStatus, func() error {
+		return s.SetStatuses(ctx, map[uint]Status{ids.task: Review, ids.sub: Review})
+	})
+	if got := item(t, load(t, s), ids.task); got.Status != Open {
+		t.Fatalf("task status after the rejected write = %v, want open", got.Status)
+	}
+
+	mustOK(t, s.SetStatuses(ctx, map[uint]Status{ids.task: Review, ids.sub: Done}))
+	doc := load(t, s)
+	if got := item(t, doc, ids.task); got.Status != Review {
+		t.Fatalf("task status = %v, want review", got.Status)
+	}
+	if got := item(t, doc, ids.sub); got.Status != Done {
+		t.Fatalf("sub status = %v, want done", got.Status)
+	}
+}
+
+func TestCascadeOnSubtaskWithBoardStateRejected(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addTaskTree(t, s, Open)
+
+	rejects(t, s, ErrSubtaskStatus, func() error { return s.CascadeStatus(ctx, ids.sub, Review) })
+	mustOK(t, s.CascadeStatus(ctx, ids.sub, Done))
+	if got := item(t, load(t, s), ids.sub); got.Status != Done {
+		t.Fatalf("sub status = %v, want done", got.Status)
 	}
 }

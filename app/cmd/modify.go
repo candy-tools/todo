@@ -91,7 +91,7 @@ func editCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := s.Edit(ctx, it.ID, title, desc); err != nil {
+				if err := s.Edit(ctx, it.ID, todo.Fields{Title: title, Description: desc}); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", title)
