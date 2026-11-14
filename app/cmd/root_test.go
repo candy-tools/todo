@@ -1,32 +1,56 @@
 package cmd
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestRootArgs(t *testing.T) {
 	c := newRootCommand()
 	if err := c.Args(c, nil); err != nil {
-		t.Errorf("no argument should be valid (defaults to TODO.md): %v", err)
+		t.Errorf("no argument should be valid (defaults to .todo.db): %v", err)
 	}
-	if err := c.Args(c, []string{"a.md"}); err != nil {
+	if err := c.Args(c, []string{"a.db"}); err != nil {
 		t.Errorf("one argument should be valid: %v", err)
 	}
-	if err := c.Args(c, []string{"a.md", "b.md"}); err == nil {
+	if err := c.Args(c, []string{"a.db", "b.db"}); err == nil {
 		t.Error("expected an error with two arguments")
 	}
 }
 
-func TestFilePathDefault(t *testing.T) {
-	if got := filePath(nil); got != defaultFile {
-		t.Errorf("filePath(nil) = %q, want %q", got, defaultFile)
+func TestResolvePath(t *testing.T) {
+	c := newRootCommand()
+	if p, def, err := resolvePath(c, nil); err != nil || p != defaultFile || !def {
+		t.Errorf("default = %q, %v, %v", p, def, err)
 	}
-	if got := filePath([]string{"custom.md"}); got != "custom.md" {
-		t.Errorf("filePath([custom.md]) = %q, want custom.md", got)
+	if p, def, err := resolvePath(c, []string{"custom.db"}); err != nil || p != "custom.db" || def {
+		t.Errorf("arg = %q, %v, %v", p, def, err)
+	}
+	if err := c.ParseFlags([]string{"-f", "flag.db"}); err != nil {
+		t.Fatal(err)
+	}
+	if p, def, err := resolvePath(c, nil); err != nil || p != "flag.db" || def {
+		t.Errorf("flag = %q, %v, %v", p, def, err)
+	}
+	if p, _, err := resolvePath(c, []string{"arg.db"}); err != nil || p != "arg.db" {
+		t.Errorf("arg should beat the flag: %q, %v", p, err)
 	}
 }
 
 func TestRootMeta(t *testing.T) {
 	c := newRootCommand()
-	if c.Use == "" || c.Short == "" {
-		t.Error("the root command should set Use and Short")
+	if c.Use != "todo [db-file]" || c.Short != "A minimalistic terminal TODO manager" {
+		t.Errorf("unexpected Use/Short: %q / %q", c.Use, c.Short)
+	}
+}
+
+func TestMarkdownPathIsUsageError(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("TODO.md", []byte("# A\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCmd(t, "list", "-f", "TODO.md")
+	if codeOf(t, err) != exitUsage || err.Error() == "" || !contains(err.Error(), "todo import") {
+		t.Errorf("want a usage error mentioning todo import, got %v", err)
 	}
 }

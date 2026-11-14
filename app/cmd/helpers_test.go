@@ -1,27 +1,27 @@
 package cmd
 
 import (
-	"os"
-	"path/filepath"
+	"context"
 	"testing"
+
+	"github.com/candy-tools/todo/internal/todo"
 )
 
-// writeTemp writes content to a fresh todo.md in a temp dir and returns its path.
-func writeTemp(t *testing.T, content string) string {
+// idOf returns the id of the item titled title in the store at dbPath.
+func idOf(t *testing.T, dbPath, title string) uint {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "todo.md")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("seed file: %v", err)
-	}
-	return path
-}
-
-// readFile returns the current contents of path.
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
+	s, err := todo.OpenStore(dbPath)
 	if err != nil {
-		t.Fatalf("read back: %v", err)
+		t.Fatalf("open: %v", err)
 	}
-	return string(b)
+	defer func() { _ = s.Close() }()
+	doc, _, err := s.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	m := doc.ByTitle(title)
+	if len(m) != 1 {
+		t.Fatalf("want exactly one item titled %q, got %d", title, len(m))
+	}
+	return m[0].ID
 }

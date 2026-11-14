@@ -3,14 +3,16 @@ package cmd
 import (
 	"strings"
 	"testing"
+
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 func TestRmRemovesSubtree(t *testing.T) {
-	path := writeTemp(t, "# Work\n\n- [ ] parent\n  - [ ] child\n- [ ] keep\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] child\n- [ ] keep\n")
 	if _, err := runCmd(t, "rm", "--file", path, "--title", "parent"); err != nil {
 		t.Fatalf("rm: %v", err)
 	}
-	got := readFile(t, path)
+	got := todotest.Dump(t, path)
 	if strings.Contains(got, "parent") || strings.Contains(got, "child") {
 		t.Errorf("parent and its child should be gone:\n%s", got)
 	}
@@ -20,12 +22,12 @@ func TestRmRemovesSubtree(t *testing.T) {
 }
 
 func TestPruneRemovesCompleted(t *testing.T) {
-	path := writeTemp(t, "# Work\n\n- [x] done1\n- [ ] open1\n- [x] done2\n")
+	path := todotest.Seed(t, "# Work\n\n- [x] done1\n- [ ] open1\n- [x] done2\n")
 	out, err := runCmd(t, "prune", "--file", path)
 	if err != nil {
 		t.Fatalf("prune: %v", err)
 	}
-	got := readFile(t, path)
+	got := todotest.Dump(t, path)
 	if strings.Contains(got, "done1") || strings.Contains(got, "done2") {
 		t.Errorf("completed tasks should be pruned:\n%s", got)
 	}
@@ -38,11 +40,11 @@ func TestPruneRemovesCompleted(t *testing.T) {
 }
 
 func TestEditTitleAndDesc(t *testing.T) {
-	path := writeTemp(t, "# Work\n\n- [ ] old\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] old\n")
 	if _, err := runCmd(t, "edit", "--file", path, "--title", "old", "--set-title", "new", "--set-desc", "why"); err != nil {
 		t.Fatalf("edit: %v", err)
 	}
-	got := readFile(t, path)
+	got := todotest.Dump(t, path)
 	if !strings.Contains(got, "- [ ] new") || strings.Contains(got, "old") {
 		t.Errorf("title should be renamed:\n%s", got)
 	}
@@ -52,14 +54,14 @@ func TestEditTitleAndDesc(t *testing.T) {
 }
 
 func TestEditRequiresAChange(t *testing.T) {
-	path := writeTemp(t, "# Work\n\n- [ ] a\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
 	if _, err := runCmd(t, "edit", "--file", path, "--title", "a"); codeOf(t, err) != exitUsage {
 		t.Error("edit with no --set-* should be a usage error")
 	}
 }
 
 func TestEditDescOnCategoryIsWrongKind(t *testing.T) {
-	path := writeTemp(t, "# Work\n\n- [ ] a\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
 	if _, err := runCmd(t, "edit", "--file", path, "--title", "Work", "--set-desc", "x"); codeOf(t, err) != exitWrongKind {
 		t.Error("a category cannot take a description")
 	}
