@@ -25,7 +25,7 @@ const (
 // states; the rest are kanban states. The numbers are stored in the database, so
 // they are pinned: never renumber them, only append. Open, Working, Deferred
 // and Done have a checkbox marker — `[ ]` `[/]` `[>]` `[x]` — which the markdown
-// import reads and the CLI's list shows; the others have none. Only Done reads
+// import reads; the others have none. Only Done reads
 // as "complete": counts, pruning and the done-cascade all key off IsDone.
 type Status int
 
@@ -67,7 +67,8 @@ func (s Status) String() string {
 
 // Marker returns the checkbox marker char for the status, e.g. "x" for Done, or
 // "" for a kanban-only state with no marker. It is the inverse of
-// statusFromMarker (see markdown.go) and is what the CLI's list table shows.
+// statusFromMarker (see markdown.go); the todotest helpers use it to write a
+// store back out as markdown.
 func (s Status) Marker() string {
 	switch s {
 	case Open:
@@ -110,8 +111,9 @@ func (s Status) Column() Column {
 	return ColBacklog
 }
 
-// SubtaskAllowed reports whether a task in this state may hold subtasks: only
-// the classic Open and Done states may.
+// SubtaskAllowed reports whether a subtask may be in this state: a subtask is
+// only ever Open or Done. It does not limit which tasks hold subtasks; a task
+// in any state (Working, for one) may.
 func (s Status) SubtaskAllowed() bool { return s == Open || s == Done }
 
 // NextInColumn returns the next state within the same column, cycling:
@@ -265,8 +267,8 @@ func (it *Item) EnclosingCategory() *Item {
 }
 
 // NewTask builds a task item (with no children or parent set yet). The done
-// flag maps to Done or Open; a caller wanting InProgress/Deferred sets Status
-// afterwards.
+// flag maps to Done or Open; a caller wanting another state (Working, Deferred,
+// …) sets Status afterwards.
 func NewTask(title, description string, done bool) *Item {
 	st := Open
 	if done {
@@ -389,8 +391,8 @@ func (it *Item) TaskCounts() (done, total int) {
 }
 
 // DoneStates records the Status of a set of tasks by item ID, so a
-// cascade-complete can be reverted to the exact prior state — including a child
-// that was InProgress or Deferred. It is the in-memory snapshot behind the "I
+// cascade-complete can be reverted to the exact prior state — including the
+// task's own board state, such as Working or Review. It is the in-memory snapshot behind the "I
 // marked the parent done by accident" undo; keyed by ID, it outlives a reload of
 // the document, and it is what Store.SetStatuses writes back.
 type DoneStates map[uint]Status
