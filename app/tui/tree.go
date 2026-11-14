@@ -18,10 +18,10 @@ type treeRow struct {
 // tree is the left-pane category/task tree: the document, per-item collapse
 // state (keyed by item ID, so it survives a reload), and the cursor over the
 // currently visible rows. rows is derived from doc + collapsed by rebuild and
-// cached for cursor math and rendering. A
-// synthetic placeholder row is always appended at root level so a new
-// top-level category can always be added (otherwise a category's `c` only ever
-// makes a subcategory, leaving no way to add a second root item).
+// cached for cursor math and rendering. A synthetic placeholder row is always
+// appended at root level so a new top-level category can always be added
+// (otherwise a category's `c` only ever makes a subcategory, leaving no way to
+// add a second root item).
 type tree struct {
 	doc         *todo.Document
 	collapsed   map[uint]bool

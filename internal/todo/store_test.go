@@ -2,7 +2,9 @@ package todo
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +34,26 @@ func TestOpenStoreCreatesEmpty(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.db")
 	if ok, err := StoreExists(missing); err != nil || ok {
 		t.Fatalf("StoreExists(missing) = %v, %v; want false, nil", ok, err)
+	}
+}
+
+func TestOpenStoreRefusesNewerSchema(t *testing.T) {
+	s := newStore(t)
+	if err := s.db.Model(&dbMeta{}).Where("id = ?", 1).Update("schema_version", schemaVersion+1).Error; err != nil {
+		t.Fatal(err)
+	}
+	path := s.Path()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := OpenStore(path)
+	if err == nil {
+		_ = s2.Close()
+		t.Fatal("OpenStore on a newer schema succeeded; want an error")
+	}
+	want := fmt.Sprintf("database was created by a newer todo (schema %d); upgrade todo", schemaVersion+1)
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("err = %q; want it to contain %q", err, want)
 	}
 }
 

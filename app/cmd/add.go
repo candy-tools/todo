@@ -15,7 +15,7 @@ func addCmd() *cobra.Command {
 		Short: "add a task under a category (or as a subtask of a task)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
 				parent, err := resolveSelector(cmd, doc, "parent-")
 				if err != nil {
 					return err
@@ -38,6 +38,10 @@ func addCmd() *cobra.Command {
 					parent.AppendChild(task)
 				}
 				parentID, afterID := doc.Placement(task)
+				s, err := open()
+				if err != nil {
+					return err
+				}
 				if _, err := s.AddTask(ctx, title, desc, st, parentID, afterID); err != nil {
 					return err
 				}
@@ -59,7 +63,7 @@ func addCategoryCmd() *cobra.Command {
 		Short: "add a category (top-level, or nested under a parent category)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
 				title, _ := cmd.Flags().GetString("title")
 				if strings.TrimSpace(title) == "" {
 					return usageErr("--title is required")
@@ -80,6 +84,10 @@ func addCategoryCmd() *cobra.Command {
 					doc.AppendRoot(cat)
 				}
 				parentID, afterID := doc.Placement(cat)
+				s, err := open()
+				if err != nil {
+					return err
+				}
 				if _, err := s.AddCategory(ctx, title, parentID, afterID); err != nil {
 					return err
 				}

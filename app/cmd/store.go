@@ -109,26 +109,43 @@ func openForRead(cmd *cobra.Command, path string, isDefault bool) (*todo.Documen
 	return doc, err
 }
 
-// withStore opens the store the command resolves to, prints any import notice
-// to stderr, loads the document and runs fn, closing the store afterwards. A
-// store ErrNotFound becomes the CLI's not-found error.
-func withStore(cmd *cobra.Command, fn func(ctx context.Context, s *todo.Store, doc *todo.Document) error) error {
+// storeOpener returns the store a write command writes to, opening (and, when
+// it is missing, creating) it on the first call.
+type storeOpener func() (*todo.Store, error)
+
+// withStore loads the document the command resolves to (running the automatic
+// import and printing its notice to stderr, like openForRead) and runs fn on
+// it. fn calls open only once it is about to write, so a command that fails
+// earlier — a selector that matches nothing, a usage error — never creates the
+// store. The store is closed afterwards. A store ErrNotFound becomes the CLI's
+// not-found error.
+func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener, doc *todo.Document) error) error {
 	path, isDefault, err := resolvePath(cmd, nil)
 	if err != nil {
 		return err
 	}
-	s, notice, err := openStore(cmd, path, isDefault)
+	doc, err := openForRead(cmd, path, isDefault)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = s.Close() }()
-	printNotice(cmd, notice)
-	ctx := storeCtx(cmd)
-	doc, _, err := s.Load(ctx)
-	if err != nil {
-		return err
+	var s *todo.Store
+	defer func() {
+		if s != nil {
+			_ = s.Close()
+		}
+	}()
+	open := func() (*todo.Store, error) {
+		if s != nil {
+			return s, nil
+		}
+		st, err := todo.OpenStore(path)
+		if err != nil {
+			return nil, err
+		}
+		s = st
+		return s, nil
 	}
-	if err := fn(ctx, s, doc); err != nil {
+	if err := fn(storeCtx(cmd), open, doc); err != nil {
 		if errors.Is(err, todo.ErrNotFound) {
 			return notFound("the item no longer exists")
 		}

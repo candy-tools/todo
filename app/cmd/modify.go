@@ -15,8 +15,12 @@ func rmCmd() *cobra.Command {
 		Short: "remove an item and its subtree",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
 				it, err := resolveSelector(cmd, doc, "")
+				if err != nil {
+					return err
+				}
+				s, err := open()
 				if err != nil {
 					return err
 				}
@@ -38,7 +42,11 @@ func pruneCmd() *cobra.Command {
 		Short: "remove every fully-completed task",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, s *todo.Store, _ *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, open storeOpener, _ *todo.Document) error {
+				s, err := open()
+				if err != nil {
+					return err
+				}
 				n, err := s.Prune(ctx)
 				if err != nil {
 					return err
@@ -56,7 +64,7 @@ func editCmd() *cobra.Command {
 		Short: "change an item's title and/or a task's description",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
 				it, err := resolveSelector(cmd, doc, "")
 				if err != nil {
 					return err
@@ -78,6 +86,10 @@ func editCmd() *cobra.Command {
 						return wrongKind("set a description on", it, "task")
 					}
 					desc, _ = cmd.Flags().GetString("set-desc")
+				}
+				s, err := open()
+				if err != nil {
+					return err
 				}
 				if err := s.Edit(ctx, it.ID, title, desc); err != nil {
 					return err

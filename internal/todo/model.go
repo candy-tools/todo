@@ -4,24 +4,24 @@
 // the one-time markdown import. It has no dependency on the TUI.
 package todo
 
-// Kind distinguishes a category (a markdown header) from a task (a checkbox
-// list item).
+// Kind distinguishes a category from a task.
 type Kind int
 
 const (
-	// Category is a markdown header (`#`..`######`); it groups sub-categories
-	// and tasks and carries no Done/Description of its own.
+	// Category groups sub-categories and tasks and carries no Status or
+	// Description of its own. The markdown import reads one from a header.
 	Category Kind = iota
-	// Task is a checkbox list item (`- [ ]` / `- [x]`); it carries a Status
-	// and a free-form Description, and may nest sub-tasks.
+	// Task carries a Status and a free-form Description, and may nest
+	// sub-tasks. The markdown import reads one from a checkbox list item.
 	Task
 )
 
 // Status is a task's completion state. Open and Done are the classic checkbox
-// states; InProgress and Deferred are extra flags. Each maps to an extended
-// checkbox marker on disk — `[ ]` `[/]` `[>]` `[x]` — parsed and rendered by
-// this package. Only Done reads as "complete": counts, pruning and the
-// done-cascade all key off IsDone, so InProgress and Deferred count as not done.
+// states; InProgress and Deferred are extra flags. Each has a checkbox marker —
+// `[ ]` `[/]` `[>]` `[x]` — which the markdown import reads and the CLI's list
+// shows; the store keeps the Status value itself. Only Done reads as
+// "complete": counts, pruning and the done-cascade all key off IsDone, so
+// InProgress and Deferred count as not done.
 type Status int
 
 const (
@@ -78,14 +78,14 @@ func StatusFromName(name string) (Status, bool) {
 	return Open, false
 }
 
-// Item is one node of the TODO tree. Categories nest by header level and hold
-// sub-categories and tasks; tasks nest by list indentation and hold sub-tasks.
-// Only tasks use Status and Description; only categories use Level.
+// Item is one node of the TODO tree. Categories hold sub-categories and tasks;
+// tasks hold sub-tasks. Only tasks use Status and Description; only categories
+// use Level.
 type Item struct {
 	ID          uint // database node ID; 0 until the item is persisted
 	Kind        Kind
 	Title       string
-	Level       int    // Category only: header level 1..6
+	Level       int    // Category only: its depth among categories, 1 for a root category
 	Status      Status // Task only
 	Description string // Task only: free-form text shown in the details view
 	Children    []*Item
@@ -137,10 +137,9 @@ func (it *Item) AppendChild(c *Item) {
 
 // AppendTask adds task as the last *task* child of it — before any
 // subcategory children — and sets task.Parent. This preserves the invariant
-// that a category's direct tasks precede its subcategories, which is what keeps
-// the markdown round-tripping: a task written after a `##` subheader would
-// otherwise re-parent under that subheader when the file is reloaded. For a
-// task parent (a subtask) there are no category children, so it simply appends.
+// that a category's direct tasks precede its subcategories, which the move
+// rules (crossUp/crossDown) and the displayed tree depend on. For a task
+// parent (a subtask) there are no category children, so it simply appends.
 func (it *Item) AppendTask(task *Item) {
 	task.Parent = it
 	pos := len(it.Children)

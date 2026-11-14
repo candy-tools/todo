@@ -5,11 +5,11 @@ package todo
 // it (Indent/Outdent). Up/down reorder among same-kind siblings and, at the ends
 // of a run, cross into the adjacent category — so a grabbed task or subcategory
 // can be carried across categories a step at a time — while indent/outdent make
-// the same-kind depth changes. Every operation preserves the invariants the
-// markdown round-trip depends on — a task always lives under a category, a
-// category's direct tasks precede its subcategories, and a category never nests
-// under a task — refusing (returning false) any move with nowhere valid to go
-// rather than corrupting the tree.
+// the same-kind depth changes. Every operation preserves the tree's invariants —
+// a task always lives under a category, a category's direct tasks precede its
+// subcategories (the move rules here and the displayed tree depend on it), and
+// a category never nests under a task — refusing (returning false) any move
+// with nowhere valid to go rather than corrupting the tree.
 
 // MoveUp moves it one step earlier in document order. Among same-kind siblings
 // that is a plain swap; at the start of its run it instead crosses into the
@@ -135,7 +135,7 @@ func (d *Document) crossUp(it *Item) bool {
 // same kind — a task can only indent under a task, a category under a category —
 // so it is a no-op (returning false) for the first item in a list or across the
 // task/category boundary. A moved category's whole subtree is re-levelled so its
-// header depth stays consistent.
+// category depth stays consistent.
 func (d *Document) Indent(it *Item) bool {
 	list, idx, ok := d.siblings(it)
 	if !ok || idx == 0 {
@@ -179,7 +179,7 @@ func (d *Document) Outdent(it *Item) bool {
 	return true
 }
 
-// relevel sets cat's header Level and recurses into its sub-categories (each one
+// relevel sets cat's Level and recurses into its sub-categories (each one
 // deeper). Tasks carry no Level and are skipped. A category's Level is its depth
 // in the category tree, so a sub-category always outranks its parent.
 func relevel(cat *Item, level int) {

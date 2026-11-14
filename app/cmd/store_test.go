@@ -90,6 +90,29 @@ func TestAutoImportOnlyForDefaultPath(t *testing.T) {
 	}
 }
 
+func TestFailingWriteCreatesNoDB(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if _, err := runCmd(t, "done", "--id", "3"); codeOf(t, err) != exitNotFound {
+		t.Errorf("done on an empty dir: want not-found, got %v", err)
+	}
+	if _, err := runCmd(t, "add", "--title", "x", "--parent-title", "Work"); codeOf(t, err) != exitNotFound {
+		t.Errorf("add under a missing parent: want not-found, got %v", err)
+	}
+	if _, err := runCmd(t, "add-category"); codeOf(t, err) != exitUsage {
+		t.Errorf("add-category without a title: want usage, got %v", err)
+	}
+	if _, err := os.Stat(defaultFile); !os.IsNotExist(err) {
+		t.Errorf("a failing write must not create %s (stat err: %v)", defaultFile, err)
+	}
+	// A write that succeeds on the empty list does create it.
+	if _, err := runCmd(t, "add-category", "--title", "Work"); err != nil {
+		t.Fatalf("add-category: %v", err)
+	}
+	if _, err := os.Stat(defaultFile); err != nil {
+		t.Errorf("%s should exist after a successful write: %v", defaultFile, err)
+	}
+}
+
 func TestImportNoticeSkippedIsEmpty(t *testing.T) {
 	if got := importNotice(todo.ImportReport{Skipped: true}, legacyFile); got != "" {
 		t.Errorf("a skipped import must have no notice, got %q", got)

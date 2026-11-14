@@ -12,13 +12,17 @@ import (
 // prints a confirmation. When cascade is true the whole subtree is set (only done and
 // reopen expose --cascade).
 func setStatus(cmd *cobra.Command, verb string, target todo.Status, cascade bool) error {
-	return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
+	return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
 		it, err := resolveSelector(cmd, doc, "")
 		if err != nil {
 			return err
 		}
 		if !it.IsTask() {
 			return wrongKind("set the status of", it, "task")
+		}
+		s, err := open()
+		if err != nil {
+			return err
 		}
 		if cascade {
 			err = s.CascadeStatus(ctx, it.ID, target)
