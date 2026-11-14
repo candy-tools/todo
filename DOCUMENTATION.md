@@ -44,21 +44,22 @@ An example tab, as the tree shows it:
 
 ```text
 ▾ Work (2/5)
-  ▾ ○ Ship v1.0 release
+  ▾ ○ Ship v1.0 release open (1/2)
       ● Write changelog
       ○ Cut the git tag
-    ● Fix login bug
+    ● Fix login bug done
   ▾ Backend (0/1)
-      ○ Migrate the database
+      ○ Migrate the database open
 ▾ Personal (0/2)
-    ○ Renew passport
-    ⏸ Book dentist
+    ○ Renew passport open
+    ⏸ Book dentist deferred
 + new category
 ```
 
 A task's glyph shows its state: `○` open, `⏸` deferred, `◌` new, `◉` ready, `◐`
 working, `◑` review, `◒` followup, `●` done. `▾` / `▸` mark an expanded /
-collapsed item, and a category shows how many of its tasks are done.
+collapsed item, and a category shows how many of its tasks are done. A top-level
+task's row also names its state and, when it has subtasks, how many are done.
 
 ## Board
 
@@ -81,14 +82,15 @@ The board has four columns, shown as tabs (with a task count each): **Backlog**,
   `open`, Next `new`, In Progress `working`, Done `done`). A new subtask is open.
 - **Plan.** Each task has an optional plan link — a path or reference to where
   its plan lives — edited in the task's dialog. A `ready` task with no plan is
-  flagged **`⚠ no plan`** in its dialog.
+  flagged **`⚠ no plan`** on its row in the tree and in its dialog.
 
 Moving a task between columns:
 
 - `]` / `[` move it to the next / previous column; it lands in that column's
   first state. `t` cycles the state inside its column.
-- Moving a task out of Done with `[` sets it `working` and restores its subtasks'
-  previous states.
+- Moving a task out of Done with `[` sets it `working`. If you completed it in
+  this session, its subtasks get their previous states back; otherwise they keep
+  their current ones.
 - `m` grabs a task to reorder it (see Keys); grab mode steps over tasks hidden in
   the tab.
 
@@ -194,12 +196,12 @@ Grab mode (`m`) is refused while a search is active.
 ## Search
 
 Press `/` to filter the current tab as you type — a grep over task/category
-titles and task descriptions. The whole path to every match is kept, so a hit deep in a
-subtask keeps its parent tasks and category visible (searching `cat` still shows
-the tree down to a "catacombs" subtask), while non-matching branches are hidden;
-the matched text is highlighted. `enter` keeps the filter and returns you to
-navigating the results, `esc` clears it, and pressing `/` again refines the
-current query.
+titles and task descriptions. The whole path to every match is kept, so a hit
+deep in a subtask keeps its parent tasks and category visible (searching `cat`
+still shows the tree down to a "catacombs" subtask), while non-matching branches
+are hidden; the matched text is highlighted. `enter` keeps the filter and returns
+you to navigating the results, `esc` clears it, and pressing `/` again refines
+the current query.
 
 ## Completing a parent
 
