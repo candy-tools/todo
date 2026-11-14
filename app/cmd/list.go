@@ -13,10 +13,14 @@ import (
 func listCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "list",
-		Short: "list categories and tasks with their number and line",
+		Short: "list categories and tasks with their number and id",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			doc, err := todo.Load(fileArg(cmd))
+			path, isDefault, err := resolvePath(cmd, nil)
+			if err != nil {
+				return err
+			}
+			doc, err := openForRead(cmd, path, isDefault)
 			if err != nil {
 				return err
 			}
@@ -44,7 +48,7 @@ func depthOf(it *todo.Item) int {
 
 func writeListTable(w io.Writer, doc *todo.Document, filter string) error {
 	visible := doc.VisibleItems(filter) // nil => show everything
-	_, _ = fmt.Fprintln(w, "  #  line  st   item")
+	_, _ = fmt.Fprintln(w, "  #    id  st   item")
 	for i, it := range doc.Enumerate() {
 		if visible != nil && !visible[it] {
 			continue
@@ -54,7 +58,7 @@ func writeListTable(w io.Writer, doc *todo.Document, filter string) error {
 			st = "[" + it.Status.Marker() + "]"
 		}
 		indent := strings.Repeat("  ", depthOf(it))
-		_, _ = fmt.Fprintf(w, "%3d %5d  %-4s %s%s\n", i+1, it.Line, st, indent, it.Title)
+		_, _ = fmt.Fprintf(w, "%3d %5d  %-4s %s%s\n", i+1, it.ID, st, indent, it.Title)
 	}
 	return nil
 }
@@ -63,7 +67,7 @@ func writeListTable(w io.Writer, doc *todo.Document, filter string) error {
 // --json.
 type jsonItem struct {
 	Number      int        `json:"number"`
-	Line        int        `json:"line"`
+	ID          uint       `json:"id"`
 	Kind        string     `json:"kind"`
 	Title       string     `json:"title"`
 	Status      string     `json:"status,omitempty"`
@@ -89,7 +93,7 @@ func pathOf(it *todo.Item) []string {
 // all) prunes to filtered items.
 func toJSONItem(it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]bool) jsonItem {
 	ji := jsonItem{
-		Number: nums[it], Line: it.Line, Title: it.Title, Path: pathOf(it),
+		Number: nums[it], ID: it.ID, Title: it.Title, Path: pathOf(it),
 		Children: []jsonItem{},
 	}
 	done, total := it.TaskCounts()

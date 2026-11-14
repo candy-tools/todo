@@ -6,14 +6,14 @@
 package tui
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	"github.com/candy-tools/todo/app/metainfo"
 	"github.com/candy-tools/todo/internal/todo"
-	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -57,17 +57,18 @@ const (
 )
 
 type model struct {
-	path    string
+	store   *todo.Store
 	version string
 	doc     *todo.Document
 	tree    tree
 	width   int
 	height  int
 
-	// lastContent is the exact file content todo last read or wrote. The poll
-	// loop compares the file against it to tell an external edit (reload) from
-	// the app's own save (ignore).
-	lastContent string
+	// lastRev is the store revision doc reflects: the one todo last loaded,
+	// which after its own write is the revision that write produced. The poll
+	// loop compares the store against it to tell an external write (reload) from
+	// the app's own (ignore).
+	lastRev int64
 
 	mode mode
 	form form
@@ -88,18 +89,22 @@ type model struct {
 	// item, or clear all completed tasks.
 	confirmAction confirmAction
 
-	// snapshots holds, per cascade-completed parent task, the descendant Done
+	// snapshots holds, per cascade-completed parent task ID, the descendant Done
 	// states captured at completion time, so unchecking that parent can restore
-	// them. Session-only: it lives here in memory and is never written to disk.
-	snapshots map[*todo.Item]todo.DoneStates
+	// them. Session-only: it lives here in memory and is never stored. Keyed by
+	// ID, it survives the reload after the app's own write; an external reload
+	// clears it.
+	snapshots map[uint]todo.DoneStates
 
 	status string // transient one-line footer message
-	err    error  // last save error, shown in the footer
+	err    error  // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
 }
 
-// Run loads the TODO file at path and starts the interactive TUI.
-func Run(path string) error {
-	m, err := newModel(path)
+// Run loads the list from st and starts the interactive TUI. notice (e.g. the
+// automatic TODO.md import summary) is shown in the footer at start; it may be
+// empty. The caller owns st and closes it after Run returns.
+func Run(st *todo.Store, notice string) error {
+	m, err := newModel(st, notice)
 	if err != nil {
 		return err
 	}
@@ -107,36 +112,30 @@ func Run(path string) error {
 	return err
 }
 
-// newModel loads the file at path into a fresh model (main view, empty undo
-// snapshots). Split out from Run so tests can drive the model without starting
-// a real terminal program.
-func newModel(path string) (model, error) {
-	// Bootstrap the file when it is missing, so launching todo (with no argument,
-	// or a new filename) starts from a real file on disk.
-	if err := todo.EnsureFile(path); err != nil {
-		return model{}, err
-	}
-	doc, err := todo.Load(path)
+// newModel loads the list from st into a fresh model (main view, empty undo
+// snapshots) with notice as the initial footer status. A multi-line notice (an
+// import summary followed by its warnings) is joined onto the single footer
+// line. Split out from Run so tests can drive the model without starting a real
+// terminal program.
+func newModel(st *todo.Store, notice string) (model, error) {
+	doc, rev, err := st.Load(context.Background())
 	if err != nil {
 		return model{}, err
 	}
-	// Snapshot the raw bytes as the change-detection baseline. Best-effort: a
-	// read error (e.g. the file doesn't exist yet) just leaves an empty
-	// baseline, which the first save replaces.
-	content, _ := os.ReadFile(path) //nolint:gosec // path is the user-provided file the app exists to read
 	return model{
-		path:        path,
-		version:     metainfo.Version,
-		doc:         doc,
-		tree:        newTree(doc),
-		mode:        modeMain,
-		snapshots:   map[*todo.Item]todo.DoneStates{},
-		lastContent: string(content),
+		store:     st,
+		version:   metainfo.Version,
+		doc:       doc,
+		tree:      newTree(doc),
+		mode:      modeMain,
+		snapshots: map[uint]todo.DoneStates{},
+		lastRev:   rev,
+		status:    strings.ReplaceAll(notice, "\n", " · "),
 	}, nil
 }
 
-// Init starts the file-poll loop that keeps the view in sync with external
-// edits to the open file.
+// Init starts the revision-poll loop that keeps the view in sync with external
+// writes to the store.
 func (m model) Init() tea.Cmd { return pollCmd() }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -155,9 +154,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case reloadTickMsg:
-		// Probe the file and re-arm the next tick; the probe runs off-goroutine.
+		// Probe the store and re-arm the next tick; the probe runs off-goroutine.
 		return m, tea.Batch(m.reloadCheckCmd(), pollCmd())
-	case fileReloadedMsg:
+	case storeReloadedMsg:
 		return m.handleReload(msg)
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -326,20 +325,25 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// applyMove runs one move op on the grabbed item. On success it persists,
-// rebuilds, keeps the cursor on the moved item and expands its (possibly new)
-// parent so it stays visible; the structural change also ends the accidental-
-// complete undo window. A no-op result changes nothing and keeps the item grabbed.
+// applyMove runs one move op on the grabbed item. On success it persists the
+// item's new placement, reloads, keeps the cursor on the moved item (still
+// grabbed) and expands its (possibly new) parent so it stays visible; the
+// structural change also ends the accidental-complete undo window. A no-op
+// result changes nothing and keeps the item grabbed.
 func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
 	it := m.tree.selected()
 	if it == nil || m.tree.onPlaceholder() || !op(it) {
 		return m, nil
 	}
-	m.snapshots = map[*todo.Item]todo.DoneStates{}
-	delete(m.tree.collapsed, it.Parent) // reveal the item under its (possibly new) parent
-	m.save()
-	m.tree.rebuild()
-	m.tree.selectItem(it)
+	m.snapshots = map[uint]todo.DoneStates{}
+	if it.Parent != nil {
+		delete(m.tree.collapsed, it.Parent.ID) // reveal the item under its (possibly new) parent
+	}
+	id := it.ID
+	parentID, afterID := m.doc.Placement(it)
+	m.commit(id, func(ctx context.Context) error {
+		return m.store.Move(ctx, id, parentID, afterID)
+	})
 	return m, nil
 }
 
@@ -471,29 +475,34 @@ func (m model) doConfirm() (tea.Model, tea.Cmd) {
 	return m.doDelete()
 }
 
-// doClearDone removes every completed task, persists, and keeps the selection on
-// the previously selected item when it survived (otherwise the top row). Like a
-// delete, it ends the accidental-complete undo window.
+// doClearDone removes every completed task from the store (which works out the
+// fully-done subtrees itself, as they are at write time), reloads, and keeps
+// the selection on the previously selected item when it survived (otherwise the
+// top row). Like a delete, it ends the accidental-complete undo window.
 func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	m.mode = modeMain
-	sel := m.tree.selected()
-	n := m.doc.RemoveDone()
-	if n == 0 {
-		return m, nil
+	var focus uint
+	if sel := m.tree.selected(); sel != nil && !m.tree.onPlaceholder() {
+		focus = sel.ID
 	}
-	m.snapshots = map[*todo.Item]todo.DoneStates{}
-	m.save()
-	m.tree.rebuild()
-	m.tree.selectTop()
-	if sel != nil {
-		m.tree.selectItem(sel) // no-op if sel was removed → stays on the top row
+	m.snapshots = map[uint]todo.DoneStates{}
+	var removed int
+	var pruneErr error
+	m.commit(focus, func(ctx context.Context) error {
+		removed, pruneErr = m.store.Prune(ctx)
+		return pruneErr
+	})
+	if sel := m.tree.selected(); focus != 0 && (sel == nil || sel.ID != focus) {
+		m.tree.selectTop() // sel was removed
 	}
-	m.status = fmt.Sprintf("Removed %d completed task(s).", n)
+	if pruneErr == nil {
+		m.status = fmt.Sprintf("Removed %d completed task(s).", removed)
+	}
 	return m, nil
 }
 
-// doDelete removes the confirmed item (and its subtree) from the document,
-// persists, and moves the selection to a sensible neighbour — the row above the
+// doDelete removes the confirmed item (and its subtree) from the store,
+// reloads, and moves the selection to a sensible neighbour — the row above the
 // deleted item, which is never one of its descendants.
 func (m model) doDelete() (tea.Model, tea.Cmd) {
 	it := m.deleting
@@ -502,20 +511,17 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 	if it == nil {
 		return m, nil
 	}
-	var prev *todo.Item
+	var prevID uint
 	if m.tree.cursor > 0 {
-		prev = m.tree.rows[m.tree.cursor-1].item
+		prevID = m.tree.rows[m.tree.cursor-1].item.ID
 	}
 	m.doc.Remove(it)
 	// A structural change ends the accidental-complete undo window.
-	m.snapshots = map[*todo.Item]todo.DoneStates{}
-	m.save()
-	m.tree.rebuild()
-	if prev != nil {
-		m.tree.selectItem(prev)
-	} else {
-		m.tree.selectTop()
-	}
+	m.snapshots = map[uint]todo.DoneStates{}
+	id := it.ID
+	m.commit(prevID, func(ctx context.Context) error {
+		return m.store.Delete(ctx, id)
+	})
 	return m, nil
 }
 
@@ -531,25 +537,37 @@ func (m model) toggleDone() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	for p := it.Parent; p != nil; p = p.Parent {
-		delete(m.snapshots, p)
+		delete(m.snapshots, p.ID)
 	}
+	id := it.ID
+	var write func(ctx context.Context) error
 	switch {
 	case it.IsDone():
-		if snap, ok := m.snapshots[it]; ok {
-			todo.RestoreDone(snap)
-			delete(m.snapshots, it)
+		if snap, ok := m.snapshots[id]; ok {
+			m.doc.ApplyStatuses(snap)
+			delete(m.snapshots, id)
+			write = func(ctx context.Context) error { return m.store.SetStatuses(ctx, snap) }
 		} else {
 			it.Status = todo.Open
+			write = m.setStatusesWrite(id, todo.Open)
 		}
 	case len(it.Children) > 0:
-		m.snapshots[it] = todo.SnapshotDone(it)
+		m.snapshots[id] = todo.SnapshotDone(it)
 		todo.CascadeSetDone(it, true)
+		write = func(ctx context.Context) error { return m.store.CascadeStatus(ctx, id, todo.Done) }
 	default:
 		it.Status = todo.Done
+		write = m.setStatusesWrite(id, todo.Done)
 	}
-	m.save()
-	m.tree.rebuild()
+	m.commit(id, write)
 	return m, nil
+}
+
+// setStatusesWrite returns the store write that sets item id to st.
+func (m model) setStatusesWrite(id uint, st todo.Status) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		return m.store.SetStatuses(ctx, map[uint]todo.Status{id: st})
+	}
 }
 
 // setStatus flags the selected task with target (in progress / deferred),
@@ -564,16 +582,15 @@ func (m model) setStatus(target todo.Status) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	for p := it.Parent; p != nil; p = p.Parent {
-		delete(m.snapshots, p)
+		delete(m.snapshots, p.ID)
 	}
-	delete(m.snapshots, it)
+	delete(m.snapshots, it.ID)
 	if it.Status == target {
 		it.Status = todo.Open
 	} else {
 		it.Status = target
 	}
-	m.save()
-	m.tree.rebuild()
+	m.commit(it.ID, m.setStatusesWrite(it.ID, it.Status))
 	return m, nil
 }
 
@@ -677,26 +694,35 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // submitForm applies the open form: editing the selected item, or inserting a
-// new task/subtask/category at the right spot. An empty title is ignored (the
-// dialog stays open). Any structural or content change clears the undo
-// snapshots — the accidental-complete window is meant to be immediate.
+// new task/subtask/category at the right spot. The insert is first made in
+// memory, which works out its placement, and then stored there. An empty title
+// is ignored (the dialog stays open). Any structural or content change clears
+// the undo snapshots — the accidental-complete window is meant to be immediate.
 func (m model) submitForm() (tea.Model, tea.Cmd) {
 	title, desc := m.form.values()
 	if title == "" {
 		return m, nil
 	}
-	sel := m.tree.selected()
-	var focus *todo.Item
+	m.snapshots = map[uint]todo.DoneStates{}
+	m.mode = modeMain
 
-	switch m.target {
-	case targetEdit:
+	if m.target == targetEdit {
 		m.editing.Title = title
 		if m.editing.IsTask() {
 			m.editing.Description = desc
 		}
-		focus = m.editing
+		id := m.editing.ID
+		m.commit(id, func(ctx context.Context) error {
+			return m.store.Edit(ctx, id, title, desc)
+		})
+		return m, nil
+	}
+
+	sel := m.tree.selected()
+	var added *todo.Item
+	switch m.target {
 	case targetAddCategory:
-		cat := &todo.Item{Kind: todo.Category, Title: title, Level: 1}
+		added = &todo.Item{Kind: todo.Category, Title: title, Level: 1}
 		// A category — or a task inside one — selected → subcategory of the
 		// enclosing category; the root placeholder → a new top-level category.
 		var parentCat *todo.Item
@@ -704,51 +730,81 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 			parentCat = sel.EnclosingCategory()
 		}
 		if parentCat != nil {
-			if cat.Level = parentCat.Level + 1; cat.Level > 6 {
-				cat.Level = 6
-			}
-			parentCat.AppendChild(cat)
-			delete(m.tree.collapsed, parentCat)
+			added.Level = parentCat.Level + 1
+			parentCat.AppendChild(added)
+			delete(m.tree.collapsed, parentCat.ID)
 		} else {
-			m.doc.AppendRoot(cat)
+			m.doc.AppendRoot(added)
 		}
-		focus = cat
 	case targetAddChild: // a subtask of a task, or a task inside a category
-		task := todo.NewTask(title, desc, false)
-		sel.AppendTask(task)
-		delete(m.tree.collapsed, sel)
-		focus = task
+		added = todo.NewTask(title, desc, false)
+		sel.AppendTask(added)
+		delete(m.tree.collapsed, sel.ID)
 	default: // targetAddSibling: a task at the end of the selection's level
-		task := todo.NewTask(title, desc, false)
+		added = todo.NewTask(title, desc, false)
 		parent := sel
 		if sel.IsTask() && sel.Parent != nil {
 			parent = sel.Parent // a task's siblings live under its parent
 		}
-		parent.AppendTask(task)
-		delete(m.tree.collapsed, parent)
-		focus = task
+		parent.AppendTask(added)
+		delete(m.tree.collapsed, parent.ID)
 	}
 
-	m.snapshots = map[*todo.Item]todo.DoneStates{}
-	m.mode = modeMain
-	m.save()
-	m.tree.rebuild()
-	if focus != nil {
-		m.tree.selectItem(focus)
-	}
+	parentID, afterID := m.doc.Placement(added)
+	var newID uint
+	m.commit(0, func(ctx context.Context) error {
+		var err error
+		if added.Kind == todo.Category {
+			newID, err = m.store.AddCategory(ctx, title, parentID, afterID)
+		} else {
+			newID, err = m.store.AddTask(ctx, title, desc, todo.Open, parentID, afterID)
+		}
+		return err
+	})
+	m.tree.selectID(newID) // the ID is only known once the write ran
 	return m, nil
 }
 
-// save writes the document to disk, recording any error for the footer. On
-// success it refreshes lastContent to exactly what was written, so the poll
-// loop recognises this as our own change and does not reload over it.
-func (m *model) save() {
-	if err := m.doc.Save(m.path); err != nil {
-		m.err = err
+// commit runs write against the store and then reloads, so the view always
+// shows what the store holds. A write error is kept for the footer (a success
+// clears the last one). The reload happens either way: it records the
+// revision this write produced (so the poll does not report it as an external
+// change) and rebuilds the tree, keeping the folds of the items that still
+// exist, the viewport, the filter and the grab state, and selecting focusID if
+// present (else keeping the cursor index, clamped). The undo snapshots are
+// kept, since this is the app's own write — unless the reload shows that
+// someone else wrote too: a successful store write bumps the revision exactly
+// once and a failed one rolls back, so any other revision than that means an
+// external write landed since the last load, and the reload is handled as
+// external (snapshots dropped, the status line says so). If the reload itself
+// fails, the current document stays, its rows are rebuilt (the caller may have
+// changed its structure) with focusID selected, and the error is shown: the
+// write's when it failed, else the reload's.
+func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
+	ctx := context.Background()
+	m.err = nil
+	expected := m.lastRev
+	if err := write(ctx); err != nil {
+		m.err = fmt.Errorf("save failed: %w", err)
+	} else {
+		expected++
+	}
+	doc, rev, err := m.store.Load(ctx)
+	if err != nil {
+		if m.err == nil {
+			m.err = fmt.Errorf("reload failed: %w", err)
+		}
+		m.tree.rebuild()
+		m.tree.selectID(focusID)
 		return
 	}
-	m.err = nil
-	m.lastContent = m.doc.FileContent()
+	onPH := m.tree.onPlaceholder()
+	m.doc, m.lastRev = doc, rev
+	m.tree.adopt(doc, focusID, onPH)
+	if rev != expected {
+		m.snapshots = map[uint]todo.DoneStates{}
+		m.status = "reloaded — list changed externally"
+	}
 }
 
 // confirmQuestion phrases the prompt for the open confirm dialog.
@@ -809,7 +865,7 @@ func (m model) treeViewHeight() int {
 
 func (m model) header(width int) string {
 	done, total := overallCounts(m.doc)
-	left := headerAppStyle.Render("todo") + " " + headerHintSty.Render(m.version) + "  " + headerHintSty.Render(filepath.Base(m.path))
+	left := headerAppStyle.Render("todo") + " " + headerHintSty.Render(m.version) + "  " + headerHintSty.Render(filepath.Base(m.store.Path()))
 	right := headerHintSty.Render(fmt.Sprintf("%d/%d done", done, total))
 	gap := width - 1 - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
@@ -824,7 +880,7 @@ func (m model) footer(width int) string {
 		// The live search bar replaces the footer while typing a query.
 		return ansi.Truncate(" "+helpKeyStyle.Render("/")+" "+m.search.View(), width, "")
 	case m.err != nil:
-		return ansi.Truncate(" "+errStyle.Render("save failed: "+m.err.Error()), width, "")
+		return ansi.Truncate(" "+errStyle.Render(m.err.Error()), width, "")
 	case m.tree.grabbed:
 		// Move mode: the arrows reorder/re-nest the grabbed item.
 		parts := []string{

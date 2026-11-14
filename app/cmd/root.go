@@ -1,5 +1,5 @@
-// Package cmd is the command-line entry point: it parses `todo <file.md>` and
-// launches the interactive TUI on that file.
+// Package cmd is the command-line entry point: it parses `todo [db-file]` and
+// launches the interactive TUI on that store.
 package cmd
 
 import (
@@ -11,9 +11,6 @@ import (
 	"github.com/candy-tools/todo/app/tui"
 	"github.com/spf13/cobra"
 )
-
-// defaultFile is opened when no file argument is given.
-const defaultFile = "TODO.md"
 
 // Execute is the entry point for the command line.
 func Execute() {
@@ -31,34 +28,32 @@ func Execute() {
 
 func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "todo [file.md]",
-		Short:         "A minimalistic markdown TODO manager",
-		Long:          "todo opens a markdown file as a keyboard-driven task list: headers are\ncategories, `- [ ]` items are tasks, and nested items are subtasks.\n\nWith no argument it opens TODO.md in the current directory.",
+		Use:           "todo [db-file]",
+		Short:         "A minimalistic terminal TODO manager",
+		Long:          "todo opens a SQLite database as a keyboard-driven task list of categories,\ntasks and subtasks.\n\nWith no argument it uses .todo.db in the current directory. When that database\ndoes not exist yet and a TODO.md is present, TODO.md is imported on first run.\nUse `todo import <file.md>` to import a markdown file explicitly.",
 		Version:       metainfo.Version,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			if len(args) == 0 && c.Flags().Changed("file") {
-				f, _ := c.Flags().GetString("file")
-				return tui.Run(f)
+			path, isDefault, err := resolvePath(c, args)
+			if err != nil {
+				return err
 			}
-			return tui.Run(filePath(args))
+			// Opening creates the store when it is missing (or imports TODO.md),
+			// so launching todo always starts from a real database on disk.
+			st, notice, err := openStore(c, path, isDefault)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = st.Close() }()
+			return tui.Run(st, notice)
 		},
 	}
-	cmd.PersistentFlags().StringP("file", "f", defaultFile, "the todo file to operate on")
+	cmd.PersistentFlags().StringP("file", "f", defaultFile, "the todo database to operate on")
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
 		return &cliError{exitUsage, e.Error()}
 	})
-	cmd.AddCommand(versionCmd(), listCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd())
+	cmd.AddCommand(versionCmd(), listCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd(), importCmd())
 	return cmd
-}
-
-// filePath resolves the file to open: the given argument, or TODO.md when none
-// is provided.
-func filePath(args []string) string {
-	if len(args) == 1 {
-		return args[0]
-	}
-	return defaultFile
 }

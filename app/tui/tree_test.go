@@ -9,7 +9,7 @@ import (
 )
 
 func TestTreeFlatten(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n  - [ ] a1\n- [ ] b\n")
+	d := parseDoc(t, "# Work\n\n- [ ] a\n  - [ ] a1\n- [ ] b\n")
 	tr := newTree(d)
 	// Four real rows plus the trailing placeholder.
 	if len(tr.rows) != 5 {
@@ -34,7 +34,7 @@ func TestTreeFlatten(t *testing.T) {
 }
 
 func TestTreePlaceholderAlwaysPresent(t *testing.T) {
-	tr := newTree(todo.Parse("# Work\n")) // rows: Work, placeholder
+	tr := newTree(parseDoc(t, "# Work\n")) // rows: Work, placeholder
 	if len(tr.rows) != 2 || !tr.rows[1].placeholder {
 		t.Fatalf("expected a trailing placeholder row, got %d rows", len(tr.rows))
 	}
@@ -49,7 +49,7 @@ func TestTreePlaceholderAlwaysPresent(t *testing.T) {
 }
 
 func TestTreeCollapseJumpsToParentOnLeaf(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n")
+	d := parseDoc(t, "# Work\n\n- [ ] a\n")
 	tr := newTree(d)
 	tr.cursor = 1 // task a (a leaf)
 	tr.collapse()
@@ -59,10 +59,10 @@ func TestTreeCollapseJumpsToParentOnLeaf(t *testing.T) {
 }
 
 func TestTreeCursorClampsAfterRebuild(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n- [ ] b\n")
+	d := parseDoc(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	tr := newTree(d) // rows: Work, a, b, placeholder
 	tr.cursor = 2    // task b
-	tr.collapsed[d.Roots[0]] = true
+	tr.collapsed[d.Roots[0].ID] = true
 	tr.rebuild() // now: Work, placeholder
 	if tr.cursor != len(tr.rows)-1 {
 		t.Errorf("cursor should clamp into range after rows shrink, got %d of %d", tr.cursor, len(tr.rows))
@@ -70,7 +70,7 @@ func TestTreeCursorClampsAfterRebuild(t *testing.T) {
 }
 
 func TestTreeRowRendering(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] open\n- [x] done\n")
+	d := parseDoc(t, "# Work\n\n- [ ] open\n- [x] done\n")
 	tr := newTree(d)
 	// Unselected done task shows a filled circle; open task shows an empty circle.
 	if got := tr.rowString(treeRow{item: find(d, "done")}, false); !strings.Contains(got, "●") {
@@ -92,7 +92,7 @@ func TestTreePageJumps(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		_, _ = fmt.Fprintf(&b, "- [ ] t%d\n", i)
 	}
-	tr := newTree(todo.Parse(b.String()))
+	tr := newTree(parseDoc(t, b.String()))
 	last := len(tr.rows) - 1
 
 	// pageDown advances a fixed navStep rows.
@@ -126,7 +126,7 @@ func TestTreeScrollDecoupledFromCursor(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		_, _ = fmt.Fprintf(&b, "- [ ] t%d\n", i)
 	}
-	tr := newTree(todo.Parse(b.String()))
+	tr := newTree(parseDoc(t, b.String()))
 	tr.viewHeight = 10
 
 	// Scroll down well past the first page.
@@ -175,7 +175,7 @@ func TestTreeEmptyView(t *testing.T) {
 }
 
 func TestTreeDescriptionMarker(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [ ] a\n  notes here\n- [ ] b\n")
+	d := parseDoc(t, "# Work\n\n- [ ] a\n  notes here\n- [ ] b\n")
 	tr := newTree(d)
 	if got := tr.rowString(treeRow{item: find(d, "a")}, false); !strings.Contains(got, "≡") {
 		t.Errorf("a task with a description should carry the ≡ marker, got %q", got)

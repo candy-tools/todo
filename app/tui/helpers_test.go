@@ -1,28 +1,54 @@
 package tui
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// newTestModel writes src to a temp file, loads it into a model, and sizes the
-// view. It returns the model and the file path so tests can assert on what was
-// persisted.
+// newTestModel seeds a store from the markdown src, opens it into a model (closed
+// when the test ends), and sizes the view. It returns the model and the store
+// path so tests can assert on what was persisted.
 func newTestModel(t *testing.T, src string) (model, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "todo.md")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("seed file: %v", err)
+	path := todotest.Seed(t, src)
+	st, err := todo.OpenStore(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
 	}
-	m, err := newModel(path)
+	t.Cleanup(func() { _ = st.Close() })
+	m, err := newModel(st, "")
 	if err != nil {
 		t.Fatalf("newModel: %v", err)
 	}
 	return send(m, tea.WindowSizeMsg{Width: 100, Height: 30}), path
+}
+
+// openSecond opens another handle on the store at path, standing in for a second
+// process (a CLI command or an agent) writing to the same list. It is closed when
+// the test ends.
+func openSecond(t *testing.T, path string) *todo.Store {
+	t.Helper()
+	st, err := todo.OpenStore(path)
+	if err != nil {
+		t.Fatalf("open second store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
+
+// parseDoc parses the markdown src and numbers its items 1, 2, … in document
+// order, standing in for the IDs a store load assigns, so trees built from it
+// can key folds by ID.
+func parseDoc(t testing.TB, src string) *todo.Document {
+	t.Helper()
+	d := todotest.Parse(t, src)
+	for i, it := range d.Enumerate() {
+		it.ID = uint(i + 1)
+	}
+	return d
 }
 
 // send applies msg and returns the updated model.
@@ -65,16 +91,6 @@ func keyMsg(s string) tea.KeyMsg {
 	default:
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 	}
-}
-
-// readFile returns the on-disk contents of the model's file.
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	return string(b)
 }
 
 // find returns the first item in the document whose title matches, or nil.

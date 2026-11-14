@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 func TestSetInProgress(t *testing.T) {
@@ -13,8 +14,8 @@ func TestSetInProgress(t *testing.T) {
 	if got := find(m.doc, "a").Status; got != todo.InProgress {
 		t.Errorf("p should set the task in progress, got %v", got)
 	}
-	if !strings.Contains(readFile(t, path), "- [/] a") {
-		t.Errorf("in-progress not persisted:\n%s", readFile(t, path))
+	if !strings.Contains(todotest.Dump(t, path), "- [/] a") {
+		t.Errorf("in-progress not persisted:\n%s", todotest.Dump(t, path))
 	}
 	// p again returns it to open.
 	m = press(m, "p")
@@ -29,8 +30,8 @@ func TestSetDeferred(t *testing.T) {
 	if got := find(m.doc, "a").Status; got != todo.Deferred {
 		t.Errorf("> should defer the task, got %v", got)
 	}
-	if !strings.Contains(readFile(t, path), "- [>] a") {
-		t.Errorf("deferred not persisted:\n%s", readFile(t, path))
+	if !strings.Contains(todotest.Dump(t, path), "- [>] a") {
+		t.Errorf("deferred not persisted:\n%s", todotest.Dump(t, path))
 	}
 	// > again returns it to open.
 	m = press(m, ">")
@@ -71,7 +72,7 @@ func TestStatusFlagIsTaskOnly(t *testing.T) {
 }
 
 func TestTreeRowStatusGlyphs(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [/] prog\n- [>] defer\n")
+	d := parseDoc(t, "# Work\n\n- [/] prog\n- [>] defer\n")
 	tr := newTree(d)
 	if got := tr.rowString(treeRow{item: find(d, "prog")}, false); !strings.Contains(got, "◐") {
 		t.Errorf("in-progress row should contain ◐, got %q", got)
@@ -82,7 +83,7 @@ func TestTreeRowStatusGlyphs(t *testing.T) {
 }
 
 func TestItemMetaStatus(t *testing.T) {
-	d := todo.Parse("# Work\n\n- [/] prog\n- [>] defer\n")
+	d := todotest.Parse(t, "# Work\n\n- [/] prog\n- [>] defer\n")
 	if got := itemMeta(find(d, "prog")); !strings.Contains(got, "in progress") {
 		t.Errorf("itemMeta for an in-progress task should say 'in progress', got %q", got)
 	}

@@ -42,8 +42,9 @@ verify: test vet lint license-check coverage ## run the full verification suite
 #==========================================================================================
 ##@ Running
 #==========================================================================================
-run: ## run against the sample file (example.md)
-	@go run . example.md
+EXAMPLE_DB = $${TMPDIR:-/tmp}/todo-example.db
+run: ## run on a fresh import of example.md in a temp database (never touches ./.todo.db)
+	@go run . import --force -f $(EXAMPLE_DB) example.md && go run . -f $(EXAMPLE_DB)
 
 #==========================================================================================
 ##@ Building

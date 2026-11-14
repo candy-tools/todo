@@ -26,11 +26,14 @@ func (d *Document) ByNumber(n int) (*Item, bool) {
 	return items[n-1], true
 }
 
-// ByLine returns the item whose source line (Item.Line) equals line, or
-// ok=false when no item begins on that line.
-func (d *Document) ByLine(line int) (*Item, bool) {
+// ByID returns the item whose database ID equals id, or ok=false when none
+// matches. ID 0 means "not persisted", so it never matches.
+func (d *Document) ByID(id uint) (*Item, bool) {
+	if id == 0 {
+		return nil, false
+	}
 	for _, it := range d.Enumerate() {
-		if it.Line == line {
+		if it.ID == id {
 			return it, true
 		}
 	}
@@ -39,7 +42,7 @@ func (d *Document) ByLine(line int) (*Item, bool) {
 
 // ByTitle returns every item whose title equals title exactly (case-sensitive),
 // in document order. Zero results means no such item; more than one means the
-// title is ambiguous and the caller must disambiguate by number or line.
+// title is ambiguous and the caller must disambiguate by number or ID.
 func (d *Document) ByTitle(title string) []*Item {
 	var out []*Item
 	for _, it := range d.Enumerate() {

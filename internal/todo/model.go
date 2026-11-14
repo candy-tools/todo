@@ -1,28 +1,27 @@
-// Package todo is the pure domain of the TODO app: the in-memory tree parsed
-// from a markdown file, the operations over it (toggle, cascade-complete, and
-// the snapshot/restore that powers accidental-complete undo), and the
-// markdown (de)serialization. It has no dependency on the TUI — everything
-// here is testable in isolation.
+// Package todo is the domain of the TODO app: the in-memory tree loaded from the
+// SQLite store, the operations over it (toggle, cascade-complete, and the
+// snapshot/restore that powers accidental-complete undo), the store itself, and
+// the one-time markdown import. It has no dependency on the TUI.
 package todo
 
-// Kind distinguishes a category (a markdown header) from a task (a checkbox
-// list item).
+// Kind distinguishes a category from a task.
 type Kind int
 
 const (
-	// Category is a markdown header (`#`..`######`); it groups sub-categories
-	// and tasks and carries no Done/Description of its own.
+	// Category groups sub-categories and tasks and carries no Status or
+	// Description of its own. The markdown import reads one from a header.
 	Category Kind = iota
-	// Task is a checkbox list item (`- [ ]` / `- [x]`); it carries a Status
-	// and a free-form Description, and may nest sub-tasks.
+	// Task carries a Status and a free-form Description, and may nest
+	// sub-tasks. The markdown import reads one from a checkbox list item.
 	Task
 )
 
 // Status is a task's completion state. Open and Done are the classic checkbox
-// states; InProgress and Deferred are extra flags. Each maps to an extended
-// checkbox marker on disk — `[ ]` `[/]` `[>]` `[x]` — parsed and rendered by
-// this package. Only Done reads as "complete": counts, pruning and the
-// done-cascade all key off IsDone, so InProgress and Deferred count as not done.
+// states; InProgress and Deferred are extra flags. Each has a checkbox marker —
+// `[ ]` `[/]` `[>]` `[x]` — which the markdown import reads and the CLI's list
+// shows; the store keeps the Status value itself. Only Done reads as
+// "complete": counts, pruning and the done-cascade all key off IsDone, so
+// InProgress and Deferred count as not done.
 type Status int
 
 const (
@@ -48,8 +47,20 @@ func (s Status) String() string {
 }
 
 // Marker returns the checkbox marker char for the status, e.g. "x" for Done. It
-// is markerFromStatus exposed for the CLI's list table; the two stay in sync.
-func (s Status) Marker() string { return markerFromStatus(s) }
+// is the inverse of statusFromMarker (see markdown.go) and is what the CLI's
+// list table shows; the two stay in sync.
+func (s Status) Marker() string {
+	switch s {
+	case Done:
+		return "x"
+	case InProgress:
+		return "/"
+	case Deferred:
+		return ">"
+	default: // Open
+		return " "
+	}
+}
 
 // StatusFromName parses a CLI status name into a Status; ok is false for an
 // unknown name.
@@ -67,26 +78,23 @@ func StatusFromName(name string) (Status, bool) {
 	return Open, false
 }
 
-// Item is one node of the TODO tree. Categories nest by header level and hold
-// sub-categories and tasks; tasks nest by list indentation and hold sub-tasks.
-// Only tasks use Status and Description; only categories use Level.
+// Item is one node of the TODO tree. Categories hold sub-categories and tasks;
+// tasks hold sub-tasks. Only tasks use Status and Description; only categories
+// use Level.
 type Item struct {
+	ID          uint // database node ID; 0 until the item is persisted
 	Kind        Kind
 	Title       string
-	Level       int    // Category only: header level 1..6
-	Line        int    // 1-based source line of the header/checkbox; 0 until parsed
+	Level       int    // Category only: its depth among categories, 1 for a root category
 	Status      Status // Task only
 	Description string // Task only: free-form text shown in the details view
 	Children    []*Item
 	Parent      *Item // nil for a root item
 }
 
-// Document is a parsed TODO file: its root items plus any verbatim text that
-// appeared before the first header or task (preserved across a save so a title
-// or intro paragraph at the top of the file is never lost).
+// Document is the in-memory TODO tree: its root items.
 type Document struct {
-	Preamble string
-	Roots    []*Item
+	Roots []*Item
 }
 
 // IsTask reports whether the item is a task (rather than a category).
@@ -129,10 +137,9 @@ func (it *Item) AppendChild(c *Item) {
 
 // AppendTask adds task as the last *task* child of it — before any
 // subcategory children — and sets task.Parent. This preserves the invariant
-// that a category's direct tasks precede its subcategories, which is what keeps
-// the markdown round-tripping: a task written after a `##` subheader would
-// otherwise re-parent under that subheader when the file is reloaded. For a
-// task parent (a subtask) there are no category children, so it simply appends.
+// that a category's direct tasks precede its subcategories, which the move
+// rules (crossUp/crossDown) and the displayed tree depend on. For a task
+// parent (a subtask) there are no category children, so it simply appends.
 func (it *Item) AppendTask(task *Item) {
 	task.Parent = it
 	pos := len(it.Children)
@@ -235,25 +242,29 @@ func (it *Item) TaskCounts() (done, total int) {
 	return done, total
 }
 
-// DoneStates records the Status of a set of tasks, so a cascade-complete can be
-// reverted to the exact prior state — including a child that was InProgress or
-// Deferred. It is the in-memory snapshot behind the "I marked the parent done by
-// accident" undo.
-type DoneStates map[*Item]Status
+// DoneStates records the Status of a set of tasks by item ID, so a
+// cascade-complete can be reverted to the exact prior state — including a child
+// that was InProgress or Deferred. It is the in-memory snapshot behind the "I
+// marked the parent done by accident" undo; keyed by ID, it outlives a reload of
+// the document, and it is what Store.SetStatuses writes back.
+type DoneStates map[uint]Status
 
-// SnapshotDone captures the Status of it and all its descendant tasks.
+// SnapshotDone captures the Status of it and all its descendant tasks, by ID.
 func SnapshotDone(it *Item) DoneStates {
-	s := DoneStates{it: it.Status}
+	s := DoneStates{it.ID: it.Status}
 	for _, d := range it.Descendants() {
-		s[d] = d.Status
+		s[d.ID] = d.Status
 	}
 	return s
 }
 
-// RestoreDone re-applies a snapshot's recorded statuses.
-func RestoreDone(s DoneStates) {
-	for it, st := range s {
-		it.Status = st
+// ApplyStatuses sets the in-memory Status of every item of d whose ID s
+// records. IDs d does not hold (an item deleted since the snapshot) are skipped.
+func (d *Document) ApplyStatuses(s DoneStates) {
+	for _, it := range d.Enumerate() {
+		if st, ok := s[it.ID]; ok {
+			it.Status = st
+		}
 	}
 }
 
@@ -283,46 +294,47 @@ func fullyDone(it *Item) bool {
 	return done == total
 }
 
-// RemovableDone reports how many tasks RemoveDone would delete — every task
-// whose whole subtree is done. It does not modify the document, so callers can
-// size a confirmation prompt before committing to the removal.
-func (d *Document) RemovableDone() int {
-	n := 0
+// Placement returns where it sits in the tree as database IDs: parentID is the
+// parent's ID (0 for a root) and afterID is the ID of the sibling immediately
+// before it (0 when it is the first among its peers).
+func (d *Document) Placement(it *Item) (parentID, afterID uint) {
+	if it.Parent != nil {
+		parentID = it.Parent.ID
+	}
+	if list, idx, ok := d.siblings(it); ok && idx > 0 {
+		afterID = list[idx-1].ID
+	}
+	return parentID, afterID
+}
+
+// DoneSubtrees returns the outermost fully-done tasks (see fullyDone) in
+// pre-order. It does not descend into a returned item, but does descend into
+// every other item, so done tasks nested under a kept task are still found.
+func (d *Document) DoneSubtrees() []*Item {
+	var out []*Item
 	var walk func(items []*Item)
 	walk = func(items []*Item) {
 		for _, it := range items {
 			if fullyDone(it) {
-				n++
+				out = append(out, it)
+				continue
 			}
 			walk(it.Children)
 		}
 	}
 	walk(d.Roots)
-	return n
+	return out
 }
 
-// RemoveDone deletes every completed task from the document and returns how many
-// tasks were removed. A done task is dropped together with its subtree, but only
-// when that whole subtree is done: a done task that still holds an unfinished
-// sub-task is kept (the prune recurses into it, so done tasks nested deeper are
-// still removed). This mirrors single-item delete, which also removes a subtree,
-// while never discarding unfinished work.
-func (d *Document) RemoveDone() int {
-	removed := 0
-	var prune func(items []*Item) []*Item
-	prune = func(items []*Item) []*Item {
-		kept := items[:0]
-		for _, it := range items {
-			if fullyDone(it) {
-				_, total := it.TaskCounts()
-				removed += 1 + total // this task plus its (all-done) sub-tasks
-				continue             // drop the whole subtree
-			}
-			it.Children = prune(it.Children)
-			kept = append(kept, it)
-		}
-		return kept
+// RemovableDone reports how many tasks removing the completed ones would delete
+// — every task whose whole subtree is done (a done task that still holds an
+// unfinished sub-task is kept). It does not modify the document, so callers can
+// size a confirmation prompt before committing to the removal.
+func (d *Document) RemovableDone() int {
+	n := 0
+	for _, it := range d.DoneSubtrees() {
+		_, total := it.TaskCounts()
+		n += 1 + total
 	}
-	d.Roots = prune(d.Roots)
-	return removed
+	return n
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/app/metainfo"
-	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 func TestNavigateAndSelect(t *testing.T) {
@@ -49,8 +49,8 @@ func TestToggleLeafPersists(t *testing.T) {
 	if !find(m.doc, "a").IsDone() {
 		t.Errorf("task should be done in memory")
 	}
-	if !strings.Contains(readFile(t, path), "- [x] a") {
-		t.Errorf("done state not persisted:\n%s", readFile(t, path))
+	if !strings.Contains(todotest.Dump(t, path), "- [x] a") {
+		t.Errorf("done state not persisted:\n%s", todotest.Dump(t, path))
 	}
 }
 
@@ -144,7 +144,7 @@ func TestNewTaskUnderCategory(t *testing.T) {
 	if m.tree.selected() != b {
 		t.Errorf("the new task should be selected")
 	}
-	if !strings.Contains(readFile(t, path), "- [ ] b") {
+	if !strings.Contains(todotest.Dump(t, path), "- [ ] b") {
 		t.Errorf("new task not persisted")
 	}
 }
@@ -159,8 +159,8 @@ func TestNewOnTaskMakesSubtask(t *testing.T) {
 	if len(a.Children) != 1 || a.Children[0].Title != "sub" {
 		t.Fatalf("sub should be a child of a")
 	}
-	if !strings.Contains(readFile(t, path), "  - [ ] sub") {
-		t.Errorf("subtask indentation not persisted:\n%s", readFile(t, path))
+	if !strings.Contains(todotest.Dump(t, path), "  - [ ] sub") {
+		t.Errorf("subtask indentation not persisted:\n%s", todotest.Dump(t, path))
 	}
 }
 
@@ -188,7 +188,7 @@ func TestNewSiblingOnTask(t *testing.T) {
 	if m.tree.selected() != c {
 		t.Errorf("the new sibling should be selected")
 	}
-	if !strings.Contains(readFile(t, path), "- [ ] c") {
+	if !strings.Contains(todotest.Dump(t, path), "- [ ] c") {
 		t.Errorf("new sibling not persisted")
 	}
 }
@@ -258,10 +258,10 @@ func TestNewTaskInsertedBeforeSubcategory(t *testing.T) {
 	if s := find(m.doc, "shallow"); s == nil || s.Parent == nil || s.Parent.Title != "Work" {
 		t.Fatalf("shallow should be a task directly under Work")
 	}
-	reloaded := todo.Parse(readFile(t, path))
+	reloaded := todotest.Parse(t, todotest.Dump(t, path))
 	s := find(reloaded, "shallow")
 	if s == nil || s.Parent == nil || s.Parent.Title != "Work" {
-		t.Errorf("after reload shallow must still be under Work, not Backend:\n%s", readFile(t, path))
+		t.Errorf("after reload shallow must still be under Work, not Backend:\n%s", todotest.Dump(t, path))
 	}
 }
 
@@ -325,12 +325,12 @@ func TestEditTaskTitleAndDescription(t *testing.T) {
 	m = press(m, "enter") // submit
 	it := find(m.doc, "a-done")
 	if it == nil {
-		t.Fatalf("edited title not found:\n%s", readFile(t, path))
+		t.Fatalf("edited title not found:\n%s", todotest.Dump(t, path))
 	}
 	if it.Description != "some notes" {
 		t.Errorf("description = %q, want %q", it.Description, "some notes")
 	}
-	if !strings.Contains(readFile(t, path), "some notes") {
+	if !strings.Contains(todotest.Dump(t, path), "some notes") {
 		t.Errorf("description not persisted")
 	}
 }
@@ -378,8 +378,8 @@ func TestDeleteTaskConfirmed(t *testing.T) {
 	if find(m.doc, "b") == nil {
 		t.Errorf("task b should remain")
 	}
-	if strings.Contains(readFile(t, path), "- [ ] a") {
-		t.Errorf("deleted task should not be in the file:\n%s", readFile(t, path))
+	if strings.Contains(todotest.Dump(t, path), "- [ ] a") {
+		t.Errorf("deleted task should not be in the file:\n%s", todotest.Dump(t, path))
 	}
 }
 
@@ -420,13 +420,9 @@ func TestDeleteCategorySubtree(t *testing.T) {
 	if len(m.doc.Roots) != 0 {
 		t.Errorf("deleting the only category should empty the document")
 	}
-	// The file keeps the managed guide but holds no task/category content.
-	on := readFile(t, path)
-	if !strings.Contains(on, "<!-- todo:guide") {
-		t.Errorf("an emptied file should still carry the guide, got %q", on)
-	}
-	if reloaded := todo.Parse(on); len(reloaded.Roots) != 0 || reloaded.Preamble != "" {
-		t.Errorf("an emptied file should reload to an empty document, got %d roots / preamble %q", len(reloaded.Roots), reloaded.Preamble)
+	// The store holds no task/category content any more.
+	if on := todotest.Dump(t, path); on != "" {
+		t.Errorf("an emptied store should hold nothing, got %q", on)
 	}
 }
 
@@ -454,7 +450,7 @@ func TestClearDoneConfirmed(t *testing.T) {
 	if find(m.doc, "b") == nil {
 		t.Errorf("open task b should remain")
 	}
-	on := readFile(t, path)
+	on := todotest.Dump(t, path)
 	if strings.Contains(on, "- [x] a") || strings.Contains(on, "- [x] c") {
 		t.Errorf("cleared tasks should not be in the file:\n%s", on)
 	}

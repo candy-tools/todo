@@ -16,14 +16,15 @@ type treeRow struct {
 }
 
 // tree is the left-pane category/task tree: the document, per-item collapse
-// state, and the cursor over the currently visible rows. rows is derived from
-// doc + collapsed by rebuild and cached for cursor math and rendering. A
-// synthetic placeholder row is always appended at root level so a new
-// top-level category can always be added (otherwise a category's `c` only ever
-// makes a subcategory, leaving no way to add a second root item).
+// state (keyed by item ID, so it survives a reload), and the cursor over the
+// currently visible rows. rows is derived from doc + collapsed by rebuild and
+// cached for cursor math and rendering. A synthetic placeholder row is always
+// appended at root level so a new top-level category can always be added
+// (otherwise a category's `c` only ever makes a subcategory, leaving no way to
+// add a second root item).
 type tree struct {
 	doc         *todo.Document
-	collapsed   map[*todo.Item]bool
+	collapsed   map[uint]bool
 	cursor      int
 	rows        []treeRow
 	placeholder *todo.Item // UI-only sentinel backing the "+ new category" row
@@ -46,7 +47,7 @@ type tree struct {
 }
 
 func newTree(doc *todo.Document) tree {
-	t := tree{doc: doc, collapsed: map[*todo.Item]bool{}, placeholder: &todo.Item{}}
+	t := tree{doc: doc, collapsed: map[uint]bool{}, placeholder: &todo.Item{}}
 	t.rebuild()
 	return t
 }
@@ -72,7 +73,7 @@ func (t *tree) rebuild() {
 			t.rows = append(t.rows, treeRow{item: it, depth: depth})
 			// While filtering, descend regardless of collapse so a match inside a
 			// collapsed parent is still shown.
-			if len(it.Children) > 0 && (filtering || !t.collapsed[it]) {
+			if len(it.Children) > 0 && (filtering || !t.collapsed[it.ID]) {
 				walk(it.Children, depth+1)
 			}
 		}
@@ -125,13 +126,56 @@ func (t *tree) selectItem(it *todo.Item) {
 	}
 }
 
+// selectID moves the cursor onto the visible item with the given ID, scrolling
+// the viewport as needed; it reports whether one was found. ID 0 (an item not in
+// the store, such as the placeholder sentinel) never matches.
+func (t *tree) selectID(id uint) bool {
+	if id == 0 {
+		return false
+	}
+	for i, r := range t.rows {
+		if !r.placeholder && r.item.ID == id {
+			t.cursor = i
+			t.reconcileOffset()
+			return true
+		}
+	}
+	return false
+}
+
+// adopt swaps in doc, a fresh load of the same list, and rebuilds. Folds carry
+// over by ID for the items doc still holds; the viewport, the filter and the
+// grab state are kept. The cursor moves onto focusID when it is visible, else
+// back onto the placeholder row when onPlaceholder (and no filter hides it),
+// else it keeps its index, clamped into range.
+func (t *tree) adopt(doc *todo.Document, focusID uint, onPlaceholder bool) {
+	t.doc = doc
+	present := map[uint]bool{}
+	for _, it := range doc.Enumerate() {
+		present[it.ID] = true
+	}
+	for id := range t.collapsed {
+		if !present[id] {
+			delete(t.collapsed, id)
+		}
+	}
+	t.rebuild()
+	if t.selectID(focusID) {
+		return
+	}
+	if onPlaceholder && t.filter == "" {
+		t.cursor = len(t.rows) - 1
+		t.reconcileOffset()
+	}
+}
+
 // revealItem expands every ancestor of it (so a collapsed fold can't hide it),
 // rebuilds, and moves the cursor onto it. Used when returning from a filtered
 // view — where the collapse state is ignored — so the focused item stays selected
 // even when it lives inside a fold.
 func (t *tree) revealItem(it *todo.Item) {
 	for p := it.Parent; p != nil; p = p.Parent {
-		delete(t.collapsed, p)
+		delete(t.collapsed, p.ID)
 	}
 	t.rebuild()
 	t.selectItem(it)
@@ -201,7 +245,7 @@ func (t *tree) toggleFold() {
 	if it == nil || len(it.Children) == 0 {
 		return
 	}
-	t.collapsed[it] = !t.collapsed[it]
+	t.collapsed[it.ID] = !t.collapsed[it.ID]
 	t.rebuild()
 }
 
@@ -212,8 +256,8 @@ func (t *tree) collapse() {
 	if it == nil {
 		return
 	}
-	if len(it.Children) > 0 && !t.collapsed[it] {
-		t.collapsed[it] = true
+	if len(it.Children) > 0 && !t.collapsed[it.ID] {
+		t.collapsed[it.ID] = true
 		t.rebuild()
 		return
 	}
@@ -228,8 +272,8 @@ func (t *tree) expand() {
 	if it == nil {
 		return
 	}
-	if len(it.Children) > 0 && t.collapsed[it] {
-		t.collapsed[it] = false
+	if len(it.Children) > 0 && t.collapsed[it.ID] {
+		t.collapsed[it.ID] = false
 		t.rebuild()
 	}
 }
@@ -288,7 +332,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	if len(r.item.Children) > 0 {
 		fold = "▾ "
 		// A filtered view expands everything, so never show a collapsed caret.
-		if t.collapsed[r.item] && t.filter == "" {
+		if t.collapsed[r.item.ID] && t.filter == "" {
 			fold = "▸ "
 		}
 	}

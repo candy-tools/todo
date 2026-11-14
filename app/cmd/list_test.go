@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 func runCmd(t *testing.T, args ...string) (string, error) {
@@ -19,7 +21,7 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 }
 
 func TestListTable(t *testing.T) {
-	path := writeTemp(t, "# Work\n\n- [ ] a\n- [x] b\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [x] b\n")
 	out, err := runCmd(t, "list", "--file", path)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -32,7 +34,7 @@ func TestListTable(t *testing.T) {
 }
 
 func TestListJSON(t *testing.T) {
-	path := writeTemp(t, "# Work\n\n- [ ] a\n  - [x] b\n  - [ ] c\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n  - [x] b\n  - [ ] c\n")
 	out, err := runCmd(t, "list", "--file", path, "--json")
 	if err != nil {
 		t.Fatalf("list --json: %v", err)
@@ -45,7 +47,7 @@ func TestListJSON(t *testing.T) {
 		t.Fatalf("root should be the Work category: %+v", items)
 	}
 	a := items[0].Children[0]
-	if a.Title != "a" || a.Status != "open" || a.Number != 2 {
+	if a.Title != "a" || a.Status != "open" || a.Number != 2 || a.ID == 0 {
 		t.Errorf("task a wrong: %+v", a)
 	}
 	if len(a.Path) != 1 || a.Path[0] != "Work" {
@@ -64,7 +66,7 @@ func TestListJSON(t *testing.T) {
 }
 
 func TestListFilter(t *testing.T) {
-	path := writeTemp(t, "# Work\n\n- [ ] alpha\n- [ ] beta\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] alpha\n- [ ] beta\n")
 	out, err := runCmd(t, "list", "--file", path, "--filter", "alpha")
 	if err != nil {
 		t.Fatalf("list --filter: %v", err)
@@ -75,7 +77,7 @@ func TestListFilter(t *testing.T) {
 }
 
 func TestListJSONFilter(t *testing.T) {
-	path := writeTemp(t, "# Work\n\n- [ ] alpha\n- [ ] beta\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] alpha\n- [ ] beta\n")
 	out, err := runCmd(t, "list", "--file", path, "--json", "--filter", "alpha")
 	if err != nil {
 		t.Fatalf("list --json --filter: %v", err)

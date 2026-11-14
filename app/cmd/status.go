@@ -1,38 +1,40 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/spf13/cobra"
 )
 
-// setStatus resolves the selector to a task, sets its status, saves, and prints
-// a confirmation. When cascade is true the whole subtree is set (only done and
+// setStatus resolves the selector to a task, sets its status in the store, and
+// prints a confirmation. When cascade is true the whole subtree is set (only done and
 // reopen expose --cascade).
 func setStatus(cmd *cobra.Command, verb string, target todo.Status, cascade bool) error {
-	path := fileArg(cmd)
-	doc, err := todo.Load(path)
-	if err != nil {
-		return err
-	}
-	it, err := resolveSelector(cmd, doc, "")
-	if err != nil {
-		return err
-	}
-	if !it.IsTask() {
-		return wrongKind("set the status of", it, "task")
-	}
-	if cascade {
-		todo.CascadeSetDone(it, target == todo.Done)
-	} else {
-		it.Status = target
-	}
-	if err := doc.Save(path); err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, it.Status.Marker(), it.Title, categoryPath(it))
-	return nil
+	return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
+		it, err := resolveSelector(cmd, doc, "")
+		if err != nil {
+			return err
+		}
+		if !it.IsTask() {
+			return wrongKind("set the status of", it, "task")
+		}
+		s, err := open()
+		if err != nil {
+			return err
+		}
+		if cascade {
+			err = s.CascadeStatus(ctx, it.ID, target)
+		} else {
+			err = s.SetStatuses(ctx, map[uint]todo.Status{it.ID: target})
+		}
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, target.Marker(), it.Title, categoryPath(it))
+		return nil
+	})
 }
 
 func doneCmd() *cobra.Command {
