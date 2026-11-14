@@ -195,6 +195,56 @@ func TestGrabMoveStepsOverHiddenTasks(t *testing.T) {
 	if got, want := storedChildren(t, path, "C"), []string{"w1", "b", "w2"}; !equalStrings(got, want) {
 		t.Errorf("stored order under C after a second down = %v, want %v", got, want)
 	}
+
+	// Backlog hides the other columns' tasks too: b steps over the hidden w.
+	m, path = newTestModel(t, "# C\n- [ ] a\n- [/] w\n- [ ] b\n")
+	m = selectTitle(t, m, "b")
+	m = press(m, "m", "up", "m")
+	if got, want := storedChildren(t, path, "C"), []string{"b", "a", "w"}; !equalStrings(got, want) {
+		t.Errorf("Backlog: stored order under C = %v, want %v", got, want)
+	}
+	if got, want := rowTitles(m.tree), []string{"C", "b", "a"}; !equalStrings(got, want) {
+		t.Errorf("Backlog rows = %v, want %v", got, want)
+	}
+}
+
+func TestIndentUnderHiddenTaskRefused(t *testing.T) {
+	m, path := newTestModelOn(t, "# C\n- [ ] h\n- [/] w\n", todo.ColInProgress)
+	m = selectTitle(t, m, "w")
+	before := storeRev(t, m)
+	m = press(m, "m", "right")
+	if m.status != "can't nest under a task hidden in this tab" {
+		t.Errorf("status = %q", m.status)
+	}
+	if storeRev(t, m) != before {
+		t.Errorf("a refused indent wrote to the store")
+	}
+	if got := m.tree.selected(); got == nil || got.Title != "w" || !m.tree.grabbed {
+		t.Errorf("w stays selected and grabbed, got %v (grabbed %v)", got, m.tree.grabbed)
+	}
+	if got := storedItem(t, path, "w"); got.Status != todo.Working || got.IsSubtask() {
+		t.Errorf("w = %v (subtask %v), want an untouched working task", got.Status, got.IsSubtask())
+	}
+}
+
+func TestGrabEndsWhenItemLeavesTab(t *testing.T) {
+	// Outdenting an open subtask of a done task makes it a working task, which
+	// leaves the Done tab.
+	m, path := newTestModelOn(t, "# C\n- [x] p\n  - [ ] s\n", todo.ColDone)
+	m = selectTitle(t, m, "s")
+	m = press(m, "m", "left")
+	if st := storedItem(t, path, "s").Status; st != todo.Working {
+		t.Fatalf("precondition: the outdented s = %v, want working", st)
+	}
+	if m.tree.grabbed {
+		t.Errorf("grab mode must end once the grabbed item left the tab")
+	}
+	if got := m.tree.selected(); got == nil || got.Title == "s" {
+		t.Errorf("the selection must move to a remaining row, got %v (rows %v)", got, rowTitles(m.tree))
+	}
+	if got := m.footer(200); !strings.Contains(got, "moved to In Progress — working") {
+		t.Errorf("footer = %q", got)
+	}
 }
 
 func TestGrabMoveCrossesHiddenCategory(t *testing.T) {

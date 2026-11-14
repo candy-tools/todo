@@ -76,11 +76,6 @@ func newTree(doc *todo.Document) tree {
 // (spaces only) filters nothing, as in todo.VisibleItems.
 func (t *tree) searching() bool { return strings.TrimSpace(t.filter) != "" }
 
-// filtered reports whether the tab can hide items that sit between its rows:
-// any tab but Backlog shows only its column's tasks, and a search shows only
-// matches. Backlog without a search hides nothing but folds.
-func (t *tree) filtered() bool { return t.column != todo.ColBacklog || t.searching() }
-
 // shownBefore counts the items the tab showed at the last rebuild that come
 // before it in document order. A move that changes the count has carried it
 // past a shown row.

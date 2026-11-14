@@ -149,6 +149,21 @@ func TestBracketAtEdgeIsNoop(t *testing.T) {
 	}
 }
 
+func TestBracketUnknownStatusIsBacklog(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m = setStatusExternally(t, m, path, "a", todo.Status(9))
+	m = selectTitle(t, m, "a")
+	before := storeRev(t, m)
+	got := press(m, "[")
+	if got.status != "no column beyond Backlog" || storeRev(t, got) != before {
+		t.Errorf("[ on an unknown status must hint as at Backlog's edge, status %q", got.status)
+	}
+	press(m, "]")
+	if st := storedItem(t, path, "a").Status; st != todo.New {
+		t.Errorf("] on an unknown status stored %v, want new", st)
+	}
+}
+
 func TestStateCycleKey(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n")
 	m = setStatusExternally(t, m, path, "a", todo.New)

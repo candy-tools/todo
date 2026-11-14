@@ -350,14 +350,12 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // stepPastShown wraps a one-step reorder so that it moves the item past one
-// row the tab shows. Backlog without a search shows every item, so one step is
-// one row and op is used as is. A filtered tab (another column, or a search)
-// hides items, so op repeats until the item has passed a row that was shown
+// row the tab shows. Every tab can hide items between its rows (Backlog hides
+// the other columns' tasks, other tabs hide Backlog's, a search hides
+// non-matches), so op repeats until the item has passed a row that was shown
 // before the move, or op refuses; it reports whether the item moved at all.
+// Where nothing is hidden, the first step already passes a shown row.
 func (m model) stepPastShown(op func(*todo.Item) bool) func(*todo.Item) bool {
-	if !m.tree.filtered() {
-		return op
-	}
 	return func(it *todo.Item) bool {
 		start := m.tree.shownBefore(it)
 		moved := false
@@ -371,27 +369,51 @@ func (m model) stepPastShown(op func(*todo.Item) bool) func(*todo.Item) bool {
 	}
 }
 
-// applyIndent indents the grabbed item. A subtask, or a task with subtasks,
-// never indents (tasks nest one level only, so Document.Indent refuses it), and
-// the footer says why; any other refusal (nothing above to nest under) stays
+// applyIndent indents the grabbed item under the item just above it among its
+// siblings. A subtask, or a task with subtasks, never indents (tasks nest one
+// level only, so Document.Indent refuses it), and neither does an item whose
+// new parent the tab hides, since it would vanish into that hidden task; the
+// footer says why. Any other refusal (nothing above to nest under) stays
 // silent, as before.
 func (m model) applyIndent() (tea.Model, tea.Cmd) {
-	it := m.tree.selected()
-	if it != nil && !m.tree.onPlaceholder() && it.IsTask() && (it.IsSubtask() || len(it.Children) > 0) {
+	it := m.selectedItem()
+	if it == nil {
+		return m, nil
+	}
+	if it.IsTask() && (it.IsSubtask() || len(it.Children) > 0) {
 		m.status = "subtasks can't have subtasks"
 		return m, nil
 	}
+	if prev := prevSibling(it); prev != nil && prev.Kind == it.Kind && !m.tree.shown[prev] {
+		m.status = "can't nest under a task hidden in this tab"
+		return m, nil
+	}
 	return m.applyMove(m.doc.Indent)
+}
+
+// prevSibling returns the sibling just before it under the same parent, or nil
+// when it is first or a root item.
+func prevSibling(it *todo.Item) *todo.Item {
+	if it.Parent == nil {
+		return nil
+	}
+	if i := slices.Index(it.Parent.Children, it); i > 0 {
+		return it.Parent.Children[i-1]
+	}
+	return nil
 }
 
 // applyMove runs one move op on the grabbed item. On success it persists the
 // item's new placement, reloads, keeps the cursor on the moved item (still
 // grabbed) and expands its (possibly new) parent so it stays visible; the
 // structural change also ends the accidental-complete undo window. A no-op
-// result changes nothing and keeps the item grabbed.
+// result changes nothing and keeps the item grabbed. If the item is no longer
+// shown in the tab afterwards (a re-nest changed its state, or a write landed
+// from elsewhere), the grab ends, the cursor keeps its row index (clamped) and
+// the footer says where the item went.
 func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
-	it := m.tree.selected()
-	if it == nil || m.tree.onPlaceholder() || !op(it) {
+	it := m.selectedItem()
+	if it == nil || !op(it) {
 		return m, nil
 	}
 	m.snapshots = map[uint]todo.DoneStates{}
@@ -403,6 +425,9 @@ func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
 	m.commit(id, func(ctx context.Context) error {
 		return m.store.Move(ctx, id, parentID, afterID)
 	})
+	if m.noteLeftTab(id) {
+		m.tree.grabbed = false
+	}
 	return m, nil
 }
 
@@ -686,9 +711,13 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	cols := todo.Columns()
-	i := slices.Index(cols, it.Status.Column()) + delta
+	cur := slices.Index(cols, it.Status.Column())
+	if cur < 0 {
+		cur = 0 // a column off the board (an unknown status) counts as Backlog
+	}
+	i := cur + delta
 	if i < 0 || i >= len(cols) {
-		m.status = "no column beyond " + it.Status.Column().Title()
+		m.status = "no column beyond " + cols[cur].Title()
 		return m, nil
 	}
 	target := cols[i]
@@ -742,12 +771,27 @@ func (m model) setStatusesWrite(id uint, st todo.Status) func(ctx context.Contex
 // or an external-reload notice takes the footer instead.
 func (m *model) commitStatus(id uint, write func(ctx context.Context) error) {
 	m.commit(id, write)
-	if m.err != nil || m.status != "" {
-		return
+	m.noteLeftTab(id)
+}
+
+// noteLeftTab reports whether item id, after a commit, is no longer shown in
+// the tab (moved to another column, or gone). When a task left for another
+// column, the footer says where it went, e.g. "moved to Next — new" (a subtask
+// goes with its task, so its task's column and state are named), unless a save
+// error or the external-reload notice already holds the footer.
+func (m *model) noteLeftTab(id uint) bool {
+	it, ok := m.doc.ByID(id)
+	if ok && m.tree.shown[it] {
+		return false
 	}
-	if it, ok := m.doc.ByID(id); ok && !m.tree.shown[it] {
-		m.status = fmt.Sprintf("moved to %s — %s", it.Status.Column().Title(), it.Status)
+	if ok && it.IsTask() && m.err == nil && m.status == "" {
+		task := it
+		if it.IsSubtask() {
+			task = it.Parent
+		}
+		m.status = fmt.Sprintf("moved to %s — %s", task.Status.Column().Title(), task.Status)
 	}
+	return true
 }
 
 // writeClipboard copies text to the system clipboard. It is a package variable
