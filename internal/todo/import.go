@@ -79,8 +79,10 @@ func count(it *Item, rep *ImportReport) {
 
 // Import writes doc into the store in one transaction. It returns ErrNotEmpty
 // when the store holds items and replace is false; with replace, the existing
-// items are deleted first.
+// items are deleted first. doc is flattened first, in place (see
+// Document.FlattenSubtasks), since the store keeps subtasks one level deep.
 func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
+	doc.FlattenSubtasks()
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
 		existing, err := loadDocument(ctx, tx)
 		if err != nil {
@@ -247,7 +249,8 @@ func placeStore(tmp, dbPath string) (placed bool, err error) {
 }
 
 // removeStoreFiles deletes the store file at path with its WAL side files. It
-// is only ever given importNew's temporary store, never an import target.
+// is only ever given a temporary store (importNew's, or the migration's backup
+// copy), never an import target or a backup in place.
 func removeStoreFiles(path string) {
 	for _, p := range []string{path, path + "-wal", path + "-shm"} {
 		_ = os.Remove(p)

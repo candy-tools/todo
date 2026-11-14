@@ -84,45 +84,6 @@ func OpenStore(path string) (*Store, error) {
 	return s, nil
 }
 
-// migrate refuses a store from a newer todo, then creates the tables and makes
-// sure the meta row exists.
-func (s *Store) migrate() error {
-	if err := s.checkSchemaVersion(); err != nil {
-		return err
-	}
-	tree, err := closuretree.New(s.db, dbItem{})
-	if err != nil {
-		return err
-	}
-	if err := tree.Migrate(); err != nil {
-		return err
-	}
-	if err := s.db.AutoMigrate(&dbMeta{}); err != nil {
-		return err
-	}
-	return s.db.Where(dbMeta{ID: 1}).
-		Attrs(dbMeta{Revision: 0, SchemaVersion: schemaVersion}).
-		FirstOrCreate(&dbMeta{}).Error
-}
-
-// checkSchemaVersion returns an error when the meta row records a schema
-// version newer than schemaVersion: this binary does not know that schema and
-// must not migrate or write it. A new store, without a meta table or row yet,
-// passes.
-func (s *Store) checkSchemaVersion() error {
-	if !s.db.Migrator().HasTable(&dbMeta{}) {
-		return nil
-	}
-	var metas []dbMeta
-	if err := s.db.Where("id = ?", 1).Limit(1).Find(&metas).Error; err != nil {
-		return err
-	}
-	if len(metas) == 1 && metas[0].SchemaVersion > schemaVersion {
-		return newerSchemaError(metas[0].SchemaVersion)
-	}
-	return nil
-}
-
 // StoreExists reports whether a store file exists at path.
 func StoreExists(path string) (bool, error) {
 	_, err := os.Stat(path)

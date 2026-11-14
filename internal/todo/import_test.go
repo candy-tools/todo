@@ -19,7 +19,11 @@ func TestImportExampleRoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := todotest.Dump(t, todotest.Seed(t, string(b)))
-	want := todotest.Render(todotest.Parse(t, string(b)))
+	// The store keeps subtasks one level deep and Open or Done, so the import
+	// flattens what it parsed.
+	parsed := todotest.Parse(t, string(b))
+	parsed.FlattenSubtasks()
+	want := todotest.Render(parsed)
 	if got == "" || got != want {
 		t.Fatalf("round trip differs\n got:\n%s\nwant:\n%s", got, want)
 	}
@@ -147,6 +151,37 @@ func TestImportFileNotEmptyKeepsExistingDB(t *testing.T) {
 	}
 	if got := todotest.Dump(t, db); got != "# A\n" {
 		t.Fatalf("existing db changed: %q", got)
+	}
+}
+
+func TestImportFlattensDeepMarkdown(t *testing.T) {
+	doc, _, err := todo.ImportMarkdown([]byte("- [ ] T\n  - [/] a\n    - [ ] a1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := todo.OpenStore(filepath.Join(t.TempDir(), ".todo.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Import(context.Background(), doc, false); err != nil {
+		t.Fatal(err)
+	}
+	got := mustLoad(t, s)
+	T := find(got, "T")
+	if T == nil {
+		t.Fatal("T not imported")
+	}
+	if names := titles(T.Children); strings.Join(names, ",") != "a,a1" {
+		t.Errorf("T's children = %v, want [a a1]", names)
+	}
+	for _, c := range T.Children {
+		if len(c.Children) != 0 {
+			t.Errorf("%s has %d children, want none", c.Title, len(c.Children))
+		}
+	}
+	if st := find(got, "a").Status; st != todo.Open {
+		t.Errorf("a status = %v, want %v", st, todo.Open)
 	}
 }
 
