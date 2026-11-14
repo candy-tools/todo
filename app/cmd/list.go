@@ -10,6 +10,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// columnNames lists the accepted board column names for help and errors.
+const columnNames = "backlog|next|progress|done"
+
 func listCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "list",
@@ -29,7 +32,7 @@ func listCmd() *cobra.Command {
 			if colName, _ := cmd.Flags().GetString("column"); colName != "" {
 				col, ok := todo.ColumnFromName(colName)
 				if !ok {
-					return usageErr(fmt.Sprintf("invalid --column %q (backlog|next|progress|done)", colName))
+					return usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
 				}
 				visible = intersect(visible, doc.ColumnItems(col))
 			}
@@ -41,7 +44,7 @@ func listCmd() *cobra.Command {
 	}
 	c.Flags().Bool("json", false, "output the tree as JSON")
 	c.Flags().String("filter", "", "only show items matching this text (and their path)")
-	c.Flags().String("column", "", "only show tasks in this board column: backlog|next|progress|done")
+	c.Flags().String("column", "", "only show tasks in this board column: "+columnNames)
 	return c
 }
 
@@ -130,7 +133,12 @@ func toJSONItem(it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]b
 	if it.IsTask() {
 		ji.Kind = "task"
 		ji.Status = it.Status.String()
-		ji.Column = it.Status.Column().String()
+		// A subtask sits in its parent's column.
+		col := it.Status.Column()
+		if it.IsSubtask() {
+			col = it.Parent.Status.Column()
+		}
+		ji.Column = col.String()
 		ji.Description = it.Description
 		ji.Plan = it.Plan
 	} else {

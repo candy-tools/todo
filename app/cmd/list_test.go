@@ -186,6 +186,9 @@ func TestListJSONColumnAndStatus(t *testing.T) {
 	if busy == nil || busy.Status != "working" || busy.Column != "progress" {
 		t.Fatalf("busy wrong: %+v", busy)
 	}
+	if sub := busy.Children[0]; sub.Status != "open" || sub.Column != "progress" {
+		t.Errorf("an open subtask under a working task is in the progress column: %+v", sub)
+	}
 	if items[0].Column != "" {
 		t.Errorf("a category has no column, got %q", items[0].Column)
 	}
