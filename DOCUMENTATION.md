@@ -15,11 +15,14 @@ todo import file.md  # imports a markdown file into the database
 With no argument it defaults to `.todo.db`. If the database doesn't exist yet it
 is created empty.
 
-**First run with an existing `TODO.md`.** When `.todo.db` doesn't exist and a
-`TODO.md` is present in the current directory, todo imports it automatically,
-once, and prints a summary (plus a warning for anything it couldn't keep). The
-markdown file is left untouched and can be deleted afterwards; from then on the
-database is the source of truth.
+**First run with an existing `TODO.md`.** When no path is given (so todo uses
+the default `.todo.db`), `.todo.db` doesn't exist and a `TODO.md` is present in
+the current directory, todo imports it automatically, once, and prints a summary
+(plus a warning for anything it couldn't keep). Naming a database with `-f` or a
+positional path disables this automatic import. The markdown file is left
+untouched and can be deleted afterwards; from then on the database is the source
+of truth. Passing a `.md` path where a database is expected is a usage error
+that points you at `todo import`.
 
 **Importing a markdown file.** `todo import file.md` reads a markdown file into
 the database (`-f/--file` picks a database other than `.todo.db`). It refuses to
@@ -38,17 +41,22 @@ you edit its title and description in place (`esc` cancels, `enter`/Save applies
 An example list, as the tree shows it:
 
 ```text
-Work
-  [ ] Ship v1.0 release
-    [x] Write changelog
-    [ ] Cut the git tag
-  [x] Fix login bug
-  Backend
-    [ ] Migrate the database
-Personal
-  [ ] Renew passport
-  [ ] Book dentist
+▾ Work (2/5)
+  ▾ ○ Ship v1.0 release
+      ● Write changelog
+      ◐ Cut the git tag
+    ● Fix login bug
+  ▾ Backend (0/1)
+      ○ Migrate the database
+▾ Personal (0/2)
+    ○ Renew passport
+    ⏸ Book dentist
++ new category
 ```
+
+A task's glyph shows its status: `○` open, `◐` in progress, `⏸` deferred, `●`
+done. `▾` / `▸` mark an expanded / collapsed item, and a category shows how many
+of its tasks are done.
 
 ## Scripting / for agents
 
@@ -63,6 +71,9 @@ todo list                 # aligned table: # · id · status · item
 todo list --json          # nested tree with number/id/title/status/path
 todo list --filter build  # only matching items and their path
 ```
+
+The `st` column of `todo list` reads `[ ]` open, `[/]` in progress, `[>]`
+deferred, `[x]` done, and `--` for a category.
 
 Address an existing item three ways — exactly one, mutually exclusive:
 
@@ -159,5 +170,8 @@ to it, `.todo.db-wal` and `.todo.db-shm` (the write-ahead log and its shared
 memory); they are managed by SQLite and normally disappear when the last
 connection closes. The format is plain SQLite, so any SQLite tool can read it.
 
-Whether to commit `.todo.db*` to version control or ignore it is up to you. Keep
-in mind that it is a binary file, so git can't merge concurrent changes to it.
+Whether to commit the list to version control or ignore `.todo.db*` is up to
+you. If you commit it, commit `.todo.db` only — never `.todo.db-wal` or
+`.todo.db-shm`. While todo is running, recent changes may still sit in the WAL
+rather than in `.todo.db` itself, so commit after quitting todo. Keep in mind
+that it is a binary file, so git can't merge concurrent changes to it.

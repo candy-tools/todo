@@ -73,7 +73,7 @@ make coverage     # enforce the per-package coverage threshold
 ### Run
 
 ```bash
-make run          # runs against .todo.db in the current directory
+make run          # imports example.md into a temp database and opens it
 # or plain go:
 go run . path/to/my.db
 ```
