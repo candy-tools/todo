@@ -97,7 +97,7 @@ type model struct {
 	snapshots map[uint]todo.DoneStates
 
 	status string // transient one-line footer message
-	err    error  // last save error, shown in the footer
+	err    error  // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
 }
 
 // Run loads the list from st and starts the interactive TUI. notice (e.g. the
@@ -777,19 +777,25 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 // once and a failed one rolls back, so any other revision than that means an
 // external write landed since the last load, and the reload is handled as
 // external (snapshots dropped, the status line says so). If the reload itself
-// fails, the current document and tree stay as they are and the error is shown.
+// fails, the current document stays, its rows are rebuilt (the caller may have
+// changed its structure) with focusID selected, and the error is shown: the
+// write's when it failed, else the reload's.
 func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 	ctx := context.Background()
-	m.err = write(ctx)
+	m.err = nil
 	expected := m.lastRev
-	if m.err == nil {
+	if err := write(ctx); err != nil {
+		m.err = fmt.Errorf("save failed: %w", err)
+	} else {
 		expected++
 	}
 	doc, rev, err := m.store.Load(ctx)
 	if err != nil {
 		if m.err == nil {
-			m.err = err
+			m.err = fmt.Errorf("reload failed: %w", err)
 		}
+		m.tree.rebuild()
+		m.tree.selectID(focusID)
 		return
 	}
 	onPH := m.tree.onPlaceholder()
@@ -874,7 +880,7 @@ func (m model) footer(width int) string {
 		// The live search bar replaces the footer while typing a query.
 		return ansi.Truncate(" "+helpKeyStyle.Render("/")+" "+m.search.View(), width, "")
 	case m.err != nil:
-		return ansi.Truncate(" "+errStyle.Render("save failed: "+m.err.Error()), width, "")
+		return ansi.Truncate(" "+errStyle.Render(m.err.Error()), width, "")
 	case m.tree.grabbed:
 		// Move mode: the arrows reorder/re-nest the grabbed item.
 		parts := []string{

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -315,6 +316,71 @@ func TestWriteErrorShowsAndReloads(t *testing.T) {
 	}
 	if find(m.doc, "a") == nil || !hasRow(m, "a") {
 		t.Errorf("a failed reload must keep the current view")
+	}
+}
+
+// TestFailedWriteAndReloadRebuildsTree deletes an item while the store is
+// unreachable: the write and the reload both fail, so the view shows the
+// in-memory document — and its rows must be rebuilt from it, not left stale.
+func TestFailedWriteAndReloadRebuildsTree(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	m = press(m, "down", "down") // b
+	if err := m.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "d", "y")
+	if m.err == nil || !strings.Contains(m.footer(200), "save failed:") {
+		t.Errorf("footer should report the failed save, got %q", m.footer(200))
+	}
+	if hasRow(m, "b") {
+		t.Errorf("the tree rows must be rebuilt from the in-memory document after a failed reload")
+	}
+	if got := m.tree.selected().Title; got != "a" {
+		t.Errorf("selection = %q, want a (the row above the deleted item)", got)
+	}
+}
+
+// TestReloadFailureAfterSavedWrite has the write succeed and only the reload
+// fail: the footer must say the reload failed, not the save, and the rows must
+// match the in-memory change.
+func TestReloadFailureAfterSavedWrite(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	a, b := find(m.doc, "a"), find(m.doc, "b")
+	m.doc.Remove(b)
+	m.commit(a.ID, func(ctx context.Context) error {
+		err := m.store.Delete(ctx, b.ID)
+		_ = m.store.Close() // the reload that follows fails
+		return err
+	})
+	if got := m.footer(200); !strings.Contains(got, "reload failed:") || strings.Contains(got, "save failed") {
+		t.Errorf("footer should report the failed reload, got %q", got)
+	}
+	if hasRow(m, "b") {
+		t.Errorf("the tree rows must be rebuilt after a failed reload")
+	}
+	if got := m.tree.selected().Title; got != "a" {
+		t.Errorf("selection = %q, want a", got)
+	}
+	if got := todotest.Dump(t, path); strings.Contains(got, "b") {
+		t.Errorf("the delete must be saved:\n%s", got)
+	}
+}
+
+// TestFailedWriteRevertsToStore has the write fail while the reload works: the
+// in-memory change is discarded and the view shows what the store holds.
+func TestFailedWriteRevertsToStore(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	b := find(m.doc, "b")
+	m.doc.Remove(b)
+	m.commit(b.ID, func(context.Context) error { return errors.New("boom") })
+	if got := m.footer(200); !strings.Contains(got, "save failed: boom") {
+		t.Errorf("footer should report the failed save, got %q", got)
+	}
+	if find(m.doc, "b") == nil || !hasRow(m, "b") {
+		t.Errorf("the view must revert to the store's state, which still has b")
+	}
+	if got := m.tree.selected().Title; got != "b" {
+		t.Errorf("selection = %q, want b", got)
 	}
 }
 
