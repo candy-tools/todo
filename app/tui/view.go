@@ -251,7 +251,11 @@ func (m *model) adoptAll(doc *todo.Document, focusID uint, onPH bool) {
 	sideID, sidePH := m.side.selectedID(), m.side.onPlaceholder()
 	mainID, mainPH := m.tree.selectedID(), m.tree.onPlaceholder()
 	if m.split && m.sideFocus {
-		sideID, sidePH = focusID, onPH
+		// No item to focus (an add whose new ID is selected afterwards) keeps
+		// the sidebar's category.
+		if focusID != 0 || onPH {
+			sideID, sidePH = focusID, onPH
+		}
 	} else {
 		mainID, mainPH = focusID, onPH
 	}

@@ -428,6 +428,29 @@ func (m model) updatePlaceholderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// msgPickCategory is the footer hint for adding a task in the split view with
+// no category to add it to: the sidebar is on All (or "+ new category") and
+// the task list has no task to add next to.
+const msgPickCategory = "pick a category in the sidebar to add a task"
+
+// taskAnchor returns the item n/N add a task next to or under: the focused
+// tree's selected item; in the split view's task list with nothing selected,
+// the category picked in the sidebar. nil when there is none, e.g. on the
+// "+ new category" row or with the sidebar on All.
+func (m *model) taskAnchor() *todo.Item {
+	t := m.focused()
+	if t.onPlaceholder() {
+		return nil
+	}
+	if sel := t.selected(); sel != nil {
+		return sel
+	}
+	if m.split && !m.sideFocus {
+		return m.tree.scopeItem()
+	}
+	return nil
+}
+
 // startMove picks up the selected item for moving. It is a no-op on the
 // placeholder row or an empty tab, refuses a category outside Backlog, and
 // refuses while a filter is active — the filtered view hides siblings and
@@ -728,9 +751,13 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 	if it == nil {
 		return m, nil
 	}
+	// In the sidebar no neighbour is picked: the deleted category's place
+	// falls back to All (see adoptAll).
 	var prevID uint
-	if m.focused().cursor > 0 {
-		prevID = m.focused().rows[m.focused().cursor-1].item.ID
+	if t := m.focused(); t.cursor > 0 && t.pane != paneCategories {
+		if r := t.rows[t.cursor-1]; r.kind == rowItem {
+			prevID = r.item.ID
+		}
 	}
 	m.doc.Remove(it)
 	// A structural change ends the accidental-complete undo window.
@@ -908,6 +935,14 @@ func (m *model) noteLeftTab(id uint) bool {
 		if it.IsSubtask() {
 			task = it.Parent
 		}
+		// In the split view's task list a task can leave by moving to a
+		// category outside the one picked in the sidebar: name that category.
+		if m.focused().pane == paneTasks && slices.Contains(m.view.columns(), task.Status.Column()) {
+			if c := task.EnclosingCategory(); c != nil {
+				m.status = "moved to " + c.Title
+				return true
+			}
+		}
 		m.status = fmt.Sprintf("moved to %s — %s", task.Status.Column().Title(), task.Status.Label())
 	}
 	return true
@@ -957,7 +992,12 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	sel := m.focused().selected()
 	switch t {
 	case targetAddSibling, targetAddChild:
-		if sel == nil || m.focused().onPlaceholder() {
+		sel = m.taskAnchor()
+		if sel == nil && m.split {
+			m.status = msgPickCategory
+			return m, nil
+		}
+		if sel == nil {
 			// Outside Backlog a tab shows only categories holding its tasks, and c
 			// is refused there, so point at a tab that shows the category instead.
 			m.status = "Add a category first (press c) — tasks live under a category."
@@ -983,6 +1023,10 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 		m.form = newForm(sel.Title, sel.Description, sel.Plan, sel.IsTask(), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
+		if m.split && !m.sideFocus {
+			m.status = "categories are managed in the sidebar"
+			return m, nil
+		}
 		if !m.view.editsCategories() {
 			m.status = msgCategoriesInBacklog
 			return m, nil
@@ -1058,6 +1102,9 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	}
 
 	sel := m.focused().selected()
+	if m.target != targetAddCategory {
+		sel = m.taskAnchor()
+	}
 	var added *todo.Item
 	switch m.target {
 	case targetAddCategory:
@@ -1107,7 +1154,11 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		}
 		return err
 	})
-	m.focused().selectID(newID) // the ID is only known once the write ran
+	// The ID is only known once the write ran. A task added from the sidebar
+	// shows in the task list, so look there too.
+	if !m.focused().selectID(newID) && m.split {
+		m.tree.selectID(newID)
+	}
 	return m, nil
 }
 
