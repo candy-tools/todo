@@ -8,8 +8,9 @@ import (
 	"testing"
 )
 
-// TestImportFileCleansUpNewDBOnImportFailure fails the import after OpenStore
-// created the db (cancelled context) and expects the db files to be removed.
+// TestImportFileCleansUpNewDBOnImportFailure fails the import after the
+// temporary db was created (cancelled context) and expects neither the target
+// nor any temporary file to be left behind.
 func TestImportFileCleansUpNewDBOnImportFailure(t *testing.T) {
 	dir := t.TempDir()
 	md := filepath.Join(dir, "TODO.md")
@@ -29,8 +30,77 @@ func TestImportFileCleansUpNewDBOnImportFailure(t *testing.T) {
 			t.Errorf("%s exists after failed import (err=%v)", p, err)
 		}
 	}
+	assertNoTempFiles(t, dir)
 	if got, _ := os.ReadFile(md); !bytes.Equal(got, src) {
 		t.Fatal("markdown file was modified")
+	}
+}
+
+// TestImportFileLosingFirstRunRaceKeepsWinnersDB stands in for two processes
+// that both saw no store on first run: the first imports, then the second
+// (whose existence check ran before the first created the store) imports too.
+// The second must neither fail nor remove or replace the first's data.
+func TestImportFileLosingFirstRunRaceKeepsWinnersDB(t *testing.T) {
+	dir := t.TempDir()
+	md := filepath.Join(dir, "TODO.md")
+	if err := os.WriteFile(md, []byte("# A\n\n- [ ] one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(dir, ".todo.db")
+	first, rep, err := importFile(context.Background(), db, md, false)
+	if err != nil {
+		t.Fatalf("first import: %v", err)
+	}
+	defer func() { _ = first.Close() }()
+	if rep.Tasks != 1 || rep.Skipped {
+		t.Fatalf("first report = %+v; want 1 task imported", rep)
+	}
+	id, err := first.AddTask(context.Background(), "winner's write", "", Open, mustRootID(t, first), 0)
+	if err != nil || id == 0 {
+		t.Fatalf("first store write: %v", err)
+	}
+
+	storeExists = func(string) (bool, error) { return false, nil }
+	t.Cleanup(func() { storeExists = StoreExists })
+	second, rep, err := importFile(context.Background(), db, md, false)
+	if err != nil {
+		t.Fatalf("second import must not fail: %v", err)
+	}
+	defer func() { _ = second.Close() }()
+	if !rep.Skipped || rep.Tasks != 0 || rep.Categories != 0 || len(rep.Warnings) != 0 {
+		t.Errorf("second report = %+v; want an empty, skipped report", rep)
+	}
+	for _, s := range []*Store{first, second} {
+		doc, _, err := s.Load(context.Background())
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if len(doc.Roots) != 1 || len(doc.Roots[0].Children) != 2 {
+			t.Errorf("%s: the winner's data must be intact, got %+v", s.Path(), doc.Roots)
+		}
+	}
+	assertNoTempFiles(t, dir)
+}
+
+// mustRootID returns the ID of the first root item of s.
+func mustRootID(t *testing.T, s *Store) uint {
+	t.Helper()
+	doc, _, err := s.Load(context.Background())
+	if err != nil || len(doc.Roots) == 0 {
+		t.Fatalf("load: %v (roots %d)", err, len(doc.Roots))
+	}
+	return doc.Roots[0].ID
+}
+
+// assertNoTempFiles fails when dir holds a leftover temporary import db.
+func assertNoTempFiles(t *testing.T, dir string) {
+	t.Helper()
+	left, err := filepath.Glob(filepath.Join(dir, ".todo-import-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) > 0 {
+		t.Errorf("temporary import files left behind: %v", left)
 	}
 }
 
@@ -57,4 +127,5 @@ func TestImportFileKeepsPreexistingDBOnFailure(t *testing.T) {
 	if _, err := os.Stat(db); err != nil {
 		t.Fatalf("preexisting db removed: %v", err)
 	}
+	assertNoTempFiles(t, dir)
 }

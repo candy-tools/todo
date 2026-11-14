@@ -37,8 +37,12 @@ func resolvePath(cmd *cobra.Command, args []string) (path string, isDefault bool
 }
 
 // importNotice formats the result of an import: a summary line followed by one
-// line per warning.
+// line per warning. A skipped import (another process created the store first)
+// has no notice.
 func importNotice(rep todo.ImportReport, from string) string {
+	if rep.Skipped {
+		return ""
+	}
 	lines := []string{fmt.Sprintf("imported %d categories, %d tasks from %s", rep.Categories, rep.Tasks, from)}
 	return strings.Join(append(lines, rep.Warnings...), "\n")
 }
@@ -58,7 +62,9 @@ func legacyImportable(path string, isDefault bool) (bool, error) {
 
 // openStore opens the store at path, creating it when missing. When isDefault
 // and the store does not exist but TODO.md does, it imports TODO.md instead and
-// returns the import notice; otherwise the notice is "".
+// returns the import notice; otherwise the notice is "". When another process
+// creates the store first (it ran the same first-run import), that store is
+// opened as is, without a notice.
 func openStore(_ *cobra.Command, path string, isDefault bool) (*todo.Store, string, error) {
 	imp, err := legacyImportable(path, isDefault)
 	if err != nil {
@@ -66,6 +72,11 @@ func openStore(_ *cobra.Command, path string, isDefault bool) (*todo.Store, stri
 	}
 	if imp {
 		s, rep, err := todo.ImportFile(path, legacyFile, false)
+		if errors.Is(err, todo.ErrNotEmpty) {
+			// The store appeared, already filled, after legacyImportable looked.
+			s, err := todo.OpenStore(path)
+			return s, "", err
+		}
 		if err != nil {
 			return nil, "", err
 		}

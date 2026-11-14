@@ -128,6 +128,9 @@ func TestImportFileFailureLeavesNoDB(t *testing.T) {
 			t.Errorf("%s exists after failed import (err=%v)", p, err)
 		}
 	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".todo-import-*")); len(left) > 0 {
+		t.Errorf("temporary import files left behind: %v", left)
+	}
 	if got, _ := os.ReadFile(md); !bytes.Equal(got, bad) {
 		t.Fatal("markdown file was modified")
 	}

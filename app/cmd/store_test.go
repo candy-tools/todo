@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/candy-tools/todo/internal/todo"
 )
 
 // runSplit runs the root command capturing stdout and stderr separately.
@@ -85,6 +87,15 @@ func TestAutoImportOnlyForDefaultPath(t *testing.T) {
 	out, _ = runCmd(t, "list", "-f", "other.db")
 	if contains(out, "alpha") {
 		t.Errorf("other.db should not contain imported items:\n%s", out)
+	}
+}
+
+func TestImportNoticeSkippedIsEmpty(t *testing.T) {
+	if got := importNotice(todo.ImportReport{Skipped: true}, legacyFile); got != "" {
+		t.Errorf("a skipped import must have no notice, got %q", got)
+	}
+	if got := importNotice(todo.ImportReport{}, legacyFile); got != "imported 0 categories, 0 tasks from TODO.md" {
+		t.Errorf("an empty import must still be reported, got %q", got)
 	}
 }
 

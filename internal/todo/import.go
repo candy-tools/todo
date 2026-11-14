@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"unicode/utf8"
 
 	closuretree "github.com/go-bumbu/closure-tree"
@@ -24,6 +26,9 @@ var ErrNotEmpty = errors.New("database is not empty")
 type ImportReport struct {
 	Categories, Tasks int
 	Warnings          []string
+	// Skipped is set by ImportFile when nothing was imported because another
+	// process created the store first; the report is otherwise empty.
+	Skipped bool
 }
 
 // ImportMarkdown parses a TODO.md leniently for import. It fails only when src
@@ -116,17 +121,25 @@ func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, par
 }
 
 // ImportFile imports the markdown file mdPath into the store at dbPath,
-// creating the store when needed. It never writes mdPath. On failure it leaves
-// no trace: a store file this call created is closed and removed with its WAL
-// side files. On success the open store is returned.
+// creating the store when needed. It never writes mdPath and never removes
+// dbPath. A missing store is built in a temporary file next to dbPath and only
+// then linked into place, so dbPath never holds a half-done import and a failed
+// import leaves no trace. When another process creates dbPath first, that
+// store is kept and opened instead, and the report comes back empty with
+// Skipped set. On success the open store is returned.
 func ImportFile(dbPath, mdPath string, replace bool) (*Store, ImportReport, error) {
 	return importFile(context.Background(), dbPath, mdPath, replace)
 }
 
+// storeExists is the existence check importFile runs on the target. It is a
+// variable so a test can stand in for a second process that checked before the
+// first one created the store.
+var storeExists = StoreExists
+
 // importFile is ImportFile with the context of the store write, so a test can
-// make the import fail after the store file was created.
+// make the import fail after a store file was created.
 func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Store, ImportReport, error) {
-	existed, err := StoreExists(dbPath)
+	existed, err := storeExists(dbPath)
 	if err != nil {
 		return nil, ImportReport{}, err
 	}
@@ -138,26 +151,66 @@ func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Stor
 	if err != nil {
 		return nil, ImportReport{}, fmt.Errorf("%s: %w", mdPath, err)
 	}
+	if !existed {
+		return importNew(ctx, dbPath, doc, rep)
+	}
 	s, err := OpenStore(dbPath)
 	if err != nil {
-		removeNewStore(dbPath, existed)
 		return nil, ImportReport{}, err
 	}
 	if err := s.Import(ctx, doc, replace); err != nil {
 		_ = s.Close()
-		removeNewStore(dbPath, existed)
 		return nil, ImportReport{}, err
 	}
 	return s, rep, nil
 }
 
-// removeNewStore deletes the store file and its WAL side files, unless the
-// store existed before the import began.
-func removeNewStore(dbPath string, existed bool) {
-	if existed {
-		return
+// importNew imports doc into a new store at dbPath. It fills a temporary store
+// in the same directory, closes it (which checkpoints its WAL into the file)
+// and hard-links it to dbPath, which fails when dbPath exists: then another
+// process imported first, and its store is opened instead with an empty,
+// Skipped report. The temporary files are removed either way.
+func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportReport) (*Store, ImportReport, error) {
+	f, err := os.CreateTemp(filepath.Dir(dbPath), ".todo-import-*.db")
+	if err != nil {
+		return nil, ImportReport{}, err
 	}
-	for _, p := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
+	tmp := f.Name()
+	defer removeStoreFiles(tmp)
+	if err := f.Close(); err != nil {
+		return nil, ImportReport{}, err
+	}
+	s, err := OpenStore(tmp)
+	if err != nil {
+		return nil, ImportReport{}, err
+	}
+	if err := s.Import(ctx, doc, false); err != nil {
+		_ = s.Close()
+		return nil, ImportReport{}, err
+	}
+	if err := s.Close(); err != nil {
+		return nil, ImportReport{}, err
+	}
+	if fi, err := os.Stat(tmp + "-wal"); err == nil && fi.Size() > 0 {
+		return nil, ImportReport{}, fmt.Errorf("import into %s: the write-ahead log was not checkpointed", tmp)
+	}
+	if err := os.Link(tmp, dbPath); err != nil {
+		if !errors.Is(err, fs.ErrExist) {
+			return nil, ImportReport{}, err
+		}
+		rep = ImportReport{Skipped: true}
+	}
+	s, err = OpenStore(dbPath)
+	if err != nil {
+		return nil, ImportReport{}, err
+	}
+	return s, rep, nil
+}
+
+// removeStoreFiles deletes the store file at path with its WAL side files. It
+// is only ever given importNew's temporary store, never an import target.
+func removeStoreFiles(path string) {
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
 		_ = os.Remove(p)
 	}
 }

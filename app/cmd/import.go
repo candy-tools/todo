@@ -27,6 +27,9 @@ func importCmd() *cobra.Command {
 				return err
 			}
 			_ = s.Close()
+			if rep.Skipped {
+				return &cliError{exitGeneric, fmt.Sprintf("%s was created by another todo during the import; nothing was imported", db)}
+			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), importNotice(rep, args[0]))
 			return nil
 		},
