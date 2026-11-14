@@ -123,7 +123,7 @@ func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, par
 // ImportFile imports the markdown file mdPath into the store at dbPath,
 // creating the store when needed. It never writes mdPath and never removes
 // dbPath. A missing store is built in a temporary file next to dbPath and only
-// then linked into place, so dbPath never holds a half-done import and a failed
+// then linked (or, without hard links, renamed) into place, so dbPath never holds a half-done import and a failed
 // import leaves no trace. When another process creates dbPath first, that
 // store is kept and opened instead, and the report comes back empty with
 // Skipped set. On success the open store is returned.
@@ -135,6 +135,10 @@ func ImportFile(dbPath, mdPath string, replace bool) (*Store, ImportReport, erro
 // variable so a test can stand in for a second process that checked before the
 // first one created the store.
 var storeExists = StoreExists
+
+// linkFile hard-links importNew's temporary store to the target. It is a
+// variable so a test can stand in for a filesystem without hard links.
+var linkFile = os.Link
 
 // importFile is ImportFile with the context of the store write, so a test can
 // make the import fail after a store file was created.
@@ -166,10 +170,13 @@ func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Stor
 }
 
 // importNew imports doc into a new store at dbPath. It fills a temporary store
-// in the same directory, closes it (which checkpoints its WAL into the file)
-// and hard-links it to dbPath, which fails when dbPath exists: then another
-// process imported first, and its store is opened instead with an empty,
-// Skipped report. The temporary files are removed either way.
+// in the same directory, closes it (which checkpoints its WAL into the file),
+// gives it the 0644 mode SQLite gives a store it creates, and hard-links it to
+// dbPath, which fails when dbPath exists: then another process imported first,
+// and its store is opened instead with an empty, Skipped report. Where the link
+// fails for another reason (a filesystem without hard links), the temporary
+// store is renamed into place instead (see placeStore). The temporary files are
+// removed either way.
 func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportReport) (*Store, ImportReport, error) {
 	f, err := os.CreateTemp(filepath.Dir(dbPath), ".todo-import-*.db")
 	if err != nil {
@@ -194,10 +201,14 @@ func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportRepo
 	if fi, err := os.Stat(tmp + "-wal"); err == nil && fi.Size() > 0 {
 		return nil, ImportReport{}, fmt.Errorf("import into %s: the write-ahead log was not checkpointed", tmp)
 	}
-	if err := os.Link(tmp, dbPath); err != nil {
-		if !errors.Is(err, fs.ErrExist) {
-			return nil, ImportReport{}, err
-		}
+	if err := os.Chmod(tmp, 0o644); err != nil { //nolint:gosec // same mode SQLite creates a store with; the list is not secret
+		return nil, ImportReport{}, err
+	}
+	placed, err := placeStore(tmp, dbPath)
+	if err != nil {
+		return nil, ImportReport{}, err
+	}
+	if !placed {
 		rep = ImportReport{Skipped: true}
 	}
 	s, err = OpenStore(dbPath)
@@ -205,6 +216,34 @@ func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportRepo
 		return nil, ImportReport{}, err
 	}
 	return s, rep, nil
+}
+
+// placeStore puts the finished temporary store tmp at dbPath without ever
+// replacing an existing dbPath. placed is false when dbPath already exists
+// (another process imported first). It hard-links tmp to dbPath, which fails
+// atomically on an existing target; when the link fails for another reason, it
+// re-checks that dbPath is still missing and renames tmp onto it. That fallback
+// leaves a tiny race: a store created between the check and the rename would
+// be replaced, which a filesystem without hard links offers no way to avoid.
+func placeStore(tmp, dbPath string) (placed bool, err error) {
+	linkErr := linkFile(tmp, dbPath)
+	if linkErr == nil {
+		return true, nil
+	}
+	if errors.Is(linkErr, fs.ErrExist) {
+		return false, nil
+	}
+	exists, err := StoreExists(dbPath)
+	if err != nil {
+		return false, err
+	}
+	if exists {
+		return false, nil
+	}
+	if err := os.Rename(tmp, dbPath); err != nil {
+		return false, fmt.Errorf("place %s (link failed: %v): %w", dbPath, linkErr, err)
+	}
+	return true, nil
 }
 
 // removeStoreFiles deletes the store file at path with its WAL side files. It
