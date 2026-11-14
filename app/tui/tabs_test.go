@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 // board has one task in Backlog, In Progress (with a subtask) and Done, an
@@ -417,5 +418,55 @@ func TestEditKeepsPlan(t *testing.T) {
 	it := storedItem(t, path, "a2")
 	if it.Plan != "docs/a.md" {
 		t.Errorf("an edit must keep the plan, got %q", it.Plan)
+	}
+}
+
+func TestEditSavesPlan(t *testing.T) {
+	m, path := newTestModelOn(t, "# B\n- [ ] a\n", todo.ColBacklog)
+	a := find(m.doc, "a")
+	m = setStatusExternally(t, m, path, "a", todo.Ready)
+	m.tree.setColumn(todo.ColNext)
+	m.tree.selectID(a.ID)
+	if row := rowOf(t, m.tree, "a"); !strings.Contains(row, "⚠ no plan") {
+		t.Fatalf("precondition: ready task without plan is flagged: %q", row)
+	}
+	m = press(m, "e")
+	m = press(m, "tab")
+	m = press(m, "tab")
+	m = typeText(m, "docs/p.md")
+	m = press(m, "enter")
+	if it := storedItem(t, path, "a"); it.Plan != "docs/p.md" {
+		t.Errorf("plan = %q, want docs/p.md", it.Plan)
+	}
+	m.tree.setColumn(todo.ColNext)
+	if row := rowOf(t, m.tree, "a"); strings.Contains(row, "no plan") {
+		t.Errorf("flag should disappear once a plan is set: %q", row)
+	}
+}
+
+func TestNewTaskWithPlan(t *testing.T) {
+	m, path := newTestModel(t, "# B\n- [ ] a\n")
+	m = press(m, "n")
+	m = typeText(m, "fresh")
+	m = press(m, "tab")
+	m = press(m, "tab")
+	m = typeText(m, "docs/n.md")
+	m = press(m, "enter")
+	if it := storedItem(t, path, "fresh"); it.Plan != "docs/n.md" {
+		t.Errorf("new task plan = %q, want docs/n.md", it.Plan)
+	}
+}
+
+func TestItemMetaShowsColumnAndState(t *testing.T) {
+	d := todotest.Parse(t, "# B\n- [ ] r\n")
+	it := find(d, "r")
+	it.Status = todo.Ready
+	got := itemMeta(it)
+	if !strings.Contains(got, "Next · ready") || !strings.Contains(got, "⚠ no plan") {
+		t.Errorf("meta = %q", got)
+	}
+	it.Plan = "docs/p.md"
+	if got := itemMeta(it); strings.Contains(got, "no plan") {
+		t.Errorf("meta with plan = %q", got)
 	}
 }

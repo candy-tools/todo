@@ -321,11 +321,10 @@ func TestTaskRowShowsSubtaskProgress(t *testing.T) {
 
 func TestItemMetaStatus(t *testing.T) {
 	d := todotest.Parse(t, "# Work\n\n- [/] working\n- [>] defer\n")
-	// itemMeta still labels working as "in progress"; Task 9 reworks the dialog.
-	if got := itemMeta(find(d, "working")); !strings.Contains(got, "in progress") {
-		t.Errorf("itemMeta for a working task should say 'in progress', got %q", got)
+	if got := itemMeta(find(d, "working")); !strings.Contains(got, "In Progress · working") {
+		t.Errorf("itemMeta for a working task should say 'In Progress · working', got %q", got)
 	}
-	if got := itemMeta(find(d, "defer")); !strings.Contains(got, "deferred") {
+	if got := itemMeta(find(d, "defer")); !strings.Contains(got, "Backlog · deferred") {
 		t.Errorf("itemMeta for a deferred task should say 'deferred', got %q", got)
 	}
 }

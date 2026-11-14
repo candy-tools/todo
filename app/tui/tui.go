@@ -851,7 +851,7 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 			m.status = "subtasks can't have subtasks"
 			return m, nil
 		}
-		m.form = newForm("", "", true, false)
+		m.form = newForm("", "", "", true, false)
 	case targetEdit:
 		if sel == nil || m.tree.onPlaceholder() {
 			return m, nil
@@ -861,14 +861,14 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.editing = sel
-		m.form = newForm(sel.Title, sel.Description, sel.IsTask(), true)
+		m.form = newForm(sel.Title, sel.Description, sel.Plan, sel.IsTask(), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
 		if m.tree.column != todo.ColBacklog {
 			m.status = msgCategoriesInBacklog
 			return m, nil
 		}
-		m.form = newForm("", "", false, false)
+		m.form = newForm("", "", "", false, false)
 	}
 	m.target = t
 	m.form.setWidth(m.width)
@@ -918,7 +918,7 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // is ignored (the dialog stays open). Any structural or content change clears
 // the undo snapshots — the accidental-complete window is meant to be immediate.
 func (m model) submitForm() (tea.Model, tea.Cmd) {
-	title, desc := m.form.values()
+	title, desc, plan := m.form.values()
 	if title == "" {
 		return m, nil
 	}
@@ -929,10 +929,9 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		m.editing.Title = title
 		if m.editing.IsTask() {
 			m.editing.Description = desc
+			m.editing.Plan = plan
 		}
-		// The dialog has no plan field yet, so the item's plan is written back
-		// unchanged rather than cleared.
-		id, plan := m.editing.ID, m.editing.Plan
+		id := m.editing.ID
 		m.commit(id, func(ctx context.Context) error {
 			return m.store.Edit(ctx, id, todo.Fields{Title: title, Description: desc, Plan: plan})
 		})
@@ -959,10 +958,12 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		}
 	case targetAddChild: // a subtask of a task, or a task inside a category
 		added = todo.NewTask(title, desc, false)
+		added.Plan = plan
 		sel.AppendTask(added)
 		delete(m.tree.collapsed, sel.ID)
 	default: // targetAddSibling: a task at the end of the selection's level
 		added = todo.NewTask(title, desc, false)
+		added.Plan = plan
 		parent := sel
 		if sel.IsTask() && sel.Parent != nil {
 			parent = sel.Parent // a task's siblings live under its parent
@@ -983,7 +984,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		if added.Kind == todo.Category {
 			newID, err = m.store.AddCategory(ctx, title, parentID, afterID)
 		} else {
-			newID, err = m.store.AddTask(ctx, todo.Fields{Title: title, Description: desc}, added.Status, parentID, afterID)
+			newID, err = m.store.AddTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, added.Status, parentID, afterID)
 		}
 		return err
 	})
@@ -1139,8 +1140,8 @@ func (m model) footer(width int) string {
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }
 
-// itemMeta renders the read-only header of the edit dialog: a task's completion
-// status (○ open / ● done) and subtask progress, or a category label and its task
+// itemMeta renders the read-only header of the edit dialog: a task's state glyph,
+// column and state, subtask progress and a missing-plan flag, or a category label and its task
 // count. It carries the old details view's at-a-glance info into the combined
 // view/edit dialog. Empty when there is nothing to show.
 func itemMeta(it *todo.Item) string {
@@ -1151,19 +1152,17 @@ func itemMeta(it *todo.Item) string {
 		done, total := it.TaskCounts()
 		return labelStyle.Render("Category") + helpTextStyle.Render(fmt.Sprintf("  ·  %d of %d tasks done", done, total))
 	}
-	var status string
-	switch it.Status {
-	case todo.Working:
-		status = progStyle.Render("◐ in progress")
-	case todo.Deferred:
-		status = deferStyle.Render("⏸ deferred")
-	case todo.Done:
-		status = doneStyle.Render("● done")
-	default:
-		status = helpTextStyle.Render("○ open")
+	glyph, st := statusGlyph(it.Status, it.IsSubtask())
+	col := it.Status.Column()
+	if it.IsSubtask() && it.Parent != nil {
+		col = it.Parent.Status.Column() // a subtask sits in its parent's column
 	}
+	status := st.Render(glyph + " " + col.Title() + " · " + it.Status.String())
 	if done, total := it.TaskCounts(); total > 0 {
 		status += helpTextStyle.Render("  ·  ") + labelStyle.Render("Subtasks") + helpTextStyle.Render(fmt.Sprintf(" %d/%d done", done, total))
+	}
+	if it.NeedsPlan() {
+		status += helpTextStyle.Render("  ·  ") + deferStyle.Render("⚠ no plan")
 	}
 	return status
 }
