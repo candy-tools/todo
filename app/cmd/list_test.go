@@ -26,7 +26,7 @@ func TestListTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	for _, want := range []string{"Work", "[ ]", "a", "[x]", "b"} {
+	for _, want := range []string{"Work", "open", "a", "done", "b"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list output missing %q:\n%s", want, out)
 		}
@@ -105,4 +105,102 @@ func containsTitle(items []jsonItem, title string) bool {
 		}
 	}
 	return false
+}
+
+// boardFixture builds a store with one task per column state of interest.
+func boardFixture(t *testing.T) string {
+	t.Helper()
+	path := todotest.Seed(t, "# Work\n\n- [ ] backlogged\n- [ ] busy\n  - [ ] sub\n- [ ] finished\n\n# Other\n\n- [ ] elsewhere\n")
+	for title, to := range map[string]string{"busy": "working", "finished": "done"} {
+		if _, err := runCmd(t, "status", "--file", path, "--title", title, "--to", to); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return path
+}
+
+func TestListColumnFilter(t *testing.T) {
+	path := boardFixture(t)
+	out, err := runCmd(t, "list", "--file", path, "--column", "progress")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Work", "busy", "sub"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	for _, not := range []string{"backlogged", "finished", "Other", "elsewhere"} {
+		if strings.Contains(out, not) {
+			t.Errorf("unexpected %q:\n%s", not, out)
+		}
+	}
+}
+
+func TestListColumnWithFilter(t *testing.T) {
+	path := boardFixture(t)
+	out, err := runCmd(t, "list", "--file", path, "--column", "backlog", "--filter", "backlogged")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "backlogged") || strings.Contains(out, "elsewhere") {
+		t.Errorf("column and filter should intersect:\n%s", out)
+	}
+}
+
+func TestListColumnInvalid(t *testing.T) {
+	path := boardFixture(t)
+	_, err := runCmd(t, "list", "--file", path, "--column", "bogus")
+	if codeOf(t, err) != exitUsage {
+		t.Errorf("bad column should be a usage error, got %v", err)
+	}
+}
+
+func TestListShowsStateNames(t *testing.T) {
+	path := boardFixture(t)
+	out, err := runCmd(t, "list", "--file", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "working") || strings.Contains(out, "[/]") {
+		t.Errorf("table should show state names, not markers:\n%s", out)
+	}
+}
+
+func TestListJSONColumnAndStatus(t *testing.T) {
+	path := boardFixture(t)
+	out, err := runCmd(t, "list", "--file", path, "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []jsonItem
+	if err := json.Unmarshal([]byte(out), &items); err != nil {
+		t.Fatal(err)
+	}
+	var busy *jsonItem
+	for i := range items[0].Children {
+		if items[0].Children[i].Title == "busy" {
+			busy = &items[0].Children[i]
+		}
+	}
+	if busy == nil || busy.Status != "working" || busy.Column != "progress" {
+		t.Fatalf("busy wrong: %+v", busy)
+	}
+	if sub := busy.Children[0]; sub.Status != "open" || sub.Column != "progress" {
+		t.Errorf("an open subtask under a working task is in the progress column: %+v", sub)
+	}
+	if items[0].Column != "" {
+		t.Errorf("a category has no column, got %q", items[0].Column)
+	}
+}
+
+func TestListColumnFilterMatchesWithinColumn(t *testing.T) {
+	path := todotest.Seed(t, "# C\n\n- [/] w\n- [ ] beta\n")
+	out, err := runCmd(t, "list", "--file", path, "--column", "progress", "--filter", "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := strings.SplitN(out, "\n", 2)[1]; strings.TrimSpace(rows) != "" {
+		t.Errorf("a match outside the column must show no rows, not even its category:\n%s", out)
+	}
 }

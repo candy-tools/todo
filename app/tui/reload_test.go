@@ -15,7 +15,7 @@ import (
 // CLI command or an agent writing while the TUI runs.
 func externalAddTask(t *testing.T, path, title string, parentID, afterID uint) uint {
 	t.Helper()
-	id, err := openSecond(t, path).AddTask(context.Background(), title, "", todo.Open, parentID, afterID)
+	id, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: title}, todo.Open, parentID, afterID)
 	if err != nil {
 		t.Fatalf("external add: %v", err)
 	}
@@ -231,6 +231,7 @@ func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
 	if len(m.snapshots) != 1 {
 		t.Fatalf("the cascade must leave a snapshot across its own reload, got %d", len(m.snapshots))
 	}
+	m = showOn(t, m, todo.ColDone, "parent") // the done parent left Backlog
 	m = press(m, "space")
 	for _, title := range []string{"parent", "c1", "c2"} {
 		if got := find(m.doc, title).Status; got != todo.Open {
@@ -243,15 +244,17 @@ func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
 
 	// Cascade again, then an external write lands: the snapshot is dropped, so
 	// the un-toggle reopens only the parent (the subtasks keep their status).
+	m = showOn(t, m, todo.ColBacklog, "parent")
 	m = press(m, "space")
 	externalAddTask(t, path, "other", find(m.doc, "Work").ID, find(m.doc, "parent").ID)
 	m = pollOnce(t, m)
 	if len(m.snapshots) != 0 {
 		t.Fatalf("an external reload must clear the snapshots, got %d", len(m.snapshots))
 	}
+	m = showOn(t, m, todo.ColDone, "parent")
 	m = press(m, "space")
-	if got := find(m.doc, "parent").Status; got != todo.Open {
-		t.Errorf("parent = %v after un-toggle, want open", got)
+	if got := find(m.doc, "parent").Status; got != todo.Working {
+		t.Errorf("parent = %v after un-toggle without a snapshot, want working", got)
 	}
 	for _, title := range []string{"c1", "c2"} {
 		if got := find(m.doc, title).Status; got != todo.Done {
@@ -271,17 +274,15 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 		t.Fatalf("precondition: the cascade must leave a snapshot, got %d", len(m.snapshots))
 	}
 
-	// An agent flags c1 in progress through a second handle; no poll runs.
+	// An agent reopens c1 through a second handle; no poll runs.
 	c1 := find(m.doc, "c1").ID
-	if err := openSecond(t, path).SetStatuses(context.Background(), map[uint]todo.Status{c1: todo.InProgress}); err != nil {
+	if err := openSecond(t, path).SetStatuses(context.Background(), map[uint]todo.Status{c1: todo.Open}); err != nil {
 		t.Fatalf("external write: %v", err)
 	}
 
-	// An own, unrelated write: flag "other" in progress.
-	m = press(m, "down", "down", "down", "p")
-	if got := m.tree.selected().Title; got != "other" {
-		t.Fatalf("precondition: expected other selected, got %q", got)
-	}
+	// An own, unrelated write: defer "other".
+	m = showOn(t, m, todo.ColBacklog, "other")
+	m = press(m, "t")
 	if len(m.snapshots) != 0 {
 		t.Errorf("an own write that absorbed an external one must clear the snapshots, got %d", len(m.snapshots))
 	}
@@ -289,15 +290,14 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 		t.Errorf("status = %q, want the external-reload notice", m.status)
 	}
 
-	// Un-toggle the parent: c1 keeps the agent's status.
-	m = press(m, "up", "up", "up", "space")
-	if got := m.tree.selected().Title; got != "parent" {
-		t.Fatalf("precondition: expected parent selected, got %q", got)
+	// Un-toggle the parent: it reopens to working, c1 keeps the agent's status,
+	// and c2 stays done because the dropped snapshot no longer restores it.
+	m = showOn(t, m, todo.ColDone, "parent")
+	m = press(m, "space")
+	if got := find(m.doc, "c1").Status; got != todo.Open {
+		t.Errorf("c1 = %v after un-toggle, want open (the agent's change)", got)
 	}
-	if got := find(m.doc, "c1").Status; got != todo.InProgress {
-		t.Errorf("c1 = %v after un-toggle, want in progress (the agent's change)", got)
-	}
-	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] parent\n  - [/] c1\n  - [x] c2\n- [/] other\n"; got != want {
+	if got, want := todotest.Dump(t, path), "# Work\n\n- [/] parent\n  - [ ] c1\n  - [x] c2\n- [>] other\n"; got != want {
 		t.Errorf("store after un-toggle:\n%s\nwant:\n%s", got, want)
 	}
 }
@@ -314,6 +314,8 @@ func TestWriteErrorShowsAndReloads(t *testing.T) {
 	if got := m.footer(200); !strings.Contains(got, "save failed:") {
 		t.Errorf("footer should report the failed save, got %q", got)
 	}
+	// The in-memory toggle stays in view: a, now done, shows on the Done tab.
+	m.tree.setColumn(todo.ColDone)
 	if find(m.doc, "a") == nil || !hasRow(m, "a") {
 		t.Errorf("a failed reload must keep the current view")
 	}

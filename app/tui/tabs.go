@@ -1,0 +1,87 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/candy-tools/todo/internal/todo"
+	"github.com/charmbracelet/x/ansi"
+)
+
+// setColumn switches the tree to the board tab for column c. The current tab's
+// selection (by item ID) and folds are kept for when it is shown again; the new
+// tab gets back its own, or no folds and the top row the first time (and when
+// its remembered item is no longer shown there). The search filter carries over.
+func (t *tree) setColumn(c todo.Column) {
+	if c == t.column {
+		return
+	}
+	t.selByCol[t.column] = t.selectedID()
+	t.column = c
+	folds, ok := t.foldsByCol[c]
+	if !ok {
+		folds = map[uint]bool{}
+		t.foldsByCol[c] = folds
+	}
+	t.collapsed = folds
+	t.rebuild()
+	if !t.selectID(t.selByCol[c]) {
+		t.selectTop()
+	}
+}
+
+// selectedID is the ID of the item under the cursor, or 0 when there is none
+// (an empty tab, or the placeholder row).
+func (t *tree) selectedID() uint {
+	if t.onPlaceholder() {
+		return 0
+	}
+	if it := t.selected(); it != nil {
+		return it.ID
+	}
+	return 0
+}
+
+// stepColumn returns the column delta tabs away from c, wrapping around the
+// board in either direction.
+func stepColumn(c todo.Column, delta int) todo.Column {
+	cols := todo.Columns()
+	for i, col := range cols {
+		if col == c {
+			return cols[((i+delta)%len(cols)+len(cols))%len(cols)]
+		}
+	}
+	return todo.ColBacklog
+}
+
+// tabKey maps a main-view key to the tab it switches to: tab/shift+tab cycle
+// from the current tab, 1–4 jump to a tab. ok is false for any other key.
+func tabKey(key string, current todo.Column) (todo.Column, bool) {
+	switch key {
+	case "tab":
+		return stepColumn(current, 1), true
+	case "shift+tab":
+		return stepColumn(current, -1), true
+	}
+	cols := todo.Columns()
+	if len(key) == 1 && key[0] >= '1' && int(key[0]-'1') < len(cols) {
+		return cols[key[0]-'1'], true
+	}
+	return 0, false
+}
+
+// tabBar renders the tab line under the header: every column's title and task
+// count, the active one bracketed and accented, e.g.
+// "Backlog 12   [Next 3]   In Progress 2   Done 40".
+func tabBar(counts map[todo.Column]int, active todo.Column, width int) string {
+	parts := make([]string, 0, len(todo.Columns()))
+	for _, c := range todo.Columns() {
+		label := fmt.Sprintf("%s %d", c.Title(), counts[c])
+		if c == active {
+			parts = append(parts, selectedRowStyle.Render("["+label+"]"))
+		} else {
+			parts = append(parts, headerHintSty.Render(label))
+		}
+	}
+	return ansi.Truncate(" "+strings.Join(parts, "   "), width, "")
+}

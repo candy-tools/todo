@@ -14,6 +14,7 @@ type formFocus int
 const (
 	focusTitle formFocus = iota
 	focusDesc
+	focusPlan
 	focusSave
 	focusCancel
 )
@@ -23,6 +24,7 @@ const (
 type form struct {
 	title   textinput.Model
 	desc    textarea.Model
+	plan    textinput.Model // a task's plan link: a single line
 	focus   formFocus
 	isTask  bool // false → category form (title only)
 	editing bool // false → adding (only affects the window title)
@@ -33,7 +35,7 @@ type form struct {
 	meta string
 }
 
-func newForm(titleVal, descVal string, isTask, editing bool) form {
+func newForm(titleVal, descVal, planVal string, isTask, editing bool) form {
 	ti := textinput.New()
 	ti.Prompt = ""
 	ti.CharLimit = 200
@@ -45,16 +47,21 @@ func newForm(titleVal, descVal string, isTask, editing bool) form {
 	ta.SetValue(descVal)
 	ta.Blur()
 
-	f := form{title: ti, desc: ta, isTask: isTask, editing: editing, focus: focusTitle}
+	pi := textinput.New()
+	pi.Prompt = ""
+	pi.CharLimit = 500
+	pi.SetValue(planVal)
+
+	f := form{title: ti, desc: ta, plan: pi, isTask: isTask, editing: editing, focus: focusTitle}
 	f.title.Focus()
 	return f
 }
 
-// ring is the focus order: the title, then (for a task) the description, then
+// ring is the focus order: the title, then (for a task) the description and plan, then
 // the Save and Cancel buttons.
 func (f form) ring() []formFocus {
 	if f.isTask {
-		return []formFocus{focusTitle, focusDesc, focusSave, focusCancel}
+		return []formFocus{focusTitle, focusDesc, focusPlan, focusSave, focusCancel}
 	}
 	return []formFocus{focusTitle, focusSave, focusCancel}
 }
@@ -87,6 +94,11 @@ func (f *form) applyFocus() tea.Cmd {
 	} else {
 		f.desc.Blur()
 	}
+	if f.focus == focusPlan {
+		cmd = f.plan.Focus()
+	} else {
+		f.plan.Blur()
+	}
 	return cmd
 }
 
@@ -108,6 +120,7 @@ func (f *form) setWidth(w int) {
 	f.width = w
 	iw := f.contentWidth()
 	f.title.Width = iw - 1
+	f.plan.Width = iw - 1
 	f.desc.SetWidth(iw - 2) // the description box's own border adds 2
 	f.desc.SetHeight(9)
 }
@@ -120,13 +133,15 @@ func (f form) update(msg tea.Msg) (form, tea.Cmd) {
 		f.title, cmd = f.title.Update(msg)
 	case focusDesc:
 		f.desc, cmd = f.desc.Update(msg)
+	case focusPlan:
+		f.plan, cmd = f.plan.Update(msg)
 	}
 	return f, cmd
 }
 
-// values returns the trimmed title and description entered.
-func (f form) values() (title, desc string) {
-	return strings.TrimSpace(f.title.Value()), strings.Trim(f.desc.Value(), "\n")
+// values returns the trimmed title, the description and the trimmed plan entered.
+func (f form) values() (title, desc, plan string) {
+	return strings.TrimSpace(f.title.Value()), strings.Trim(f.desc.Value(), "\n"), strings.TrimSpace(f.plan.Value())
 }
 
 func (f form) view() string {
@@ -153,6 +168,10 @@ func (f form) view() string {
 		b.WriteString(fieldLabel("Description", f.focus == focusDesc))
 		b.WriteString("\n")
 		b.WriteString(f.descBox())
+		b.WriteString("\n\n")
+		b.WriteString(fieldLabel("Plan", f.focus == focusPlan))
+		b.WriteString("\n")
+		b.WriteString(f.underline(f.plan.View(), f.focus == focusPlan))
 	}
 
 	b.WriteString("\n\n")

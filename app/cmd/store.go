@@ -149,6 +149,9 @@ func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener
 		if errors.Is(err, todo.ErrNotFound) {
 			return notFound("the item no longer exists")
 		}
+		if errors.Is(err, todo.ErrTooDeep) || errors.Is(err, todo.ErrSubtaskStatus) {
+			return usageErr(err.Error())
+		}
 		return err
 	}
 	return nil

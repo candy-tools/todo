@@ -397,3 +397,56 @@ func TestOutdentCategoryRoundTrips(t *testing.T) {
 		t.Errorf("after round-trip C should still nest under B:\n%s", todotest.Render(d))
 	}
 }
+
+func TestIndentUnderSubtaskRefused(t *testing.T) {
+	d := todotest.Parse(t, "# C\n- [ ] T\n  - [ ] a\n  - [ ] b\n")
+	if d.Indent(find(d, "b")) {
+		t.Error("Indent under a subtask should be refused")
+	}
+	if got := titles(find(d, "T").Children); len(got) != 2 {
+		t.Errorf("T's children = %v, want [a b]", got)
+	}
+}
+
+func TestIndentTaskWithChildrenRefused(t *testing.T) {
+	d := todotest.Parse(t, "# C\n- [ ] P\n- [ ] T\n  - [ ] a\n")
+	if d.Indent(find(d, "T")) {
+		t.Error("Indent of a task that has subtasks should be refused")
+	}
+}
+
+func TestIndentNormalizesStatus(t *testing.T) {
+	d := todotest.Parse(t, "# C\n- [ ] P\n- [ ] T\n- [x] D\n")
+	tk, dn := find(d, "T"), find(d, "D")
+	tk.Status = todo.Review
+	if !d.Indent(tk) {
+		t.Fatal("Indent(T) should succeed")
+	}
+	if tk.Status != todo.Open {
+		t.Errorf("T status = %v, want Open", tk.Status)
+	}
+	if !d.Indent(dn) {
+		t.Fatal("Indent(D) should succeed")
+	}
+	if dn.Status != todo.Done {
+		t.Errorf("D status = %v, want Done", dn.Status)
+	}
+}
+
+func TestOutdentTakesParentState(t *testing.T) {
+	d := todotest.Parse(t, "# C\n- [ ] P\n  - [ ] a\n- [x] Q\n  - [ ] b\n")
+	find(d, "P").Status = todo.Ready
+	a, b := find(d, "a"), find(d, "b")
+	if !d.Outdent(a) {
+		t.Fatal("Outdent(a) should succeed")
+	}
+	if a.Status != todo.Ready {
+		t.Errorf("a status = %v, want Ready", a.Status)
+	}
+	if !d.Outdent(b) {
+		t.Fatal("Outdent(b) should succeed")
+	}
+	if b.Status != todo.Working {
+		t.Errorf("b status = %v, want Working", b.Status)
+	}
+}

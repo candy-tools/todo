@@ -26,6 +26,28 @@ func newTestModel(t *testing.T, src string) (model, string) {
 	return send(m, tea.WindowSizeMsg{Width: 100, Height: 30}), path
 }
 
+// newTestModelOn is newTestModel switched to the board tab for column c, for
+// tests that act on items outside the Backlog (working or done tasks).
+func newTestModelOn(t *testing.T, src string, c todo.Column) (model, string) {
+	t.Helper()
+	m, path := newTestModel(t, src)
+	m.tree.setColumn(c)
+	return m, path
+}
+
+// showOn switches m to the tab for column c and selects the row titled title,
+// failing the test when that tab doesn't show it. Tests use it to follow a task
+// that changed column (and so left the tab it was in).
+func showOn(t *testing.T, m model, c todo.Column, title string) model {
+	t.Helper()
+	m.tree.setColumn(c)
+	it := find(m.doc, title)
+	if it == nil || !m.tree.selectID(it.ID) {
+		t.Fatalf("%q is not shown on %s (rows %v)", title, c.Title(), rowTitles(m.tree))
+	}
+	return m
+}
+
 // openSecond opens another handle on the store at path, standing in for a second
 // process (a CLI command or an agent) writing to the same list. It is closed when
 // the test ends.
@@ -86,6 +108,8 @@ func keyMsg(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEsc}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyMsg{Type: tea.KeyShiftTab}
 	case "space", " ":
 		return tea.KeyMsg{Type: tea.KeySpace}
 	default:

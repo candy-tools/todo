@@ -28,7 +28,7 @@ func treeString(d *todo.Document) string {
 			} else {
 				box := " "
 				switch it.Status {
-				case todo.InProgress:
+				case todo.Working:
 					box = "/"
 				case todo.Deferred:
 					box = ">"
@@ -152,8 +152,8 @@ func TestParseInProgressAndDeferred(t *testing.T) {
 	if len(d.Roots) != 2 {
 		t.Fatalf("both extended markers should parse as tasks, got %d roots:\n%s", len(d.Roots), treeString(d))
 	}
-	if got := d.Roots[0].Status; got != todo.InProgress {
-		t.Errorf("[/] should parse as InProgress, got %v", got)
+	if got := d.Roots[0].Status; got != todo.Working {
+		t.Errorf("[/] should parse as Working, got %v", got)
 	}
 	if got := d.Roots[1].Status; got != todo.Deferred {
 		t.Errorf("[>] should parse as Deferred, got %v", got)

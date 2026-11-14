@@ -84,7 +84,13 @@ func appendItems(lines []string, items []*todo.Item, taskDepth int) []string {
 			continue
 		}
 		indent := strings.Repeat("  ", taskDepth)
-		lines = append(lines, indent+"- ["+it.Status.Marker()+"] "+it.Title)
+		// States without a checkbox marker render as their name: a test-only
+		// form that is never parsed back.
+		mark := it.Status.Marker()
+		if mark == "" {
+			mark = it.Status.String()
+		}
+		lines = append(lines, indent+"- ["+mark+"] "+it.Title)
 		if it.Description != "" {
 			for _, dl := range strings.Split(it.Description, "\n") {
 				if dl == "" {

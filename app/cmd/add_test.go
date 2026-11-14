@@ -84,3 +84,52 @@ func TestAddNestedCategory(t *testing.T) {
 		t.Errorf("nested category should render as an H2:\n%s", todotest.Dump(t, path))
 	}
 }
+
+func TestAddUnderSubtaskIsUsageError(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] child\n")
+	_, err := runCmd(t, "add", "--file", path, "--title", "x", "--parent-title", "child")
+	if codeOf(t, err) != exitUsage {
+		t.Fatalf("add under a subtask should be a usage error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "subtasks cannot have subtasks") {
+		t.Errorf("unclear message %q", err)
+	}
+	if strings.Contains(todotest.Dump(t, path), "x") {
+		t.Error("nothing should have been added")
+	}
+}
+
+func TestAddBoardStateUnderTaskIsUsageError(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n")
+	_, err := runCmd(t, "add", "--file", path, "--title", "x", "--parent-title", "parent", "--status", "working")
+	if codeOf(t, err) != exitUsage {
+		t.Fatalf("a working subtask should be a usage error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "subtask can only be open or done") {
+		t.Errorf("unclear message %q", err)
+	}
+}
+
+func TestAddWithBoardState(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "add", "--file", path, "--title", "b", "--parent-title", "Work", "--status", "ready"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(todotest.Dump(t, path), "- [ready] b") {
+		t.Errorf("want ready b:\n%s", todotest.Dump(t, path))
+	}
+}
+
+func TestAddWithPlan(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "add", "--file", path, "--title", "b", "--parent-title", "Work", "--plan", "docs/p.md"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runCmd(t, "list", "--file", path, "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"plan": "docs/p.md"`) {
+		t.Errorf("plan missing from JSON:\n%s", out)
+	}
+}

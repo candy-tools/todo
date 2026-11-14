@@ -8,7 +8,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -89,11 +91,11 @@ type model struct {
 	// item, or clear all completed tasks.
 	confirmAction confirmAction
 
-	// snapshots holds, per cascade-completed parent task ID, the descendant Done
-	// states captured at completion time, so unchecking that parent can restore
-	// them. Session-only: it lives here in memory and is never stored. Keyed by
-	// ID, it survives the reload after the app's own write; an external reload
-	// clears it.
+	// snapshots holds, per task ID completed in this session, the states of the
+	// task and its subtasks captured at completion time, so un-completing it can
+	// restore them (the accidental-complete undo). Session-only: it lives here in
+	// memory and is never stored. Keyed by ID, it survives the reload after the
+	// app's own write; an external reload clears it.
 	snapshots map[uint]todo.DoneStates
 
 	status string // transient one-line footer message
@@ -216,9 +218,24 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right", "l":
 		m.tree.expand()
 	default:
+		if c, ok := tabKey(msg.String(), m.tree.column); ok {
+			m.tree.setColumn(c)
+			return m, nil
+		}
 		return m.updateMainItemKey(msg)
 	}
 	return m, nil
+}
+
+// msgCategoriesInBacklog is the footer hint for a category key pressed outside
+// the Backlog tab: a category made or kept elsewhere would show only while it
+// holds that tab's tasks, so categories are managed in Backlog alone.
+const msgCategoriesInBacklog = "categories are managed in Backlog"
+
+// categoryLocked reports whether rename, delete or move of it is refused: it is
+// a category and the tab is not Backlog.
+func (m model) categoryLocked(it *todo.Item) bool {
+	return it != nil && it.Kind == todo.Category && m.tree.column != todo.ColBacklog
 }
 
 // escOrQuit clears an active filter (dismissing the search the same way it's
@@ -251,10 +268,12 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.toggleDone()
 	case "x":
 		return m.toggleDone()
-	case "p":
-		return m.setStatus(todo.InProgress)
-	case ">":
-		return m.setStatus(todo.Deferred)
+	case "]":
+		return m.shiftColumn(1)
+	case "[":
+		return m.shiftColumn(-1)
+	case "t":
+		return m.cycleState()
 	case "n":
 		return m.openForm(targetAddSibling)
 	case "N":
@@ -290,10 +309,15 @@ func (m model) updatePlaceholderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // startMove picks up the selected item for moving. It is a no-op on the
-// placeholder row, and refuses while a filter is active — the filtered view hides
-// siblings and ignores folding, so reordering against it would be misleading.
+// placeholder row or an empty tab, refuses a category outside Backlog, and
+// refuses while a filter is active — the filtered view hides siblings and
+// ignores folding, so reordering against it would be misleading.
 func (m model) startMove() (tea.Model, tea.Cmd) {
-	if m.tree.onPlaceholder() {
+	if m.tree.onPlaceholder() || m.tree.selected() == nil {
+		return m, nil
+	}
+	if m.categoryLocked(m.tree.selected()) {
+		m.status = msgCategoriesInBacklog
 		return m, nil
 	}
 	if m.tree.filter != "" {
@@ -312,27 +336,92 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	switch msg.String() {
 	case "up", "w", "k":
-		return m.applyMove(m.doc.MoveUp)
+		return m.applyMove(m.stepPastShown(m.doc.MoveUp, m.doc.MoveDown))
 	case "down", "s", "j":
-		return m.applyMove(m.doc.MoveDown)
+		return m.applyMove(m.stepPastShown(m.doc.MoveDown, m.doc.MoveUp))
 	case "left", "h":
 		return m.applyMove(m.doc.Outdent)
 	case "right", "l":
-		return m.applyMove(m.doc.Indent)
+		return m.applyIndent()
 	case "m", "esc", "enter":
 		m.tree.grabbed = false
 	}
 	return m, nil
 }
 
+// stepPastShown wraps a one-step reorder so that it moves the item past one
+// row the tab shows. Every tab can hide items between its rows (Backlog hides
+// the other columns' tasks, other tabs hide Backlog's, a search hides
+// non-matches), so op repeats until the item has passed a row that was shown
+// before the move or has entered another parent (one category per key press,
+// as when nothing is hidden). If op refuses first, the item only stepped over
+// hidden siblings, so undo walks it back and the move is a no-op; it reports
+// whether the item moved. Where nothing is hidden, the first step already
+// passes a shown row.
+func (m model) stepPastShown(op, undo func(*todo.Item) bool) func(*todo.Item) bool {
+	return func(it *todo.Item) bool {
+		start, parent := m.tree.shownBefore(it), it.Parent
+		steps := 0
+		for op(it) {
+			steps++
+			if it.Parent != parent || m.tree.shownBefore(it) != start {
+				return true
+			}
+		}
+		// Every step was a swap with a hidden sibling under the same parent, which
+		// undo swaps straight back.
+		for ; steps > 0; steps-- {
+			undo(it)
+		}
+		return false
+	}
+}
+
+// applyIndent indents the grabbed item under the item just above it among its
+// siblings. A subtask, or a task with subtasks, never indents (tasks nest one
+// level only, so Document.Indent refuses it), and neither does an item whose
+// new parent the tab hides, since it would vanish into that hidden task; the
+// footer says why. Any other refusal (nothing above to nest under) stays
+// silent, as before.
+func (m model) applyIndent() (tea.Model, tea.Cmd) {
+	it := m.selectedItem()
+	if it == nil {
+		return m, nil
+	}
+	if it.IsTask() && (it.IsSubtask() || len(it.Children) > 0) {
+		m.status = "subtasks can't have subtasks"
+		return m, nil
+	}
+	if prev := prevSibling(it); prev != nil && prev.Kind == it.Kind && !m.tree.shown[prev] {
+		m.status = "can't nest under a task hidden in this tab"
+		return m, nil
+	}
+	return m.applyMove(m.doc.Indent)
+}
+
+// prevSibling returns the sibling just before it under the same parent, or nil
+// when it is first or a root item.
+func prevSibling(it *todo.Item) *todo.Item {
+	if it.Parent == nil {
+		return nil
+	}
+	if i := slices.Index(it.Parent.Children, it); i > 0 {
+		return it.Parent.Children[i-1]
+	}
+	return nil
+}
+
 // applyMove runs one move op on the grabbed item. On success it persists the
 // item's new placement, reloads, keeps the cursor on the moved item (still
 // grabbed) and expands its (possibly new) parent so it stays visible; the
 // structural change also ends the accidental-complete undo window. A no-op
-// result changes nothing and keeps the item grabbed.
+// result changes nothing and keeps the item grabbed. If the item is no longer
+// shown in the tab afterwards (a re-nest changed its state, or a write landed
+// from elsewhere), the grab ends, the cursor keeps its row index (clamped) and
+// the footer says where the item went.
 func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
-	it := m.tree.selected()
-	if it == nil || m.tree.onPlaceholder() || !op(it) {
+	it := m.selectedItem()
+	if it == nil || !op(it) {
 		return m, nil
 	}
 	m.snapshots = map[uint]todo.DoneStates{}
@@ -344,6 +433,9 @@ func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
 	m.commit(id, func(ctx context.Context) error {
 		return m.store.Move(ctx, id, parentID, afterID)
 	})
+	if m.noteLeftTab(id) {
+		m.tree.grabbed = false
+	}
 	return m, nil
 }
 
@@ -417,10 +509,15 @@ func (m model) searchWidth() int {
 }
 
 // openDelete opens the confirm dialog for the selected item (focused on the
-// safe Cancel button). A no-op when nothing is selected.
+// safe Cancel button). A no-op when nothing is selected; a category outside
+// Backlog is refused with a footer hint.
 func (m model) openDelete() (tea.Model, tea.Cmd) {
 	sel := m.tree.selected()
 	if sel == nil || m.tree.onPlaceholder() {
+		return m, nil
+	}
+	if m.categoryLocked(sel) {
+		m.status = msgCategoriesInBacklog
 		return m, nil
 	}
 	m.deleting = sel
@@ -525,41 +622,146 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// toggleDone flips the selected task's completion. Marking a parent done
-// snapshots its subtree and cascades completion to all descendants; unmarking a
-// parent restores that snapshot if one exists (the accidental-complete undo).
-// A manual toggle invalidates any ancestor's snapshot, since reverting it later
-// would fight this explicit change.
+// selectedItem returns the item under the cursor, or nil on an empty tab or
+// the placeholder row, where the item keys do nothing.
+func (m model) selectedItem() *todo.Item {
+	if m.tree.onPlaceholder() {
+		return nil
+	}
+	return m.tree.selected()
+}
+
+// toggleDone is x/space on a task. A subtask toggles between open and done. A
+// top-level task that isn't done is completed (see complete). A done one is
+// reopened: with the undo snapshot from completing it, back to exactly the
+// states it had, its own included; without one, to working, its subtasks
+// keeping their states.
 func (m model) toggleDone() (tea.Model, tea.Cmd) {
-	it := m.tree.selected()
-	if it == nil || !it.IsTask() {
+	it := m.selectedItem()
+	if it == nil {
+		return m, nil
+	}
+	if !it.IsTask() {
 		m.status = "Only tasks can be completed."
 		return m, nil
 	}
-	for p := it.Parent; p != nil; p = p.Parent {
-		delete(m.snapshots, p.ID)
-	}
-	id := it.ID
-	var write func(ctx context.Context) error
 	switch {
-	case it.IsDone():
-		if snap, ok := m.snapshots[id]; ok {
-			m.doc.ApplyStatuses(snap)
-			delete(m.snapshots, id)
-			write = func(ctx context.Context) error { return m.store.SetStatuses(ctx, snap) }
-		} else {
-			it.Status = todo.Open
-			write = m.setStatusesWrite(id, todo.Open)
-		}
-	case len(it.Children) > 0:
-		m.snapshots[id] = todo.SnapshotDone(it)
-		todo.CascadeSetDone(it, true)
-		write = func(ctx context.Context) error { return m.store.CascadeStatus(ctx, id, todo.Done) }
-	default:
-		it.Status = todo.Done
-		write = m.setStatusesWrite(id, todo.Done)
+	case it.IsSubtask():
+		return m.toggleSubtask(it)
+	case !it.IsDone():
+		return m.complete(it)
 	}
-	m.commit(id, write)
+	st := todo.Working
+	if prev, ok := m.snapshots[it.ID][it.ID]; ok {
+		st = prev
+	}
+	return m.reopen(it, st)
+}
+
+// toggleSubtask flips subtask it between open and done. The manual change
+// invalidates its parent's undo snapshot, since reverting the parent later
+// would fight it.
+func (m model) toggleSubtask(it *todo.Item) (tea.Model, tea.Cmd) {
+	delete(m.snapshots, it.Parent.ID)
+	st := todo.Done
+	if it.IsDone() {
+		st = todo.Open
+	}
+	it.Status = st
+	m.commit(it.ID, m.setStatusesWrite(it.ID, st))
+	return m, nil
+}
+
+// complete moves top-level task it into Done and cascades done to its
+// subtasks. It first records the undo snapshot — the task's own state
+// included, even without subtasks — so an accidental complete can be undone
+// exactly (see toggleDone and reopen).
+func (m model) complete(it *todo.Item) (tea.Model, tea.Cmd) {
+	id := it.ID
+	m.snapshots[id] = todo.SnapshotDone(it)
+	write := m.setStatusesWrite(id, todo.Done)
+	if len(it.Children) > 0 {
+		write = func(ctx context.Context) error { return m.store.CascadeStatus(ctx, id, todo.Done) }
+	}
+	todo.CascadeSetDone(it, true)
+	m.commitStatus(id, write)
+	return m, nil
+}
+
+// reopen takes done top-level task it out of Done into state st. With an undo
+// snapshot from completing it, its subtasks get their snapshot states back;
+// without one they keep theirs. The snapshot is used up either way.
+func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
+	states := map[uint]todo.Status{}
+	maps.Copy(states, m.snapshots[it.ID])
+	delete(m.snapshots, it.ID)
+	states[it.ID] = st
+	m.doc.ApplyStatuses(states)
+	m.commitStatus(it.ID, func(ctx context.Context) error { return m.store.SetStatuses(ctx, states) })
+	return m, nil
+}
+
+// shiftColumn is ]/[: it moves the selected top-level task delta columns along
+// the board (no wrap), into the target column's first state. Into Done it
+// completes the task (cascade and undo snapshot); out of Done it reopens it,
+// restoring its subtasks from the snapshot when there is one. A subtask (it
+// follows its task) and a task at the board's edge only get a footer hint.
+func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
+	it := m.selectedItem()
+	switch {
+	case it == nil:
+		return m, nil
+	case !it.IsTask():
+		m.status = "only tasks move between columns"
+		return m, nil
+	case it.IsSubtask():
+		m.status = "subtasks move with their task"
+		return m, nil
+	}
+	cols := todo.Columns()
+	cur := slices.Index(cols, it.Status.Column())
+	if cur < 0 {
+		cur = 0 // a column off the board (an unknown status) counts as Backlog
+	}
+	i := cur + delta
+	if i < 0 || i >= len(cols) {
+		m.status = "no column beyond " + cols[cur].Title()
+		return m, nil
+	}
+	target := cols[i]
+	switch {
+	case target == todo.ColDone:
+		return m.complete(it)
+	case it.IsDone():
+		return m.reopen(it, target.FirstState())
+	}
+	it.Status = target.FirstState()
+	m.commitStatus(it.ID, m.setStatusesWrite(it.ID, it.Status))
+	return m, nil
+}
+
+// cycleState is t: it steps the selected top-level task to the next state of
+// its column (see Status.NextInColumn). Subtasks are only open or done, and
+// Done has a single state, so those get a footer hint instead.
+func (m model) cycleState() (tea.Model, tea.Cmd) {
+	it := m.selectedItem()
+	switch {
+	case it == nil:
+		return m, nil
+	case !it.IsTask():
+		m.status = "only tasks have a state"
+		return m, nil
+	case it.IsSubtask():
+		m.status = "subtasks are open or done (x toggles)"
+		return m, nil
+	}
+	next := it.Status.NextInColumn()
+	if next == it.Status {
+		m.status = it.Status.Column().Title() + " has no other state"
+		return m, nil
+	}
+	it.Status = next
+	m.commit(it.ID, m.setStatusesWrite(it.ID, next))
 	return m, nil
 }
 
@@ -570,28 +772,34 @@ func (m model) setStatusesWrite(id uint, st todo.Status) func(ctx context.Contex
 	}
 }
 
-// setStatus flags the selected task with target (in progress / deferred),
-// toggling it back to Open when it already has that status. Unlike done, these
-// flags never cascade — they describe the task itself, not its subtree — but
-// setting one still invalidates any accidental-complete snapshot on the task or
-// an ancestor, since a later parent-untoggle would otherwise fight this change.
-func (m model) setStatus(target todo.Status) (tea.Model, tea.Cmd) {
-	it := m.tree.selected()
-	if it == nil || !it.IsTask() {
-		m.status = "Only tasks can be flagged."
-		return m, nil
+// commitStatus commits write, a status change of top-level task id, like
+// commit. When the change took the task out of the tab, the cursor keeps its
+// row index (clamped), now on the row that took the task's place, and the
+// footer says where the task went, e.g. "moved to Next — new". A failed write
+// or an external-reload notice takes the footer instead.
+func (m *model) commitStatus(id uint, write func(ctx context.Context) error) {
+	m.commit(id, write)
+	m.noteLeftTab(id)
+}
+
+// noteLeftTab reports whether item id, after a commit, is no longer shown in
+// the tab (moved to another column, or gone). When a task left for another
+// column, the footer says where it went, e.g. "moved to Next — new" (a subtask
+// goes with its task, so its task's column and state are named), unless a save
+// error or the external-reload notice already holds the footer.
+func (m *model) noteLeftTab(id uint) bool {
+	it, ok := m.doc.ByID(id)
+	if ok && m.tree.shown[it] {
+		return false
 	}
-	for p := it.Parent; p != nil; p = p.Parent {
-		delete(m.snapshots, p.ID)
+	if ok && it.IsTask() && m.err == nil && m.status == "" {
+		task := it
+		if it.IsSubtask() {
+			task = it.Parent
+		}
+		m.status = fmt.Sprintf("moved to %s — %s", task.Status.Column().Title(), task.Status)
 	}
-	delete(m.snapshots, it.ID)
-	if it.Status == target {
-		it.Status = todo.Open
-	} else {
-		it.Status = target
-	}
-	m.commit(it.ID, m.setStatusesWrite(it.ID, it.Status))
-	return m, nil
+	return true
 }
 
 // writeClipboard copies text to the system clipboard. It is a package variable
@@ -631,25 +839,44 @@ func itemCopyText(it *todo.Item) string {
 	return it.Title
 }
 
-// openForm prepares and opens the add/edit modal for the given target.
+// openForm prepares and opens the add/edit modal for the given target. Outside
+// Backlog it refuses to add, rename or delete a category, and it refuses a
+// subtask under a subtask.
 func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	sel := m.tree.selected()
 	switch t {
 	case targetAddSibling, targetAddChild:
 		if sel == nil || m.tree.onPlaceholder() {
+			// Outside Backlog a tab shows only categories holding its tasks, and c
+			// is refused there, so point at a tab that shows the category instead.
 			m.status = "Add a category first (press c) — tasks live under a category."
+			if m.tree.column != todo.ColBacklog {
+				m.status = "add tasks from a tab that shows their category (Backlog shows all)"
+			}
 			return m, nil
 		}
-		m.form = newForm("", "", true, false)
+		if t == targetAddChild && sel.IsSubtask() {
+			m.status = "subtasks can't have subtasks"
+			return m, nil
+		}
+		m.form = newForm("", "", "", true, false)
 	case targetEdit:
 		if sel == nil || m.tree.onPlaceholder() {
 			return m, nil
 		}
+		if m.categoryLocked(sel) {
+			m.status = msgCategoriesInBacklog
+			return m, nil
+		}
 		m.editing = sel
-		m.form = newForm(sel.Title, sel.Description, sel.IsTask(), true)
+		m.form = newForm(sel.Title, sel.Description, sel.Plan, sel.IsTask(), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
-		m.form = newForm("", "", false, false)
+		if m.tree.column != todo.ColBacklog {
+			m.status = msgCategoriesInBacklog
+			return m, nil
+		}
+		m.form = newForm("", "", "", false, false)
 	}
 	m.target = t
 	m.form.setWidth(m.width)
@@ -699,7 +926,7 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // is ignored (the dialog stays open). Any structural or content change clears
 // the undo snapshots — the accidental-complete window is meant to be immediate.
 func (m model) submitForm() (tea.Model, tea.Cmd) {
-	title, desc := m.form.values()
+	title, desc, plan := m.form.values()
 	if title == "" {
 		return m, nil
 	}
@@ -710,10 +937,11 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		m.editing.Title = title
 		if m.editing.IsTask() {
 			m.editing.Description = desc
+			m.editing.Plan = plan
 		}
 		id := m.editing.ID
 		m.commit(id, func(ctx context.Context) error {
-			return m.store.Edit(ctx, id, title, desc)
+			return m.store.Edit(ctx, id, todo.Fields{Title: title, Description: desc, Plan: plan})
 		})
 		return m, nil
 	}
@@ -738,16 +966,23 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		}
 	case targetAddChild: // a subtask of a task, or a task inside a category
 		added = todo.NewTask(title, desc, false)
+		added.Plan = plan
 		sel.AppendTask(added)
 		delete(m.tree.collapsed, sel.ID)
 	default: // targetAddSibling: a task at the end of the selection's level
 		added = todo.NewTask(title, desc, false)
+		added.Plan = plan
 		parent := sel
 		if sel.IsTask() && sel.Parent != nil {
 			parent = sel.Parent // a task's siblings live under its parent
 		}
 		parent.AppendTask(added)
 		delete(m.tree.collapsed, parent.ID)
+	}
+	// A new task enters the current tab in its column's first state, so it shows
+	// where it was added; a new subtask starts open (subtasks are open or done).
+	if added.Kind == todo.Task && !added.IsSubtask() {
+		added.Status = m.tree.column.FirstState()
 	}
 
 	parentID, afterID := m.doc.Placement(added)
@@ -757,7 +992,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		if added.Kind == todo.Category {
 			newID, err = m.store.AddCategory(ctx, title, parentID, afterID)
 		} else {
-			newID, err = m.store.AddTask(ctx, title, desc, todo.Open, parentID, afterID)
+			newID, err = m.store.AddTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, added.Status, parentID, afterID)
 		}
 		return err
 	})
@@ -834,7 +1069,7 @@ func (m model) mainView(dim bool) string {
 	if w == 0 {
 		w, h = 80, 24
 	}
-	bodyH := h - 2
+	bodyH := h - headerHeight - 1 // the footer takes the last line
 	if bodyH < 3 {
 		bodyH = 3
 	}
@@ -852,7 +1087,7 @@ func (m model) treeViewHeight() int {
 	if m.width == 0 {
 		h = 24 // matches mainView's fallback when the terminal size is unknown
 	}
-	bodyH := h - 2
+	bodyH := h - headerHeight - 1
 	if bodyH < 3 {
 		bodyH = 3
 	}
@@ -863,6 +1098,12 @@ func (m model) treeViewHeight() int {
 	return vh
 }
 
+// headerHeight is how many lines the header takes: the title line and the tab
+// bar.
+const headerHeight = 2
+
+// header renders the title line (app, version, file, overall progress) and,
+// under it, the board's tab bar.
 func (m model) header(width int) string {
 	done, total := overallCounts(m.doc)
 	left := headerAppStyle.Render("todo") + " " + headerHintSty.Render(m.version) + "  " + headerHintSty.Render(filepath.Base(m.store.Path()))
@@ -871,7 +1112,8 @@ func (m model) header(width int) string {
 	if gap < 1 {
 		gap = 1
 	}
-	return ansi.Truncate(" "+left+strings.Repeat(" ", gap)+right, width, "")
+	title := ansi.Truncate(" "+left+strings.Repeat(" ", gap)+right, width, "")
+	return title + "\n" + tabBar(m.doc.ColumnCounts(), m.tree.column, width)
 }
 
 func (m model) footer(width int) string {
@@ -881,6 +1123,10 @@ func (m model) footer(width int) string {
 		return ansi.Truncate(" "+helpKeyStyle.Render("/")+" "+m.search.View(), width, "")
 	case m.err != nil:
 		return ansi.Truncate(" "+errStyle.Render(m.err.Error()), width, "")
+	case m.status != "":
+		// A transient message (a refused move, where a task went) wins over the
+		// move and filter lines; the next key clears it.
+		return ansi.Truncate(" "+helpTextStyle.Render(m.status), width, "")
 	case m.tree.grabbed:
 		// Move mode: the arrows reorder/re-nest the grabbed item.
 		parts := []string{
@@ -893,19 +1139,17 @@ func (m model) footer(width int) string {
 		info := helpKeyStyle.Render("filter") + helpTextStyle.Render(": "+m.tree.filter+"  ") +
 			hint("/", "Edit") + "  " + hint("esc", "Clear")
 		return ansi.Truncate(" "+info, width, "")
-	case m.status != "":
-		return ansi.Truncate(" "+helpTextStyle.Render(m.status), width, "")
 	}
 	parts := []string{
-		hint("↑↓", "Move"), hint("←→", "Fold"), hint("space", "Done"), hint("/", "Search"),
-		hint("n/N", "New"), hint("c", "Cat"), hint("m", "Move"), hint("enter/e", "Edit"), hint("y", "Copy"), hint("d", "Del"), hint("D", "Clear"),
-		hint("p", "Prog"), hint(">", "Defer"), hint("q", "Quit"),
+		hint("↑↓", "Move"), hint("←→", "Fold"), hint("tab", "Tab"), hint("]/[", "Column"), hint("t", "State"),
+		hint("space", "Done"), hint("/", "Search"), hint("n/N", "New"), hint("c", "Cat"), hint("m", "Move"),
+		hint("enter/e", "Edit"), hint("y", "Copy"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }
 
-// itemMeta renders the read-only header of the edit dialog: a task's completion
-// status (○ open / ● done) and subtask progress, or a category label and its task
+// itemMeta renders the read-only header of the edit dialog: a task's state glyph,
+// column and state, subtask progress and a missing-plan flag, or a category label and its task
 // count. It carries the old details view's at-a-glance info into the combined
 // view/edit dialog. Empty when there is nothing to show.
 func itemMeta(it *todo.Item) string {
@@ -916,19 +1160,17 @@ func itemMeta(it *todo.Item) string {
 		done, total := it.TaskCounts()
 		return labelStyle.Render("Category") + helpTextStyle.Render(fmt.Sprintf("  ·  %d of %d tasks done", done, total))
 	}
-	var status string
-	switch it.Status {
-	case todo.InProgress:
-		status = progStyle.Render("◐ in progress")
-	case todo.Deferred:
-		status = deferStyle.Render("⏸ deferred")
-	case todo.Done:
-		status = doneStyle.Render("● done")
-	default:
-		status = helpTextStyle.Render("○ open")
+	glyph, st := statusGlyph(it.Status, it.IsSubtask())
+	col := it.Status.Column()
+	if it.IsSubtask() && it.Parent != nil {
+		col = it.Parent.Status.Column() // a subtask sits in its parent's column
 	}
+	status := st.Render(glyph + " " + col.Title() + " · " + it.Status.String())
 	if done, total := it.TaskCounts(); total > 0 {
 		status += helpTextStyle.Render("  ·  ") + labelStyle.Render("Subtasks") + helpTextStyle.Render(fmt.Sprintf(" %d/%d done", done, total))
+	}
+	if it.NeedsPlan() {
+		status += helpTextStyle.Render("  ·  ") + deferStyle.Render("⚠ no plan")
 	}
 	return status
 }

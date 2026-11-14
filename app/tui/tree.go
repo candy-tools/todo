@@ -15,16 +15,26 @@ type treeRow struct {
 	placeholder bool
 }
 
-// tree is the left-pane category/task tree: the document, per-item collapse
-// state (keyed by item ID, so it survives a reload), and the cursor over the
-// currently visible rows. rows is derived from doc + collapsed by rebuild and
-// cached for cursor math and rendering. A synthetic placeholder row is always
-// appended at root level so a new top-level category can always be added
-// (otherwise a category's `c` only ever makes a subcategory, leaving no way to
-// add a second root item).
+// tree is the left-pane category/task tree: the document, the board column
+// (tab) it shows, per-item collapse state (keyed by item ID, so it survives a
+// reload), and the cursor over the currently visible rows. rows is derived from
+// doc + column + collapsed by rebuild and cached for cursor math and rendering.
+// On the Backlog tab a synthetic placeholder row is appended at root level so a
+// new top-level category can always be added (otherwise a category's `c` only
+// ever makes a subcategory, leaving no way to add a second root item).
 type tree struct {
-	doc         *todo.Document
+	doc *todo.Document
+	// column is the board tab shown: only its tasks (with their subtasks and
+	// category paths) are rows. See setColumn.
+	column todo.Column
+	// collapsed is the active tab's fold map; it is the same map as
+	// foldsByCol[column]. Each tab keeps its own folds and selection for the
+	// session: foldsByCol and selByCol (the selected item's ID) hold them per
+	// column.
 	collapsed   map[uint]bool
+	foldsByCol  map[todo.Column]map[uint]bool
+	selByCol    map[todo.Column]uint
+	shown       map[*todo.Item]bool // the items the tab shows, set by rebuild (folds aside)
 	cursor      int
 	rows        []treeRow
 	placeholder *todo.Item // UI-only sentinel backing the "+ new category" row
@@ -36,9 +46,10 @@ type tree struct {
 	// viewHeight is how many rows the left-pane viewport can show, set from the
 	// terminal size. reconcileOffset needs it to know the window bounds.
 	viewHeight int
-	// filter is the active search query. When set, rebuild shows only the items
-	// on a path to a match (see todo.VisibleItems), ignores the collapse state so
-	// matches inside collapsed parents surface, and drops the placeholder row.
+	// filter is the active search query. It is kept across tab switches. When
+	// set, rebuild shows only the tab's items on a path to a match (see
+	// visibleItems), ignores the collapse state so matches inside collapsed
+	// parents surface, and drops the placeholder row.
 	filter string
 	// grabbed is true while the item under the cursor is "picked up" for moving:
 	// the arrow keys reorder/re-nest it instead of navigating, and its row is
@@ -46,40 +57,85 @@ type tree struct {
 	grabbed bool
 }
 
+// newTree builds the tree for doc on the Backlog tab, the one the app opens on.
 func newTree(doc *todo.Document) tree {
-	t := tree{doc: doc, collapsed: map[uint]bool{}, placeholder: &todo.Item{}}
+	folds := map[uint]bool{}
+	t := tree{
+		doc:         doc,
+		column:      todo.ColBacklog,
+		collapsed:   folds,
+		foldsByCol:  map[todo.Column]map[uint]bool{todo.ColBacklog: folds},
+		selByCol:    map[todo.Column]uint{},
+		placeholder: &todo.Item{},
+	}
 	t.rebuild()
 	return t
 }
 
-// rebuild recomputes the visible rows from the document and collapse state,
-// clamping the cursor into range. Unfiltered it ends with the root-level
-// placeholder row; while a filter is active it shows only the matching paths
-// (collapse state ignored) and omits the placeholder. Call it after any
-// structural change.
+// searching reports whether a search query filters the rows. A blank query
+// (spaces only) filters nothing, as in todo.VisibleItems.
+func (t *tree) searching() bool { return strings.TrimSpace(t.filter) != "" }
+
+// shownBefore counts the items the tab showed at the last rebuild that come
+// before it in document order. A move that changes the count has carried it
+// past a shown row.
+func (t *tree) shownBefore(it *todo.Item) int {
+	n := 0
+	for _, x := range t.doc.Enumerate() {
+		if x == it {
+			break
+		}
+		if t.shown[x] {
+			n++
+		}
+	}
+	return n
+}
+
+// visibleItems returns the items the current tab shows: the column's items
+// and, while searching, only those on a path to a match that is itself in the
+// tab (see todo.Document.ColumnMatches).
+func (t *tree) visibleItems() map[*todo.Item]bool {
+	return t.doc.ColumnMatches(t.column, t.filter)
+}
+
+// foldable reports whether it has a child the tab shows (folded or not), so it
+// can fold. A Backlog category whose tasks all sit in other columns has none.
+func (t *tree) foldable(it *todo.Item) bool {
+	for _, c := range it.Children {
+		if t.shown[c] {
+			return true
+		}
+	}
+	return false
+}
+
+// rebuild recomputes the visible rows from the document, the tab and the
+// collapse state, clamping the cursor into range. Without a search, the
+// Backlog tab ends with the root-level placeholder row; while searching only
+// the matching paths show (collapse state ignored) and the placeholder is
+// omitted. An empty tab has no rows at all. Call it after any structural
+// change.
 func (t *tree) rebuild() {
 	t.rows = t.rows[:0]
-	var visible map[*todo.Item]bool
-	if t.filter != "" {
-		visible = t.doc.VisibleItems(t.filter)
-	}
-	filtering := visible != nil
+	t.shown = t.visibleItems()
+	searching := t.searching()
 	var walk func(items []*todo.Item, depth int)
 	walk = func(items []*todo.Item, depth int) {
 		for _, it := range items {
-			if filtering && !visible[it] {
+			if !t.shown[it] {
 				continue
 			}
 			t.rows = append(t.rows, treeRow{item: it, depth: depth})
-			// While filtering, descend regardless of collapse so a match inside a
+			// While searching, descend regardless of collapse so a match inside a
 			// collapsed parent is still shown.
-			if len(it.Children) > 0 && (filtering || !t.collapsed[it.ID]) {
+			if len(it.Children) > 0 && (searching || !t.collapsed[it.ID]) {
 				walk(it.Children, depth+1)
 			}
 		}
 	}
 	walk(t.doc.Roots, 0)
-	if !filtering {
+	if t.column == todo.ColBacklog && !searching {
 		t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, placeholder: true})
 	}
 	if t.cursor >= len(t.rows) {
@@ -143,27 +199,30 @@ func (t *tree) selectID(id uint) bool {
 	return false
 }
 
-// adopt swaps in doc, a fresh load of the same list, and rebuilds. Folds carry
-// over by ID for the items doc still holds; the viewport, the filter and the
-// grab state are kept. The cursor moves onto focusID when it is visible, else
-// back onto the placeholder row when onPlaceholder (and no filter hides it),
-// else it keeps its index, clamped into range.
+// adopt swaps in doc, a fresh load of the same list, and rebuilds. Every tab's
+// folds carry over by ID for the items doc still holds; the tab, the viewport,
+// the filter and the grab state are kept. The cursor moves onto focusID when it
+// is visible in the tab, else back onto the placeholder row when onPlaceholder
+// (and no search hides it), else it keeps its index, clamped into range — so
+// a task that left the tab hands the cursor to the nearest remaining row.
 func (t *tree) adopt(doc *todo.Document, focusID uint, onPlaceholder bool) {
 	t.doc = doc
 	present := map[uint]bool{}
 	for _, it := range doc.Enumerate() {
 		present[it.ID] = true
 	}
-	for id := range t.collapsed {
-		if !present[id] {
-			delete(t.collapsed, id)
+	for _, folds := range t.foldsByCol {
+		for id := range folds {
+			if !present[id] {
+				delete(folds, id)
+			}
 		}
 	}
 	t.rebuild()
 	if t.selectID(focusID) {
 		return
 	}
-	if onPlaceholder && t.filter == "" {
+	if onPlaceholder && !t.searching() {
 		t.cursor = len(t.rows) - 1
 		t.reconcileOffset()
 	}
@@ -242,7 +301,7 @@ func (t *tree) reconcileOffset() {
 // toggleFold flips the collapse state of the selected item (no-op on a leaf).
 func (t *tree) toggleFold() {
 	it := t.selected()
-	if it == nil || len(it.Children) == 0 {
+	if it == nil || !t.foldable(it) {
 		return
 	}
 	t.collapsed[it.ID] = !t.collapsed[it.ID]
@@ -256,7 +315,7 @@ func (t *tree) collapse() {
 	if it == nil {
 		return
 	}
-	if len(it.Children) > 0 && !t.collapsed[it.ID] {
+	if t.foldable(it) && !t.collapsed[it.ID] {
 		t.collapsed[it.ID] = true
 		t.rebuild()
 		return
@@ -272,7 +331,7 @@ func (t *tree) expand() {
 	if it == nil {
 		return
 	}
-	if len(it.Children) > 0 && t.collapsed[it.ID] {
+	if t.foldable(it) && t.collapsed[it.ID] {
 		t.collapsed[it.ID] = false
 		t.rebuild()
 	}
@@ -283,7 +342,16 @@ func (t *tree) expand() {
 // re-deriving it from the cursor, so the page doesn't slide when the cursor
 // moves within it. The offset is clamped here defensively in case this height
 // differs from the one it was reconciled against (e.g. before the first resize).
+// An empty tab renders a single dim "nothing in <tab>" line, or "no matches in
+// <tab>" while a search finds nothing there.
 func (t *tree) view(width, height int) string {
+	if len(t.rows) == 0 {
+		empty := "nothing in "
+		if t.searching() {
+			empty = "no matches in "
+		}
+		return "  " + helpTextStyle.Render(empty+t.column.Title())
+	}
 	if height < 1 {
 		height = 1
 	}
@@ -329,10 +397,10 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 
 	indent := strings.Repeat("  ", r.depth)
 	fold := "  "
-	if len(r.item.Children) > 0 {
+	if t.foldable(r.item) {
 		fold = "▾ "
 		// A filtered view expands everything, so never show a collapsed caret.
-		if t.collapsed[r.item.ID] && t.filter == "" {
+		if t.collapsed[r.item.ID] && !t.searching() {
 			fold = "▸ "
 		}
 	}
@@ -347,9 +415,14 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 
 	if r.item.Kind == todo.Category {
 		title := r.item.Title
-		counts := ""
-		if done, total := r.item.TaskCounts(); total > 0 {
-			counts = fmt.Sprintf(" (%d/%d)", done, total)
+		// Backlog shows the category's overall progress; the other tabs count
+		// the category's tasks in that tab.
+		counts := fmt.Sprintf(" (%d)", r.item.CountInColumn(t.column))
+		if t.column == todo.ColBacklog {
+			counts = ""
+			if done, total := r.item.TaskCounts(); total > 0 {
+				counts = fmt.Sprintf(" (%d/%d)", done, total)
+			}
 		}
 		if selected {
 			return selStyle.Render(gutter+indent+fold) +
@@ -359,17 +432,26 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 			highlight(title, t.filter, categoryStyle) + helpTextStyle.Render(counts)
 	}
 
-	// Task. The glyph and its colour follow the status: open is an empty circle,
-	// in progress a half-filled circle, deferred a coloured pause, done a filled
-	// green circle with a struck-through dim title.
-	glyph, boxStyle, titleStyle := "○", plainStyle, plainStyle
-	switch r.item.Status {
-	case todo.InProgress:
-		glyph, boxStyle = "◐", progStyle
-	case todo.Deferred:
-		glyph, boxStyle = "⏸", deferStyle
-	case todo.Done:
-		glyph, boxStyle, titleStyle = "●", doneStyle, doneTitleStyle
+	// Task. The glyph and its colour follow the status (see statusGlyph); a done
+	// task's title is struck through and dim. A top-level task names its state
+	// after the title, followed by its subtask progress when it has subtasks,
+	// and a ready task without a plan carries a warning.
+	subtask := r.item.IsSubtask()
+	glyph, boxStyle := statusGlyph(r.item.Status, subtask)
+	titleStyle := plainStyle
+	if r.item.IsDone() {
+		titleStyle = doneTitleStyle
+	}
+	state := ""
+	if !subtask {
+		state = " " + r.item.Status.String()
+		if done, total := r.item.TaskCounts(); total > 0 {
+			state += fmt.Sprintf(" (%d/%d)", done, total)
+		}
+	}
+	warn := ""
+	if r.item.NeedsPlan() {
+		warn = " ⚠ no plan"
 	}
 	// A task with a description gets a trailing ≡ marker, so the single-panel list
 	// still shows at a glance which items have details to open (enter).
@@ -378,7 +460,8 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 		note = " ≡"
 	}
 	if selected {
-		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(r.item.Title, t.filter, selStyle) + selStyle.Render(note)
+		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(r.item.Title, t.filter, selStyle) + selStyle.Render(state+warn+note)
 	}
-	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(r.item.Title, t.filter, titleStyle) + helpTextStyle.Render(note)
+	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(r.item.Title, t.filter, titleStyle) +
+		helpTextStyle.Render(state) + deferStyle.Render(warn) + helpTextStyle.Render(note)
 }

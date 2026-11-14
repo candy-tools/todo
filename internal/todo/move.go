@@ -145,10 +145,15 @@ func (d *Document) Indent(it *Item) bool {
 	if prev.Kind != it.Kind {
 		return false
 	}
+	if it.Kind == Task && (prev.IsSubtask() || len(it.Children) > 0) {
+		return false // tasks nest one level only: no sub-subtasks, and no subtasks of a subtask
+	}
 	d.Remove(it)
 	prev.AppendChild(it) // last child: for a task parent there are no categories to sit before
 	if it.Kind == Category {
 		relevel(it, prev.Level+1)
+	} else {
+		it.Status = StatusAfterMove(it.Status, true, prev.Status)
 	}
 	return true
 }
@@ -175,6 +180,8 @@ func (d *Document) Outdent(it *Item) bool {
 	d.InsertAfter(parent, it) // sets it.Parent to the grandparent (or nil at root)
 	if it.Kind == Category {
 		relevel(it, parent.Level)
+	} else {
+		it.Status = StatusAfterMove(it.Status, false, parent.Status)
 	}
 	return true
 }

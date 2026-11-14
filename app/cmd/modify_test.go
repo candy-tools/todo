@@ -66,3 +66,42 @@ func TestEditDescOnCategoryIsWrongKind(t *testing.T) {
 		t.Error("a category cannot take a description")
 	}
 }
+
+func TestEditSetPlan(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-plan", "x.md"); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := runCmd(t, "list", "--file", path, "--json")
+	if !strings.Contains(out, `"plan": "x.md"`) {
+		t.Errorf("plan should be set:\n%s", out)
+	}
+	if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-plan", ""); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = runCmd(t, "list", "--file", path, "--json")
+	if strings.Contains(out, `"plan"`) {
+		t.Errorf("an empty --set-plan should clear the plan:\n%s", out)
+	}
+}
+
+func TestEditTitleKeepsPlan(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-plan", "x.md"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-title", "b"); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := runCmd(t, "list", "--file", path, "--json")
+	if !strings.Contains(out, `"plan": "x.md"`) {
+		t.Errorf("retitling must keep the plan:\n%s", out)
+	}
+}
+
+func TestEditPlanOnCategoryIsWrongKind(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "edit", "--file", path, "--title", "Work", "--set-plan", "x"); codeOf(t, err) != exitWrongKind {
+		t.Error("a category cannot take a plan")
+	}
+}

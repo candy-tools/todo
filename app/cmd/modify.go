@@ -61,7 +61,7 @@ func pruneCmd() *cobra.Command {
 func editCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "edit",
-		Short: "change an item's title and/or a task's description",
+		Short: "change an item's title and/or a task's description or plan",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
@@ -71,10 +71,11 @@ func editCmd() *cobra.Command {
 				}
 				setTitle := cmd.Flags().Changed("set-title")
 				setDesc := cmd.Flags().Changed("set-desc")
-				if !setTitle && !setDesc {
-					return usageErr("specify --set-title and/or --set-desc")
+				setPlan := cmd.Flags().Changed("set-plan")
+				if !setTitle && !setDesc && !setPlan {
+					return usageErr("specify --set-title, --set-desc and/or --set-plan")
 				}
-				title, desc := it.Title, it.Description
+				title, desc, plan := it.Title, it.Description, it.Plan
 				if setTitle {
 					title, _ = cmd.Flags().GetString("set-title")
 					if strings.TrimSpace(title) == "" {
@@ -87,11 +88,17 @@ func editCmd() *cobra.Command {
 					}
 					desc, _ = cmd.Flags().GetString("set-desc")
 				}
+				if setPlan {
+					if !it.IsTask() {
+						return wrongKind("set a plan on", it, "task")
+					}
+					plan, _ = cmd.Flags().GetString("set-plan")
+				}
 				s, err := open()
 				if err != nil {
 					return err
 				}
-				if err := s.Edit(ctx, it.ID, title, desc); err != nil {
+				if err := s.Edit(ctx, it.ID, todo.Fields{Title: title, Description: desc, Plan: plan}); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", title)
@@ -102,5 +109,6 @@ func editCmd() *cobra.Command {
 	addSelectorFlags(c, "")
 	c.Flags().String("set-title", "", "the new title")
 	c.Flags().String("set-desc", "", "the new description (tasks only)")
+	c.Flags().String("set-plan", "", "the new plan path or reference; empty clears it (tasks only)")
 	return c
 }

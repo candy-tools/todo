@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -15,6 +16,8 @@ var (
 	colDone   = lipgloss.Color("10")  // green: a completed task's checkbox
 	colProg   = lipgloss.Color("214") // orange: a task in progress
 	colDefer  = lipgloss.Color("39")  // blue: a deferred task
+	colNext   = lipgloss.Color("87")  // cyan: a task in Next (new, ready)
+	colReview = lipgloss.Color("220") // gold: a task in review or follow-up
 )
 
 var (
@@ -29,6 +32,8 @@ var (
 	doneStyle       = lipgloss.NewStyle().Foreground(colDone)
 	progStyle       = lipgloss.NewStyle().Foreground(colProg)
 	deferStyle      = lipgloss.NewStyle().Foreground(colDefer)
+	nextStyle       = lipgloss.NewStyle().Foreground(colNext)
+	reviewStyle     = lipgloss.NewStyle().Foreground(colReview)
 	doneTitleStyle  = lipgloss.NewStyle().Foreground(colDim).Strikethrough(true)
 	labelStyle      = lipgloss.NewStyle().Faint(true)
 	errStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
@@ -69,6 +74,36 @@ func highlight(s, query string, base lipgloss.Style) string {
 		s = s[i+len(needle):]
 		hay = hay[i+len(needle):]
 	}
+}
+
+// statusGlyph returns a task's glyph and its colour for status st. The glyphs
+// extend the circle family: open ○, deferred ⏸, new ◌, ready ◉, working ◐,
+// review ◑, followup ◒, done ●. A subtask is only ever open or done, so it shows
+// ○ or ●; an unknown status reads as open.
+func statusGlyph(st todo.Status, subtask bool) (string, lipgloss.Style) {
+	if subtask {
+		if st == todo.Done {
+			return "●", doneStyle
+		}
+		return "○", plainStyle
+	}
+	switch st {
+	case todo.Deferred:
+		return "⏸", deferStyle
+	case todo.New:
+		return "◌", nextStyle
+	case todo.Ready:
+		return "◉", nextStyle
+	case todo.Working:
+		return "◐", progStyle
+	case todo.Review:
+		return "◑", reviewStyle
+	case todo.Followup:
+		return "◒", reviewStyle
+	case todo.Done:
+		return "●", doneStyle
+	}
+	return "○", plainStyle
 }
 
 // hint renders one "key: label" help entry — key accented, ": label" dim.

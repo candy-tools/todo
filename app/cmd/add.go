@@ -28,9 +28,10 @@ func addCmd() *cobra.Command {
 				statusName, _ := cmd.Flags().GetString("status")
 				st, ok := todo.StatusFromName(statusName)
 				if !ok {
-					return usageErr(fmt.Sprintf("invalid --status %q (open|progress|deferred|done)", statusName))
+					return usageErr(fmt.Sprintf("invalid --status %q (%s)", statusName, statusNames))
 				}
-				task := &todo.Item{Kind: todo.Task, Title: title, Description: desc, Status: st}
+				plan, _ := cmd.Flags().GetString("plan")
+				task := &todo.Item{Kind: todo.Task, Title: title, Description: desc, Plan: plan, Status: st}
 				switch parent.Kind {
 				case todo.Category:
 					parent.AppendTask(task)
@@ -42,17 +43,18 @@ func addCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if _, err := s.AddTask(ctx, title, desc, st, parentID, afterID); err != nil {
+				if _, err := s.AddTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parentID, afterID); err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.Marker(), task.Title, categoryPath(task))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), task.Title, categoryPath(task))
 				return nil
 			})
 		},
 	}
 	c.Flags().String("title", "", "the new task's title (required)")
 	c.Flags().String("desc", "", "the new task's description")
-	c.Flags().String("status", "open", "initial status: open|progress|deferred|done")
+	c.Flags().String("plan", "", "a path or reference to the task's plan")
+	c.Flags().String("status", "open", "initial state: "+statusNames)
 	addSelectorFlags(c, "parent-")
 	return c
 }

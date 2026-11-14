@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	closuretree "github.com/go-bumbu/closure-tree"
 	"github.com/go-bumbu/db/gormdb"
@@ -18,7 +19,18 @@ import (
 const storeScope = "todo"
 
 // schemaVersion is the version recorded in the meta row of a new store.
-const schemaVersion = 1
+const schemaVersion = 2
+
+// ErrNewerSchema is returned when the store was written by a newer todo, whose
+// schema this binary does not know and must not read or write. It is wrapped
+// with the version found.
+var ErrNewerSchema = errors.New("database was created by a newer todo")
+
+// newerSchemaError returns ErrNewerSchema wrapped with the schema version found
+// in the meta row.
+func newerSchemaError(version int) error {
+	return fmt.Errorf("%w (schema %d); upgrade todo", ErrNewerSchema, version)
+}
 
 // dbItem is a node of the task tree: closure-tree owns its identity, scope and
 // position, and this adds the payload. The table is closure-tree's node table;
@@ -29,6 +41,7 @@ type dbItem struct {
 	Title       string `gorm:"not null"`
 	Status      int    `gorm:"not null"`
 	Description string `gorm:"not null"`
+	Plan        string `gorm:"not null;default:''"`
 
 	// Children is filled by TreeDescendants only, which needs the field to link
 	// the nodes it reads into a tree.
@@ -56,11 +69,7 @@ type Store struct {
 // OpenStore opens the SQLite store at path, creating the file and its schema
 // when they do not exist yet.
 func OpenStore(path string) (*Store, error) {
-	db, err := gormdb.Open(gormdb.Cfg{
-		Driver: gormdb.DriverSqlite,
-		Sqlite: gormdb.SqliteCfg{Path: path},
-		Logger: logger.Discard,
-	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+	db, err := openDB(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -72,43 +81,41 @@ func OpenStore(path string) (*Store, error) {
 	return s, nil
 }
 
-// migrate refuses a store from a newer todo, then creates the tables and makes
-// sure the meta row exists.
-func (s *Store) migrate() error {
-	if err := s.checkSchemaVersion(); err != nil {
-		return err
+// openBusyWait is how long openDB retries an open that SQLite reports busy, and
+// openBusyDelay the pause between attempts. The wait matches the busy timeout
+// the connections get.
+const (
+	openBusyWait  = 5 * time.Second
+	openBusyDelay = 10 * time.Millisecond
+)
+
+// sqliteBusy is SQLite's SQLITE_BUSY result code.
+const sqliteBusy = 5
+
+// openDB opens the SQLite file at path. Processes that open a new file at the
+// same time each switch it to WAL mode, and SQLite fails all but one of them
+// with SQLITE_BUSY at once, without waiting out the busy timeout, to avoid a
+// deadlock. Such an open is retried: once the file is in WAL mode, the switch
+// is a no-op.
+func openDB(path string) (*gorm.DB, error) {
+	deadline := time.Now().Add(openBusyWait)
+	for {
+		db, err := gormdb.Open(gormdb.Cfg{
+			Driver: gormdb.DriverSqlite,
+			Sqlite: gormdb.SqliteCfg{Path: path},
+			Logger: logger.Discard,
+		}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+		if err == nil || !isBusy(err) || time.Now().After(deadline) {
+			return db, err
+		}
+		time.Sleep(openBusyDelay)
 	}
-	tree, err := closuretree.New(s.db, dbItem{})
-	if err != nil {
-		return err
-	}
-	if err := tree.Migrate(); err != nil {
-		return err
-	}
-	if err := s.db.AutoMigrate(&dbMeta{}); err != nil {
-		return err
-	}
-	return s.db.Where(dbMeta{ID: 1}).
-		Attrs(dbMeta{Revision: 0, SchemaVersion: schemaVersion}).
-		FirstOrCreate(&dbMeta{}).Error
 }
 
-// checkSchemaVersion returns an error when the meta row records a schema
-// version newer than schemaVersion: this binary does not know that schema and
-// must not migrate or write it. A new store, without a meta table or row yet,
-// passes.
-func (s *Store) checkSchemaVersion() error {
-	if !s.db.Migrator().HasTable(&dbMeta{}) {
-		return nil
-	}
-	var metas []dbMeta
-	if err := s.db.Where("id = ?", 1).Limit(1).Find(&metas).Error; err != nil {
-		return err
-	}
-	if len(metas) == 1 && metas[0].SchemaVersion > schemaVersion {
-		return fmt.Errorf("database was created by a newer todo (schema %d); upgrade todo", metas[0].SchemaVersion)
-	}
-	return nil
+// isBusy reports whether err is SQLite's SQLITE_BUSY, extended codes included.
+func isBusy(err error) bool {
+	var coded interface{ Code() int }
+	return errors.As(err, &coded) && coded.Code()&0xff == sqliteBusy
 }
 
 // StoreExists reports whether a store file exists at path.
@@ -135,10 +142,15 @@ func (s *Store) Revision(ctx context.Context) (int64, error) {
 }
 
 // revisionIn reads the revision through db, which may be a transaction handle.
+// It returns ErrNewerSchema when a newer todo has since upgraded the store, so
+// a process left running stops reading a schema it does not know.
 func revisionIn(ctx context.Context, db *gorm.DB) (int64, error) {
 	var m dbMeta
 	if err := db.WithContext(ctx).First(&m, 1).Error; err != nil {
 		return 0, err
+	}
+	if m.SchemaVersion > schemaVersion {
+		return 0, newerSchemaError(m.SchemaVersion)
 	}
 	return m.Revision, nil
 }
@@ -185,6 +197,7 @@ func itemFromRow(r *dbItem, parent *Item) *Item {
 		Title:       r.Title,
 		Status:      Status(r.Status),
 		Description: r.Description,
+		Plan:        r.Plan,
 		Parent:      parent,
 	}
 	if it.Kind == Category {

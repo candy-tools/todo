@@ -4,6 +4,11 @@
 // the one-time markdown import. It has no dependency on the TUI.
 package todo
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Kind distinguishes a category from a task.
 type Kind int
 
@@ -16,66 +21,198 @@ const (
 	Task
 )
 
-// Status is a task's completion state. Open and Done are the classic checkbox
-// states; InProgress and Deferred are extra flags. Each has a checkbox marker —
-// `[ ]` `[/]` `[>]` `[x]` — which the markdown import reads and the CLI's list
-// shows; the store keeps the Status value itself. Only Done reads as
-// "complete": counts, pruning and the done-cascade all key off IsDone, so
-// InProgress and Deferred count as not done.
+// Status is a task's workflow state. Open and Done are the classic checkbox
+// states; the rest are kanban states. The numbers are stored in the database, so
+// they are pinned: never renumber them, only append. Open, Working, Deferred
+// and Done have a checkbox marker — `[ ]` `[/]` `[>]` `[x]` — which the markdown
+// import reads; the others have none. Only Done reads
+// as "complete": counts, pruning and the done-cascade all key off IsDone.
 type Status int
 
 const (
-	Open       Status = iota // `[ ]`
-	InProgress               // `[/]`
-	Deferred                 // `[>]`
-	Done                     // `[x]`
+	Open     Status = 0 // `[ ]`
+	Working  Status = 1 // `[/]`
+	Deferred Status = 2 // `[>]`
+	Done     Status = 3 // `[x]`
+	New      Status = 4
+	Ready    Status = 5
+	Review   Status = 6
+	Followup Status = 7
 )
 
-// String returns the lowercase status name used by the CLI (JSON output and
-// the `add --status` flag): open, progress, deferred, done.
-func (s Status) String() string {
-	switch s {
-	case InProgress:
-		return "progress"
-	case Deferred:
-		return "deferred"
-	case Done:
-		return "done"
-	default:
-		return "open"
-	}
+// Column is a kanban column: a group of statuses. Columns are derived from a
+// task's Status and never stored.
+type Column int
+
+const (
+	ColBacklog Column = iota
+	ColNext
+	ColInProgress
+	ColDone
+)
+
+var statusNames = map[Status]string{
+	Open: "open", Working: "working", Deferred: "deferred", Done: "done",
+	New: "new", Ready: "ready", Review: "review", Followup: "followup",
 }
 
-// Marker returns the checkbox marker char for the status, e.g. "x" for Done. It
-// is the inverse of statusFromMarker (see markdown.go) and is what the CLI's
-// list table shows; the two stay in sync.
+// String returns the lowercase state name used by the CLI (JSON output and the
+// `add --status` flag), or "status(N)" for an unknown value so it stays visible.
+func (s Status) String() string {
+	if n, ok := statusNames[s]; ok {
+		return n
+	}
+	return fmt.Sprintf("status(%d)", int(s))
+}
+
+// Marker returns the checkbox marker char for the status, e.g. "x" for Done, or
+// "" for a kanban-only state with no marker. It is the inverse of
+// statusFromMarker (see markdown.go); the todotest helpers use it to write a
+// store back out as markdown.
 func (s Status) Marker() string {
 	switch s {
-	case Done:
-		return "x"
-	case InProgress:
+	case Open:
+		return " "
+	case Working:
 		return "/"
 	case Deferred:
 		return ">"
-	default: // Open
-		return " "
+	case Done:
+		return "x"
 	}
+	return ""
 }
 
-// StatusFromName parses a CLI status name into a Status; ok is false for an
-// unknown name.
+// StatusFromName parses a status name into a Status; ok is false for an
+// unknown name. "progress" is accepted as an alias of "working".
 func StatusFromName(name string) (Status, bool) {
-	switch name {
-	case "open":
-		return Open, true
-	case "progress":
-		return InProgress, true
-	case "deferred":
-		return Deferred, true
-	case "done":
-		return Done, true
+	if name == "progress" {
+		return Working, true
+	}
+	for s, n := range statusNames {
+		if n == name {
+			return s, true
+		}
 	}
 	return Open, false
+}
+
+// Column returns the kanban column the status belongs to; an unknown status maps
+// to the backlog.
+func (s Status) Column() Column {
+	switch s {
+	case New, Ready:
+		return ColNext
+	case Working, Review, Followup:
+		return ColInProgress
+	case Done:
+		return ColDone
+	}
+	return ColBacklog
+}
+
+// SubtaskAllowed reports whether a subtask may be in this state: a subtask is
+// only ever Open or Done. It does not limit which tasks hold subtasks; a task
+// in any state (Working, for one) may.
+func (s Status) SubtaskAllowed() bool { return s == Open || s == Done }
+
+// NextInColumn returns the next state within the same column, cycling:
+// open↔deferred, new↔ready, working→review→followup→working. Done and unknown
+// values map to themselves.
+func (s Status) NextInColumn() Status {
+	switch s {
+	case Open:
+		return Deferred
+	case Deferred:
+		return Open
+	case New:
+		return Ready
+	case Ready:
+		return New
+	case Working:
+		return Review
+	case Review:
+		return Followup
+	case Followup:
+		return Working
+	}
+	return s
+}
+
+// Columns returns the four columns in board order.
+func Columns() []Column { return []Column{ColBacklog, ColNext, ColInProgress, ColDone} }
+
+// String returns the column's short name: backlog, next, progress or done.
+func (c Column) String() string {
+	switch c {
+	case ColBacklog:
+		return "backlog"
+	case ColNext:
+		return "next"
+	case ColInProgress:
+		return "progress"
+	case ColDone:
+		return "done"
+	}
+	return fmt.Sprintf("column(%d)", int(c))
+}
+
+// Title returns the column's display title.
+func (c Column) Title() string {
+	switch c {
+	case ColBacklog:
+		return "Backlog"
+	case ColNext:
+		return "Next"
+	case ColInProgress:
+		return "In Progress"
+	case ColDone:
+		return "Done"
+	}
+	return c.String()
+}
+
+// ColumnFromName parses a column's short name; ok is false for an unknown name.
+func ColumnFromName(name string) (Column, bool) {
+	for _, c := range Columns() {
+		if c.String() == name {
+			return c, true
+		}
+	}
+	return ColBacklog, false
+}
+
+// States returns the statuses that belong to the column, in cycle order.
+func (c Column) States() []Status {
+	switch c {
+	case ColNext:
+		return []Status{New, Ready}
+	case ColInProgress:
+		return []Status{Working, Review, Followup}
+	case ColDone:
+		return []Status{Done}
+	}
+	return []Status{Open, Deferred}
+}
+
+// FirstState returns the state a task takes when it enters the column.
+func (c Column) FirstState() Status { return c.States()[0] }
+
+// StatusAfterMove returns the status a task takes when it is re-parented.
+// Becoming a subtask keeps Done and otherwise resets to Open. A subtask becoming
+// a task keeps Done and otherwise takes oldParent's status (Working if the old
+// parent was itself Done).
+func StatusAfterMove(cur Status, toSubtask bool, oldParent Status) Status {
+	if cur == Done {
+		return Done
+	}
+	if toSubtask {
+		return Open
+	}
+	if oldParent == Done {
+		return Working
+	}
+	return oldParent
 }
 
 // Item is one node of the TODO tree. Categories hold sub-categories and tasks;
@@ -88,6 +225,7 @@ type Item struct {
 	Level       int    // Category only: its depth among categories, 1 for a root category
 	Status      Status // Task only
 	Description string // Task only: free-form text shown in the details view
+	Plan        string // Task only: path or reference of the plan for the task
 	Children    []*Item
 	Parent      *Item // nil for a root item
 }
@@ -102,8 +240,18 @@ func (it *Item) IsTask() bool { return it.Kind == Task }
 
 // IsDone reports whether the task is complete. It is the successor to the old
 // Done bool: the done-cascade, counts and pruning all key off it, so a task that
-// is InProgress or Deferred reads as not done.
+// is Working or Deferred reads as not done.
 func (it *Item) IsDone() bool { return it.Status == Done }
+
+// IsSubtask reports whether it is a task nested under another task.
+func (it *Item) IsSubtask() bool {
+	return it.Kind == Task && it.Parent != nil && it.Parent.Kind == Task
+}
+
+// NeedsPlan reports whether it is a Ready task that has no plan yet.
+func (it *Item) NeedsPlan() bool {
+	return it.Kind == Task && it.Status == Ready && strings.TrimSpace(it.Plan) == ""
+}
 
 // EnclosingCategory returns the nearest category at or above it: it itself when
 // it is a category, otherwise its closest category ancestor. It returns nil
@@ -119,8 +267,8 @@ func (it *Item) EnclosingCategory() *Item {
 }
 
 // NewTask builds a task item (with no children or parent set yet). The done
-// flag maps to Done or Open; a caller wanting InProgress/Deferred sets Status
-// afterwards.
+// flag maps to Done or Open; a caller wanting another state (Working, Deferred,
+// …) sets Status afterwards.
 func NewTask(title, description string, done bool) *Item {
 	st := Open
 	if done {
@@ -243,8 +391,8 @@ func (it *Item) TaskCounts() (done, total int) {
 }
 
 // DoneStates records the Status of a set of tasks by item ID, so a
-// cascade-complete can be reverted to the exact prior state — including a child
-// that was InProgress or Deferred. It is the in-memory snapshot behind the "I
+// cascade-complete can be reverted to the exact prior state — including the
+// task's own board state, such as Working or Review. It is the in-memory snapshot behind the "I
 // marked the parent done by accident" undo; keyed by ID, it outlives a reload of
 // the document, and it is what Store.SetStatuses writes back.
 type DoneStates map[uint]Status
