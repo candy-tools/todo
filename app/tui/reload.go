@@ -63,7 +63,7 @@ func (m model) handleReload(msg storeReloadedMsg) (tea.Model, tea.Cmd) {
 	if msg.rev <= m.lastRev {
 		return m, nil
 	}
-	if m.mode != modeMain || m.tree.grabbed {
+	if m.mode != modeMain || m.focused().grabbed {
 		return m, nil
 	}
 	m.applyReload(msg)
@@ -74,13 +74,13 @@ func (m model) handleReload(msg storeReloadedMsg) (tea.Model, tea.Cmd) {
 // folds by ID. The in-memory undo snapshots are dropped: the list changed under
 // us, and an undo must never write old statuses over someone else's change.
 func (m *model) applyReload(msg storeReloadedMsg) {
-	onPH := m.tree.onPlaceholder()
+	onPH := m.focused().onPlaceholder()
 	var focus uint
-	if sel := m.tree.selected(); sel != nil && !onPH {
+	if sel := m.focused().selected(); sel != nil && !onPH {
 		focus = sel.ID
 	}
 	m.doc, m.lastRev = msg.doc, msg.rev
 	m.snapshots = map[uint]todo.DoneStates{}
-	m.tree.adopt(msg.doc, focus, onPH)
+	m.adoptAll(msg.doc, focus, onPH)
 	m.status = "reloaded — list changed externally"
 }

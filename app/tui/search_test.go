@@ -11,7 +11,7 @@ import (
 func rowTitles(tr tree) []string {
 	var out []string
 	for _, r := range tr.rows {
-		if r.placeholder {
+		if r.kind != rowItem {
 			continue
 		}
 		out = append(out, r.item.Title)
@@ -88,7 +88,7 @@ func TestTreeFilterHidesPlaceholder(t *testing.T) {
 	tr := newTree(d, newViewState())
 	setTreeFilter(&tr, "cat")
 	for _, r := range tr.rows {
-		if r.placeholder {
+		if r.kind != rowItem {
 			t.Errorf("the + new category placeholder should be hidden while filtering")
 		}
 	}

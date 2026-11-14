@@ -7,12 +7,23 @@ import (
 	"github.com/candy-tools/todo/internal/todo"
 )
 
-// treeRow is one visible line of the task tree: an item and its nesting depth.
-// The placeholder flag marks the synthetic "+ new category" row.
+// rowKind tells a tree row backed by an item from the synthetic ones.
+type rowKind int
+
+const (
+	rowItem        rowKind = iota // a category or task of the document
+	rowNewCategory                // the "+ new category" row
+	rowAll                        // the sidebar's "All" row: no category picked
+	rowHeader                     // a category drawn as a group header in a task list
+)
+
+// treeRow is one visible line of the task tree: an item and its nesting depth,
+// and what kind of row it is. label is a header row's text.
 type treeRow struct {
-	item        *todo.Item
-	depth       int
-	placeholder bool
+	item  *todo.Item
+	depth int
+	kind  rowKind
+	label string
 }
 
 // tree is the left-pane category/task tree: the document, the board column
@@ -145,7 +156,7 @@ func (t *tree) rebuild() {
 	}
 	walk(t.doc.Roots, 0)
 	if t.vs.editsCategories() && !searching {
-		t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, placeholder: true})
+		t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, kind: rowNewCategory})
 	}
 	if t.cursor >= len(t.rows) {
 		t.cursor = len(t.rows) - 1
@@ -159,23 +170,33 @@ func (t *tree) rebuild() {
 // selected returns the item under the cursor. On the placeholder row it returns
 // the sentinel — callers guard with onPlaceholder before treating it as a real
 // item.
+// The All and header rows have no selectable item: it returns nil there.
 func (t *tree) selected() *todo.Item {
 	if t.cursor < 0 || t.cursor >= len(t.rows) {
+		return nil
+	}
+	if r := t.rows[t.cursor]; r.kind == rowAll || r.kind == rowHeader {
 		return nil
 	}
 	return t.rows[t.cursor].item
 }
 
-// onPlaceholder reports whether the cursor is on the "+ new category" row.
-func (t *tree) onPlaceholder() bool {
-	return t.cursor >= 0 && t.cursor < len(t.rows) && t.rows[t.cursor].placeholder
+// onKind reports whether the cursor is on a row of kind k.
+func (t *tree) onKind(k rowKind) bool {
+	return t.cursor >= 0 && t.cursor < len(t.rows) && t.rows[t.cursor].kind == k
 }
+
+// onPlaceholder reports whether the cursor is on the "+ new category" row.
+func (t *tree) onPlaceholder() bool { return t.onKind(rowNewCategory) }
+
+// onAll reports whether the cursor is on the sidebar's "All" row.
+func (t *tree) onAll() bool { return t.onKind(rowAll) }
 
 // selectItem moves the cursor onto it, if it is currently visible, scrolling the
 // viewport as needed to keep it on screen.
 func (t *tree) selectItem(it *todo.Item) {
 	for i, r := range t.rows {
-		if r.item == it {
+		if r.kind == rowItem && r.item == it {
 			t.cursor = i
 			t.reconcileOffset()
 			return
@@ -191,7 +212,7 @@ func (t *tree) selectID(id uint) bool {
 		return false
 	}
 	for i, r := range t.rows {
-		if !r.placeholder && r.item.ID == id {
+		if r.kind == rowItem && r.item.ID == id {
 			t.cursor = i
 			t.reconcileOffset()
 			return true
@@ -224,8 +245,13 @@ func (t *tree) adopt(doc *todo.Document, focusID uint, onPlaceholder bool) {
 		return
 	}
 	if onPlaceholder && !t.filtering() {
-		t.cursor = len(t.rows) - 1
-		t.reconcileOffset()
+		for i, r := range t.rows {
+			if r.kind == rowNewCategory {
+				t.cursor = i
+				t.reconcileOffset()
+				return
+			}
+		}
 	}
 }
 
@@ -389,7 +415,7 @@ func (t *tree) view(width, height int) string {
 // matching two-space gutter so columns line up. A task that has a description
 // carries a trailing "≡" marker.
 func (t *tree) rowString(r treeRow, selected bool) string {
-	if r.placeholder {
+	if r.kind == rowNewCategory {
 		if selected {
 			return selectedRowStyle.Render("❯ + new category")
 		}

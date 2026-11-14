@@ -15,7 +15,7 @@ func TestTreeFlatten(t *testing.T) {
 	if len(tr.rows) != 5 {
 		t.Fatalf("got %d rows, want 5 (incl. placeholder)", len(tr.rows))
 	}
-	if !tr.rows[4].placeholder {
+	if tr.rows[4].kind != rowNewCategory {
 		t.Errorf("the last row should be the placeholder")
 	}
 	want := []string{"Work", "a", "a1", "b"}
@@ -35,7 +35,7 @@ func TestTreeFlatten(t *testing.T) {
 
 func TestTreePlaceholderAlwaysPresent(t *testing.T) {
 	tr := newTree(parseDoc(t, "# Work\n"), newViewState()) // rows: Work, placeholder
-	if len(tr.rows) != 2 || !tr.rows[1].placeholder {
+	if len(tr.rows) != 2 || tr.rows[1].kind != rowNewCategory {
 		t.Fatalf("expected a trailing placeholder row, got %d rows", len(tr.rows))
 	}
 	tr.cursor = 1
@@ -61,7 +61,7 @@ func TestTreeCollapseJumpsToParentOnLeaf(t *testing.T) {
 func TestTreeCursorClampsAfterRebuild(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	tr := newTree(d, newViewState()) // rows: Work, a, b, placeholder
-	tr.cursor = 2    // task b
+	tr.cursor = 2                    // task b
 	tr.collapsed[d.Roots[0].ID] = true
 	tr.rebuild() // now: Work, placeholder
 	if tr.cursor != len(tr.rows)-1 {

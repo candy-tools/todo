@@ -214,7 +214,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// While an item is grabbed, the arrows drive the move instead of navigation.
-	if m.tree.grabbed {
+	if m.focused().grabbed {
 		return m.updateMove(msg)
 	}
 	m.status = ""
@@ -231,17 +231,17 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pick = newFilterPicker(m.view.column, m.view.states)
 		m.mode = modeStateFilter
 	case "up", "w":
-		m.tree.moveUp()
+		m.focused().moveUp()
 	case "down", "s":
-		m.tree.moveDown()
+		m.focused().moveDown()
 	case "pgup":
-		m.tree.pageUp()
+		m.focused().pageUp()
 	case "pgdown":
-		m.tree.pageDown()
+		m.focused().pageDown()
 	case "left":
-		m.tree.collapse()
+		m.focused().collapse()
 	case "right":
-		m.tree.expand()
+		m.focused().expand()
 	default:
 		if c, ok := tabKey(msg.String(), m.view.column); ok {
 			m.setColumn(c)
@@ -342,7 +342,7 @@ func (m model) updateStateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // toggle/view) for a real selected item. The "+ new category" placeholder row
 // has its own reduced key set (see updatePlaceholderKey).
 func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.tree.onPlaceholder() {
+	if m.focused().onPlaceholder() {
 		return m.updatePlaceholderKey(msg)
 	}
 	switch msg.String() {
@@ -350,8 +350,8 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openForm(targetEdit)
 	case " ":
 		// Space folds a category. A task's state is set only through the t dialog.
-		if sel := m.tree.selected(); sel != nil && sel.Kind == todo.Category {
-			m.tree.toggleFold()
+		if sel := m.focused().selected(); sel != nil && sel.Kind == todo.Category {
+			m.focused().toggleFold()
 		}
 		return m, nil
 	case "p":
@@ -399,18 +399,18 @@ func (m model) updatePlaceholderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // refuses while a filter is active — the filtered view hides siblings and
 // ignores folding, so reordering against it would be misleading.
 func (m model) startMove() (tea.Model, tea.Cmd) {
-	if m.tree.onPlaceholder() || m.tree.selected() == nil {
+	if m.focused().onPlaceholder() || m.focused().selected() == nil {
 		return m, nil
 	}
-	if m.categoryLocked(m.tree.selected()) {
+	if m.categoryLocked(m.focused().selected()) {
 		m.status = msgCategoriesInBacklog
 		return m, nil
 	}
-	if m.tree.filtering() {
+	if m.focused().filtering() {
 		m.status = "Clear the filter (esc) before moving items."
 		return m, nil
 	}
-	m.tree.grabbed = true
+	m.focused().grabbed = true
 	return m, nil
 }
 
@@ -430,7 +430,7 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right":
 		return m.applyIndent()
 	case "m", "esc", "enter":
-		m.tree.grabbed = false
+		m.focused().grabbed = false
 	}
 	return m, nil
 }
@@ -446,11 +446,11 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // passes a shown row.
 func (m model) stepPastShown(op, undo func(*todo.Item) bool) func(*todo.Item) bool {
 	return func(it *todo.Item) bool {
-		start, parent := m.tree.shownBefore(it), it.Parent
+		start, parent := m.focused().shownBefore(it), it.Parent
 		steps := 0
 		for op(it) {
 			steps++
-			if it.Parent != parent || m.tree.shownBefore(it) != start {
+			if it.Parent != parent || m.focused().shownBefore(it) != start {
 				return true
 			}
 		}
@@ -478,7 +478,7 @@ func (m model) applyIndent() (tea.Model, tea.Cmd) {
 		m.status = "subtasks can't have subtasks"
 		return m, nil
 	}
-	if prev := prevSibling(it); prev != nil && prev.Kind == it.Kind && !m.tree.shown[prev] {
+	if prev := prevSibling(it); prev != nil && prev.Kind == it.Kind && !m.focused().shown[prev] {
 		m.status = "can't nest under a task hidden in this tab"
 		return m, nil
 	}
@@ -512,7 +512,7 @@ func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
 	}
 	m.snapshots = map[uint]todo.DoneStates{}
 	if it.Parent != nil {
-		delete(m.tree.collapsed, it.Parent.ID) // reveal the item under its (possibly new) parent
+		delete(m.focused().collapsed, it.Parent.ID) // reveal the item under its (possibly new) parent
 	}
 	id := it.ID
 	parentID, afterID := m.doc.Placement(it)
@@ -520,7 +520,7 @@ func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
 		return m.store.Move(ctx, id, parentID, afterID)
 	})
 	if m.noteLeftTab(id) {
-		m.tree.grabbed = false
+		m.focused().grabbed = false
 	}
 	return m, nil
 }
@@ -554,16 +554,16 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.search.Blur()
 		return m, nil
 	case "up":
-		m.tree.moveUp()
+		m.focused().moveUp()
 		return m, nil
 	case "down":
-		m.tree.moveDown()
+		m.focused().moveDown()
 		return m, nil
 	case "pgup":
-		m.tree.pageUp()
+		m.focused().pageUp()
 		return m, nil
 	case "pgdown":
-		m.tree.pageDown()
+		m.focused().pageDown()
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -578,10 +578,10 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // back at the top.
 func (m *model) clearFilter() {
 	m.searching = false
-	sel := m.tree.selected()
+	sel := m.focused().selected()
 	m.setFilter("")
 	if sel != nil {
-		m.tree.revealItem(sel)
+		m.focused().revealItem(sel)
 	}
 }
 
@@ -598,8 +598,8 @@ func (m model) searchWidth() int {
 // safe Cancel button). A no-op when nothing is selected; a category outside
 // Backlog is refused with a footer hint.
 func (m model) openDelete() (tea.Model, tea.Cmd) {
-	sel := m.tree.selected()
-	if sel == nil || m.tree.onPlaceholder() {
+	sel := m.focused().selected()
+	if sel == nil || m.focused().onPlaceholder() {
 		return m, nil
 	}
 	if m.categoryLocked(sel) {
@@ -665,7 +665,7 @@ func (m model) doConfirm() (tea.Model, tea.Cmd) {
 func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	m.mode = modeMain
 	var focus uint
-	if sel := m.tree.selected(); sel != nil && !m.tree.onPlaceholder() {
+	if sel := m.focused().selected(); sel != nil && !m.focused().onPlaceholder() {
 		focus = sel.ID
 	}
 	m.snapshots = map[uint]todo.DoneStates{}
@@ -675,8 +675,8 @@ func (m model) doClearDone() (tea.Model, tea.Cmd) {
 		removed, pruneErr = m.store.Prune(ctx)
 		return pruneErr
 	})
-	if sel := m.tree.selected(); focus != 0 && (sel == nil || sel.ID != focus) {
-		m.tree.selectTop() // sel was removed
+	if sel := m.focused().selected(); focus != 0 && (sel == nil || sel.ID != focus) {
+		m.focused().selectTop() // sel was removed
 	}
 	if pruneErr == nil {
 		m.status = fmt.Sprintf("Removed %d completed task(s).", removed)
@@ -695,8 +695,8 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	var prevID uint
-	if m.tree.cursor > 0 {
-		prevID = m.tree.rows[m.tree.cursor-1].item.ID
+	if m.focused().cursor > 0 {
+		prevID = m.focused().rows[m.focused().cursor-1].item.ID
 	}
 	m.doc.Remove(it)
 	// A structural change ends the accidental-complete undo window.
@@ -711,10 +711,10 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 // selectedItem returns the item under the cursor, or nil on an empty tab or
 // the placeholder row, where the item keys do nothing.
 func (m model) selectedItem() *todo.Item {
-	if m.tree.onPlaceholder() {
+	if m.focused().onPlaceholder() {
 		return nil
 	}
-	return m.tree.selected()
+	return m.focused().selected()
 }
 
 // toggleSubtask flips subtask it between open and done. The manual change
@@ -866,7 +866,7 @@ func (m *model) commitStatus(id uint, write func(ctx context.Context) error) {
 // error or the external-reload notice already holds the footer.
 func (m *model) noteLeftTab(id uint) bool {
 	it, ok := m.doc.ByID(id)
-	if ok && m.tree.shown[it] {
+	if ok && m.focused().shown[it] {
 		return false
 	}
 	if ok && it.IsTask() && m.err == nil && m.status == "" {
@@ -890,7 +890,7 @@ var writeClipboard = clipboard.WriteAll
 // cleanly capture. On the platforms without a clipboard tool (a bare Linux box),
 // it reports how to get one; any copy error and the success both show in the footer.
 func (m model) copySelection() (tea.Model, tea.Cmd) {
-	it := m.tree.selected()
+	it := m.focused().selected()
 	if it == nil {
 		return m, nil
 	}
@@ -920,10 +920,10 @@ func itemCopyText(it *todo.Item) string {
 // Backlog it refuses to add, rename or delete a category, and it refuses a
 // subtask under a subtask.
 func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
-	sel := m.tree.selected()
+	sel := m.focused().selected()
 	switch t {
 	case targetAddSibling, targetAddChild:
-		if sel == nil || m.tree.onPlaceholder() {
+		if sel == nil || m.focused().onPlaceholder() {
 			// Outside Backlog a tab shows only categories holding its tasks, and c
 			// is refused there, so point at a tab that shows the category instead.
 			m.status = "Add a category first (press c) — tasks live under a category."
@@ -938,7 +938,7 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 		}
 		m.form = newForm("", "", "", true, false)
 	case targetEdit:
-		if sel == nil || m.tree.onPlaceholder() {
+		if sel == nil || m.focused().onPlaceholder() {
 			return m, nil
 		}
 		if m.categoryLocked(sel) {
@@ -1023,7 +1023,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	sel := m.tree.selected()
+	sel := m.focused().selected()
 	var added *todo.Item
 	switch m.target {
 	case targetAddCategory:
@@ -1031,13 +1031,13 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		// A category — or a task inside one — selected → subcategory of the
 		// enclosing category; the root placeholder → a new top-level category.
 		var parentCat *todo.Item
-		if !m.tree.onPlaceholder() && sel != nil {
+		if !m.focused().onPlaceholder() && sel != nil {
 			parentCat = sel.EnclosingCategory()
 		}
 		if parentCat != nil {
 			added.Level = parentCat.Level + 1
 			parentCat.AppendChild(added)
-			delete(m.tree.collapsed, parentCat.ID)
+			delete(m.focused().collapsed, parentCat.ID)
 		} else {
 			m.doc.AppendRoot(added)
 		}
@@ -1045,7 +1045,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		added = todo.NewTask(title, desc, false)
 		added.Plan = plan
 		sel.AppendTask(added)
-		delete(m.tree.collapsed, sel.ID)
+		delete(m.focused().collapsed, sel.ID)
 	default: // targetAddSibling: a task at the end of the selection's level
 		added = todo.NewTask(title, desc, false)
 		added.Plan = plan
@@ -1054,7 +1054,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 			parent = sel.Parent // a task's siblings live under its parent
 		}
 		parent.AppendTask(added)
-		delete(m.tree.collapsed, parent.ID)
+		delete(m.focused().collapsed, parent.ID)
 	}
 	// A new task enters the current tab in its column's first state, so it shows
 	// where it was added; a new subtask starts open (subtasks are open or done).
@@ -1073,7 +1073,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		}
 		return err
 	})
-	m.tree.selectID(newID) // the ID is only known once the write ran
+	m.focused().selectID(newID) // the ID is only known once the write ran
 	return m, nil
 }
 
@@ -1106,13 +1106,13 @@ func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 		if m.err == nil {
 			m.err = fmt.Errorf("reload failed: %w", err)
 		}
-		m.tree.rebuild()
-		m.tree.selectID(focusID)
+		m.focused().rebuild()
+		m.focused().selectID(focusID)
 		return
 	}
-	onPH := m.tree.onPlaceholder()
+	onPH := m.focused().onPlaceholder()
 	m.doc, m.lastRev = doc, rev
-	m.tree.adopt(doc, focusID, onPH)
+	m.adoptAll(doc, focusID, onPH)
 	if rev != expected {
 		m.snapshots = map[uint]todo.DoneStates{}
 		m.status = "reloaded — list changed externally"
@@ -1208,7 +1208,7 @@ func (m model) footer(width int) string {
 		// A transient message (a refused move, where a task went) wins over the
 		// move and filter lines; the next key clears it.
 		return ansi.Truncate(" "+helpTextStyle.Render(m.status), width, "")
-	case m.tree.grabbed:
+	case m.focused().grabbed:
 		// Move mode: the arrows reorder/re-nest the grabbed item.
 		parts := []string{
 			helpKeyStyle.Render("MOVING"),

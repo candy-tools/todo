@@ -46,7 +46,7 @@ func storedItem(t *testing.T, path, title string) *todo.Item {
 func rowOf(t *testing.T, tr tree, title string) string {
 	t.Helper()
 	for _, r := range tr.rows {
-		if !r.placeholder && r.item.Title == title {
+		if r.kind == rowItem && r.item.Title == title {
 			return tr.rowString(r, false)
 		}
 	}

@@ -120,3 +120,13 @@ func (m *model) clearStates() {
 		m.tree.revealItem(sel)
 	}
 }
+
+// focused returns the tree the item keys act on: the one pane there is.
+func (m *model) focused() *tree { return &m.tree }
+
+// adoptAll swaps doc, a fresh load of the list, into every tree (see
+// tree.adopt): the focused tree selects focusID (or goes back onto the
+// placeholder row when onPH).
+func (m *model) adoptAll(doc *todo.Document, focusID uint, onPH bool) {
+	m.tree.adopt(doc, focusID, onPH)
+}
