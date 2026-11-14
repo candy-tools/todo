@@ -18,15 +18,21 @@ func (it *Item) Matches(query string) bool {
 }
 
 // VisibleItems returns the set of items to show when filtering by query, under
-// "path to matches" semantics: an item is visible when it matches, when a
-// descendant matches (so the path from the root down to every match is kept),
-// or when an ancestor matches (so a match keeps its whole subtree). Branches
-// with no match anywhere on their root-to-node path or in their subtree are
-// pruned. A blank query returns nil, meaning "no filter".
+// "path to matches" semantics (see VisibleWhere). A blank query returns nil,
+// meaning "no filter".
 func (d *Document) VisibleItems(query string) map[*Item]bool {
 	if strings.TrimSpace(query) == "" {
 		return nil
 	}
+	return d.VisibleWhere(func(it *Item) bool { return it.Matches(query) })
+}
+
+// VisibleWhere returns the items to show for a predicate, under "path to
+// matches" semantics: an item is visible when it matches, when a descendant
+// matches (so the path from the root down to every match is kept), or when an
+// ancestor matches (so a match keeps its whole subtree). Branches with no match
+// anywhere on their root-to-node path or in their subtree are pruned.
+func (d *Document) VisibleWhere(match func(*Item) bool) map[*Item]bool {
 	visible := map[*Item]bool{}
 
 	// subtreeMatch[it] is true when it, or any descendant, matches. It marks
@@ -34,7 +40,7 @@ func (d *Document) VisibleItems(query string) map[*Item]bool {
 	subtreeMatch := map[*Item]bool{}
 	var mark func(it *Item) bool
 	mark = func(it *Item) bool {
-		m := it.Matches(query)
+		m := match(it)
 		for _, c := range it.Children {
 			if mark(c) {
 				m = true
@@ -54,7 +60,7 @@ func (d *Document) VisibleItems(query string) map[*Item]bool {
 		if subtreeMatch[it] || underMatch {
 			visible[it] = true
 		}
-		under := underMatch || it.Matches(query)
+		under := underMatch || match(it)
 		for _, c := range it.Children {
 			collect(c, under)
 		}
@@ -63,4 +69,61 @@ func (d *Document) VisibleItems(query string) map[*Item]bool {
 		collect(r, false)
 	}
 	return visible
+}
+
+// inColumn reports whether it is a top-level task sitting in column c.
+func inColumn(it *Item, c Column) bool {
+	return it.Kind == Task && !it.IsSubtask() && it.Status.Column() == c
+}
+
+// ColumnItems returns the items to show on the board tab for column c: the
+// top-level tasks in c, their subtasks, and the category path above them. The
+// Backlog tab also shows every category, so empty categories stay reachable for
+// adding tasks. The result is never nil; an empty map means nothing shows.
+func (d *Document) ColumnItems(c Column) map[*Item]bool {
+	visible := d.VisibleWhere(func(it *Item) bool { return inColumn(it, c) })
+	if c == ColBacklog {
+		var walk func(it *Item)
+		walk = func(it *Item) {
+			if it.Kind == Category {
+				visible[it] = true
+			}
+			for _, ch := range it.Children {
+				walk(ch)
+			}
+		}
+		for _, r := range d.Roots {
+			walk(r)
+		}
+	}
+	return visible
+}
+
+// ColumnCounts counts the top-level tasks in each board column.
+func (d *Document) ColumnCounts() map[Column]int {
+	counts := map[Column]int{}
+	for _, r := range d.Roots {
+		r.countColumns(counts)
+	}
+	return counts
+}
+
+func (it *Item) countColumns(counts map[Column]int) {
+	if it.Kind == Task {
+		if !it.IsSubtask() {
+			counts[it.Status.Column()]++
+		}
+		return
+	}
+	for _, c := range it.Children {
+		c.countColumns(counts)
+	}
+}
+
+// CountInColumn counts the top-level tasks in column c under the item,
+// descending through subcategories.
+func (it *Item) CountInColumn(c Column) int {
+	counts := map[Column]int{}
+	it.countColumns(counts)
+	return counts[c]
 }
