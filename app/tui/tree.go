@@ -17,6 +17,17 @@ const (
 	rowHeader                     // a category drawn as a group header in a task list
 )
 
+// paneKind is what a tree shows: today's mixed category/task tree, only the
+// categories (the split view's sidebar), or only the tasks of one category
+// with its subcategories as group headers (the split view's task list).
+type paneKind int
+
+const (
+	paneMixed      paneKind = iota // categories and tasks in one tree
+	paneCategories                 // the sidebar: All, the category tree, + new category
+	paneTasks                      // the task list of the scope category
+)
+
 // treeRow is one visible line of the task tree: an item and its nesting depth,
 // and what kind of row it is. label is a header row's text.
 type treeRow struct {
@@ -57,6 +68,11 @@ type tree struct {
 	// viewHeight is how many rows the left-pane viewport can show, set from the
 	// terminal size. reconcileOffset needs it to know the window bounds.
 	viewHeight int
+	// pane is what the tree shows (see paneKind); scope is the category whose
+	// tasks a paneTasks tree lists, with its subcategories' (0 = every
+	// category, the sidebar's All).
+	pane  paneKind
+	scope uint
 	// grabbed is true while the item under the cursor is "picked up" for moving:
 	// the arrow keys reorder/re-nest it instead of navigating, and its row is
 	// drawn with the grabbed marker (see rowString).
@@ -138,25 +154,18 @@ func (t *tree) foldable(it *todo.Item) bool {
 // change.
 func (t *tree) rebuild() {
 	t.rows = t.rows[:0]
-	t.shown = t.visibleItems()
-	searching := t.filtering()
-	var walk func(items []*todo.Item, depth int)
-	walk = func(items []*todo.Item, depth int) {
-		for _, it := range items {
-			if !t.shown[it] {
-				continue
-			}
-			t.rows = append(t.rows, treeRow{item: it, depth: depth})
-			// While searching, descend regardless of collapse so a match inside a
-			// collapsed parent is still shown.
-			if len(it.Children) > 0 && (searching || !t.collapsed[it.ID]) {
-				walk(it.Children, depth+1)
-			}
+	vis := t.visibleItems()
+	switch t.pane {
+	case paneCategories:
+		t.rebuildCategories(vis)
+	case paneTasks:
+		t.rebuildTasks(vis)
+	default:
+		t.shown = vis
+		t.walk(t.doc.Roots, 0, nil)
+		if t.vs.editsCategories() && !t.filtering() {
+			t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, kind: rowNewCategory})
 		}
-	}
-	walk(t.doc.Roots, 0)
-	if t.vs.editsCategories() && !searching {
-		t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, kind: rowNewCategory})
 	}
 	if t.cursor >= len(t.rows) {
 		t.cursor = len(t.rows) - 1
@@ -164,7 +173,166 @@ func (t *tree) rebuild() {
 	if t.cursor < 0 {
 		t.cursor = 0
 	}
+	t.settle(1)
 	t.reconcileOffset()
+}
+
+// walk appends a row for every shown item of items, at depth, descending into
+// unfolded ones — or every one while filtering, so a match inside a collapsed
+// parent is still shown. keep, when set, limits which items get a row (their
+// children are still walked when they are kept).
+func (t *tree) walk(items []*todo.Item, depth int, keep func(*todo.Item) bool) {
+	for _, it := range items {
+		if !t.shown[it] || (keep != nil && !keep(it)) {
+			continue
+		}
+		t.rows = append(t.rows, treeRow{item: it, depth: depth})
+		if len(it.Children) > 0 && (t.filtering() || !t.collapsed[it.ID]) {
+			t.walk(it.Children, depth+1, keep)
+		}
+	}
+}
+
+// rebuildCategories lays out the sidebar: the All row, the categories of the
+// visible set as a foldable tree, and — where categories are edited and
+// nothing is filtered — the "+ new category" row. Only categories count as
+// shown, so grab-moving a category steps past one shown category at a time.
+func (t *tree) rebuildCategories(vis map[*todo.Item]bool) {
+	t.shown = map[*todo.Item]bool{}
+	for it := range vis {
+		if it.Kind == todo.Category {
+			t.shown[it] = true
+		}
+	}
+	t.rows = append(t.rows, treeRow{kind: rowAll})
+	t.walk(t.doc.Roots, 0, nil)
+	if t.vs.editsCategories() && !t.filtering() {
+		t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, kind: rowNewCategory})
+	}
+}
+
+// scopeItem returns the scope category, or nil for All (or a scope that is no
+// longer in the document).
+func (t *tree) scopeItem() *todo.Item {
+	if t.scope == 0 {
+		return nil
+	}
+	it, ok := t.doc.ByID(t.scope)
+	if !ok || it.Kind != todo.Category {
+		return nil
+	}
+	return it
+}
+
+// rebuildTasks lays out the task list of the scope category: its own tasks,
+// then each subcategory (recursively) as a header row followed by its tasks.
+// A header's label is the category's path below the scope; a category with
+// no shown task in its subtree gets no header. Only items inside the scope
+// count as shown, so a task moved out of it has left the pane.
+func (t *tree) rebuildTasks(vis map[*todo.Item]bool) {
+	roots := t.doc.Roots
+	if sc := t.scopeItem(); sc != nil {
+		roots = sc.Children
+	}
+	t.shown = map[*todo.Item]bool{}
+	var mark func(items []*todo.Item)
+	mark = func(items []*todo.Item) {
+		for _, it := range items {
+			if vis[it] {
+				t.shown[it] = true
+			}
+			mark(it.Children)
+		}
+	}
+	mark(roots)
+	var lay func(items []*todo.Item, path []string)
+	lay = func(items []*todo.Item, path []string) {
+		for _, it := range items {
+			if !t.shown[it] {
+				continue
+			}
+			if it.Kind == todo.Category {
+				p := append(path[:len(path):len(path)], it.Title)
+				if t.holdsShownTask(it) {
+					t.rows = append(t.rows, treeRow{item: it, kind: rowHeader, label: strings.Join(p, " › ")})
+				}
+				lay(it.Children, p)
+				continue
+			}
+			t.walk([]*todo.Item{it}, 0, nil)
+		}
+	}
+	lay(roots, nil)
+}
+
+// holdsShownTask reports whether a task the tree shows sits anywhere under
+// category c.
+func (t *tree) holdsShownTask(c *todo.Item) bool {
+	for _, ch := range c.Children {
+		if (ch.Kind == todo.Task && t.shown[ch]) || (ch.Kind == todo.Category && t.holdsShownTask(ch)) {
+			return true
+		}
+	}
+	return false
+}
+
+// settle moves the cursor off a header row — headers are never selected —
+// onto the nearest other row in direction dir (±1), or the other way when
+// there is none that way.
+func (t *tree) settle(dir int) {
+	if t.cursor < 0 || t.cursor >= len(t.rows) || t.rows[t.cursor].kind != rowHeader {
+		return
+	}
+	for _, d := range []int{dir, -dir} {
+		for i := t.cursor; i >= 0 && i < len(t.rows); i += d {
+			if t.rows[i].kind != rowHeader {
+				t.cursor = i
+				return
+			}
+		}
+	}
+}
+
+// setPane switches what the tree shows and rebuilds.
+func (t *tree) setPane(p paneKind) {
+	t.pane = p
+	t.rebuild()
+}
+
+// setScope points a task-list tree at category id (0 = All) and rebuilds,
+// keeping the selected task when the new scope shows it, else selecting the
+// first task. A no-op when the scope is unchanged.
+func (t *tree) setScope(id uint) {
+	if id == t.scope {
+		return
+	}
+	sel := t.selectedID()
+	t.scope = id
+	t.rebuild()
+	if !t.selectID(sel) {
+		t.selectTop()
+	}
+}
+
+// refreshSidebar rebuilds the sidebar keeping the selected category (or the
+// "+ new category" row) when it is still shown, else falling back to All —
+// after a tab switch, a filter change or a reload took it away.
+func (t *tree) refreshSidebar() {
+	id, onPH := t.selectedID(), t.onPlaceholder()
+	t.rebuild()
+	if t.selectID(id) {
+		return
+	}
+	if onPH {
+		for i, r := range t.rows {
+			if r.kind == rowNewCategory {
+				t.cursor = i
+				t.reconcileOffset()
+				return
+			}
+		}
+	}
+	t.selectTop()
 }
 
 // selected returns the item under the cursor. On the placeholder row it returns
@@ -271,6 +439,7 @@ func (t *tree) revealItem(it *todo.Item) {
 // the top — the fallback when a prior selection no longer exists.
 func (t *tree) selectTop() {
 	t.cursor = 0
+	t.settle(1)
 	t.reconcileOffset()
 }
 
@@ -295,6 +464,11 @@ func (t *tree) moveBy(delta int) {
 	}
 	if t.cursor < 0 {
 		t.cursor = 0
+	}
+	if delta < 0 {
+		t.settle(-1)
+	} else {
+		t.settle(1)
 	}
 	t.reconcileOffset()
 }
@@ -373,11 +547,17 @@ func (t *tree) expand() {
 // <tab>" while a search finds nothing there.
 func (t *tree) view(width, height int) string {
 	if len(t.rows) == 0 {
-		empty := "nothing in "
+		empty := "nothing in " + t.vs.title()
 		if t.filtering() {
-			empty = "no matches in "
+			empty = "no matches in " + t.vs.title()
 		}
-		return "  " + helpTextStyle.Render(empty+t.vs.title())
+		if t.pane == paneTasks {
+			empty = "no tasks here"
+			if t.filtering() {
+				empty = "no matches here"
+			}
+		}
+		return "  " + helpTextStyle.Render(empty)
 	}
 	if height < 1 {
 		height = 1
@@ -415,6 +595,15 @@ func (t *tree) view(width, height int) string {
 // matching two-space gutter so columns line up. A task that has a description
 // carries a trailing "≡" marker.
 func (t *tree) rowString(r treeRow, selected bool) string {
+	switch r.kind {
+	case rowAll:
+		if selected {
+			return selectedRowStyle.Render("❯ All")
+		}
+		return "  " + categoryStyle.Render("All")
+	case rowHeader:
+		return "  " + helpTextStyle.Render("── ") + categoryStyle.Render(r.label)
+	}
 	if r.kind == rowNewCategory {
 		if selected {
 			return selectedRowStyle.Render("❯ + new category")
