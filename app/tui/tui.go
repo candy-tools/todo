@@ -224,17 +224,17 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "f":
 		m.pick = newFilterPicker(m.tree.column, m.tree.states)
 		m.mode = modeStateFilter
-	case "up", "w", "k":
+	case "up", "w":
 		m.tree.moveUp()
-	case "down", "s", "j":
+	case "down", "s":
 		m.tree.moveDown()
 	case "pgup":
 		m.tree.pageUp()
 	case "pgdown":
 		m.tree.pageDown()
-	case "left", "h":
+	case "left":
 		m.tree.collapse()
-	case "right", "l":
+	case "right":
 		m.tree.expand()
 	default:
 		if c, ok := tabKey(msg.String(), m.tree.column); ok {
@@ -254,9 +254,9 @@ func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "?", "esc", "q", "enter":
 		m.mode = modeMain
-	case "up", "w", "k":
+	case "up", "w":
 		m.helpOffset--
-	case "down", "s", "j":
+	case "down", "s":
 		m.helpOffset++
 	case "pgup":
 		m.helpOffset -= 10
@@ -313,9 +313,9 @@ func (m *model) clearTabStates() {
 // states, enter sets the highlighted one, esc or q cancels.
 func (m model) updateStatePick(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "up", "w", "k":
+	case "up", "w":
 		m.pick.move(-1)
-	case "down", "s", "j":
+	case "down", "s":
 		m.pick.move(1)
 	case "esc", "q":
 		m.mode, m.pickItem = modeMain, nil
@@ -332,9 +332,9 @@ func (m model) updateStatePick(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // the state filter off for it), esc or q cancels.
 func (m model) updateStateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "up", "w", "k":
+	case "up", "w":
 		m.pick.move(-1)
-	case "down", "s", "j":
+	case "down", "s":
 		m.pick.move(1)
 	case " ", "x":
 		m.pick.toggle()
@@ -435,13 +435,13 @@ func (m model) startMove() (tea.Model, tea.Cmd) {
 func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	switch msg.String() {
-	case "up", "w", "k":
+	case "up", "w":
 		return m.applyMove(m.stepPastShown(m.doc.MoveUp, m.doc.MoveDown))
-	case "down", "s", "j":
+	case "down", "s":
 		return m.applyMove(m.stepPastShown(m.doc.MoveDown, m.doc.MoveUp))
-	case "left", "h":
+	case "left":
 		return m.applyMove(m.doc.Outdent)
-	case "right", "l":
+	case "right":
 		return m.applyIndent()
 	case "m", "esc", "enter":
 		m.tree.grabbed = false

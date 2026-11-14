@@ -20,9 +20,9 @@ type helpSection struct {
 // in DOCUMENTATION.md.
 var helpSections = []helpSection{
 	{"Navigate", []helpBinding{
-		{"↑ ↓  k j  w s", "Move the selection"},
+		{"↑ ↓  w s", "Move the selection"},
 		{"PgUp PgDn", "Move by a page"},
-		{"← →  h l", "Collapse / expand"},
+		{"← →", "Collapse / expand"},
 		{"space", "Fold / unfold a category"},
 		{"tab  shift+tab", "Next / previous tab"},
 		{"1–4", "Jump to Backlog / Next / In Progress / Done"},

@@ -167,9 +167,9 @@ kind, `1` other. Errors go to stderr.
 |-----|--------|
 | `tab` / `shift+tab` | Next / previous board tab |
 | `1`–`4` | Jump to Backlog / Next / In Progress / Done |
-| `↑` / `↓` (or `w`/`s`, `k`/`j`) | Move the selection |
+| `↑` / `↓` (or `w`/`s`) | Move the selection |
 | `PgUp` / `PgDn` | Move the selection by 10 rows |
-| `←` / `→` (or `h`/`l`) | Collapse / expand (Left on a leaf jumps to the parent) |
+| `←` / `→` | Collapse / expand (Left on a leaf jumps to the parent) |
 | `enter` | Open the selected item's dialog — its column/state/progress plus its editable title, description & plan |
 | `p` / `P` | Move the task to the next / previous column (it takes that column's first state) |
 | `t` | Open the state dialog to set the task's state, including done (`↑`/`↓`, `enter` sets, `esc` cancels) |

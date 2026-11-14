@@ -7,6 +7,7 @@ import (
 	"github.com/candy-tools/todo/app/metainfo"
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -576,5 +577,33 @@ func TestEditDialogCombinesViewAndEdit(t *testing.T) {
 	}
 	if !strings.Contains(out, "Save") {
 		t.Errorf("dialog should offer Save:\n%s", out)
+	}
+}
+
+func TestVimAliasesRemoved(t *testing.T) {
+	const src = "# C\n- [ ] a\n  - [ ] s\n- [ ] b\n"
+	for _, k := range []string{"j", "k", "h", "l"} {
+		m, _ := newTestModel(t, src)
+		m = press(m, "down") // a, expanded with subtask s
+		if k == "l" {
+			m = press(m, "left") // fold a so l would have something to expand
+		}
+		cursor, rows := m.tree.cursor, len(m.tree.rows)
+		m = press(m, k)
+		if m.tree.cursor != cursor || len(m.tree.rows) != rows {
+			t.Errorf("%q changed the view: cursor %d->%d, rows %d->%d", k, cursor, m.tree.cursor, rows, len(m.tree.rows))
+		}
+	}
+	m, _ := newTestModel(t, src)
+	g := press(m, "down", "m", "j") // grab mode ignores j too
+	if got := g.tree.selected(); got == nil || got.Title != "a" || !g.tree.grabbed {
+		t.Errorf("j in grab mode moved or dropped the item")
+	}
+	if i := find(g.doc, "a"); i.Parent.Children[0] != i {
+		t.Errorf("j in grab mode reordered a")
+	}
+	h := press(send(m, tea.WindowSizeMsg{Width: 100, Height: 10}), "?", "j")
+	if h.helpOffset != 0 {
+		t.Errorf("j scrolled the help dialog to %d", h.helpOffset)
 	}
 }
