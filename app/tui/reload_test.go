@@ -183,7 +183,7 @@ func TestReloadIgnoresOwnRevision(t *testing.T) {
 func TestOwnWriteDoesNotReportReload(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	before := m.lastRev
-	m = press(m, "down", "space") // toggle a done -> a store write
+	m = pickState(t, press(m, "down"), todo.Done) // complete a -> a store write
 	if m.lastRev == before {
 		t.Fatalf("an own write must record the revision it produced")
 	}
@@ -223,38 +223,44 @@ func TestExternalWriteReloadsKeepingSelection(t *testing.T) {
 }
 
 func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [ ] c2\n")
+	m, path := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n", todo.ColInProgress)
 	m = press(m, "down") // parent
 
 	// Own writes: cascade-complete, then un-toggle restores the subtasks.
-	m = press(m, "space")
+	m = pickState(t, m, todo.Done)
 	if len(m.snapshots) != 1 {
 		t.Fatalf("the cascade must leave a snapshot across its own reload, got %d", len(m.snapshots))
 	}
-	m = showOn(t, m, todo.ColDone, "parent") // the done parent left Backlog
-	m = press(m, "space")
-	for _, title := range []string{"parent", "c1", "c2"} {
+	m = showOn(t, m, todo.ColDone, "parent") // the done parent left In Progress
+	m = press(m, "t", "enter")               // t starts on the prior state: enter undoes
+	if got := find(m.doc, "parent").Status; got != todo.Working {
+		t.Errorf("parent = %v after undo, want working", got)
+	}
+	for _, title := range []string{"c1", "c2"} {
 		if got := find(m.doc, title).Status; got != todo.Open {
 			t.Errorf("%s = %v after undo, want open", title, got)
 		}
 	}
-	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [ ] c2\n"; got != want {
+	if got, want := todotest.Dump(t, path), "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n"; got != want {
 		t.Errorf("the undo must be persisted:\n%s", got)
 	}
 
 	// Cascade again, then an external write lands: the snapshot is dropped, so
 	// the un-toggle reopens only the parent (the subtasks keep their status).
-	m = showOn(t, m, todo.ColBacklog, "parent")
-	m = press(m, "space")
+	m = showOn(t, m, todo.ColInProgress, "parent")
+	m = pickState(t, m, todo.Done)
 	externalAddTask(t, path, "other", find(m.doc, "Work").ID, find(m.doc, "parent").ID)
 	m = pollOnce(t, m)
 	if len(m.snapshots) != 0 {
 		t.Fatalf("an external reload must clear the snapshots, got %d", len(m.snapshots))
 	}
 	m = showOn(t, m, todo.ColDone, "parent")
-	m = press(m, "space")
+	if m2 := press(m, "t"); m2.pick.selected() != todo.Done {
+		t.Errorf("without a snapshot t must start on done, got %v", m2.pick.selected())
+	}
+	m = pickState(t, m, todo.Working)
 	if got := find(m.doc, "parent").Status; got != todo.Working {
-		t.Errorf("parent = %v after un-toggle without a snapshot, want working", got)
+		t.Errorf("parent = %v after reopening without a snapshot, want working", got)
 	}
 	for _, title := range []string{"c1", "c2"} {
 		if got := find(m.doc, title).Status; got != todo.Done {
@@ -268,8 +274,8 @@ func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
 // by more than its own bump, treat the reload as external and drop the undo
 // snapshots, so un-toggling the parent never writes old statuses over it.
 func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [ ] c2\n- [ ] other\n")
-	m = press(m, "down", "space") // cascade-complete parent
+	m, path := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n- [ ] other\n", todo.ColInProgress)
+	m = pickState(t, press(m, "down"), todo.Done) // cascade-complete parent
 	if len(m.snapshots) != 1 {
 		t.Fatalf("precondition: the cascade must leave a snapshot, got %d", len(m.snapshots))
 	}
@@ -282,7 +288,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 
 	// An own, unrelated write: defer "other".
 	m = showOn(t, m, todo.ColBacklog, "other")
-	m = press(m, "t")
+	m = pickState(t, m, todo.Deferred)
 	if len(m.snapshots) != 0 {
 		t.Errorf("an own write that absorbed an external one must clear the snapshots, got %d", len(m.snapshots))
 	}
@@ -293,7 +299,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 	// Un-toggle the parent: it reopens to working, c1 keeps the agent's status,
 	// and c2 stays done because the dropped snapshot no longer restores it.
 	m = showOn(t, m, todo.ColDone, "parent")
-	m = press(m, "space")
+	m = pickState(t, m, todo.Working)
 	if got := find(m.doc, "c1").Status; got != todo.Open {
 		t.Errorf("c1 = %v after un-toggle, want open (the agent's change)", got)
 	}
@@ -303,11 +309,11 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 }
 
 func TestWriteErrorShowsAndReloads(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
 	if err := m.store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	m = press(m, "down", "space")
+	m = pickState(t, press(m, "down"), todo.Done)
 	if m.err == nil {
 		t.Fatal("a failed write must set m.err")
 	}

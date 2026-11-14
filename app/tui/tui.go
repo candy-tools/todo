@@ -28,6 +28,9 @@ const (
 	modeMain mode = iota
 	modeForm
 	modeConfirm
+	modeHelp        // the "?" shortcuts dialog
+	modeStatePick   // the "t" dialog: pick the selected task's state
+	modeStateFilter // the "f" dialog: tick the states the tab shows
 )
 
 // formTarget records what submitting the open form should do.
@@ -97,6 +100,11 @@ type model struct {
 	// memory and is never stored. Keyed by ID, it survives the reload after the
 	// app's own write; an external reload clears it.
 	snapshots map[uint]todo.DoneStates
+
+	helpOffset int // how far the "?" shortcuts dialog is scrolled, for modeHelp
+
+	pick     picker     // the open state dialog, for modeStatePick and modeStateFilter
+	pickItem *todo.Item // the task the "t" dialog sets the state of
 
 	status string // transient one-line footer message
 	err    error  // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
@@ -174,6 +182,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateForm(msg)
 		case modeConfirm:
 			return m.updateConfirm(msg)
+		case modeHelp:
+			return m.updateHelp(msg)
+		case modeStatePick:
+			return m.updateStatePick(msg)
+		case modeStateFilter:
+			return m.updateStateFilter(msg)
 		default:
 			return m.updateMain(msg)
 		}
@@ -205,6 +219,11 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.escOrQuit()
 	case "/":
 		return m.openSearch()
+	case "?":
+		m.mode, m.helpOffset = modeHelp, 0
+	case "f":
+		m.pick = newFilterPicker(m.tree.column, m.tree.states)
+		m.mode = modeStateFilter
 	case "up", "w", "k":
 		m.tree.moveUp()
 	case "down", "s", "j":
@@ -227,6 +246,27 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateHelp handles keys while the shortcuts dialog is open: ?, esc, q or
+// enter close it (q does not quit from here), the arrows and PgUp/PgDn scroll it
+// when it is taller than the terminal; everything else is ignored.
+func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	maxOff := helpMaxOffset(m.width, m.height)
+	switch msg.String() {
+	case "?", "esc", "q", "enter":
+		m.mode = modeMain
+	case "up", "w", "k":
+		m.helpOffset--
+	case "down", "s", "j":
+		m.helpOffset++
+	case "pgup":
+		m.helpOffset -= 10
+	case "pgdown":
+		m.helpOffset += 10
+	}
+	m.helpOffset = max(min(m.helpOffset, maxOff), 0)
+	return m, nil
+}
+
 // msgCategoriesInBacklog is the footer hint for a category key pressed outside
 // the Backlog tab: a category made or kept elsewhere would show only while it
 // holds that tab's tasks, so categories are managed in Backlog alone.
@@ -238,14 +278,78 @@ func (m model) categoryLocked(it *todo.Item) bool {
 	return it != nil && it.Kind == todo.Category && m.tree.column != todo.ColBacklog
 }
 
-// escOrQuit clears an active filter (dismissing the search the same way it's
-// cancelled), or quits when there is nothing to dismiss.
+// escOrQuit clears an active search (dismissing it the same way it's
+// cancelled), else the tab's state filter, or quits when there is nothing to
+// dismiss.
 func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 	if m.tree.filter != "" {
 		m.clearFilter()
 		return m, nil
 	}
+	if states := m.tree.tabStates(); len(states) > 0 {
+		m.clearTabStates()
+		return m, nil
+	}
 	return m, tea.Quit
+}
+
+// clearTabStates drops the current tab's states from the state filter (other
+// tabs keep theirs), keeping the item under the cursor selected.
+func (m *model) clearTabStates() {
+	sel := m.tree.selected()
+	next := map[todo.Status]bool{}
+	for st := range m.tree.states {
+		if st.Column() != m.tree.column {
+			next[st] = true
+		}
+	}
+	m.tree.setStates(next)
+	if sel != nil && !m.tree.onPlaceholder() {
+		m.tree.revealItem(sel)
+	}
+}
+
+// updateStatePick handles keys in the "t" dialog: the arrows move between
+// states, enter sets the highlighted one, esc or q cancels.
+func (m model) updateStatePick(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "w", "k":
+		m.pick.move(-1)
+	case "down", "s", "j":
+		m.pick.move(1)
+	case "esc", "q":
+		m.mode, m.pickItem = modeMain, nil
+	case "enter":
+		it, st := m.pickItem, m.pick.selected()
+		m.mode, m.pickItem = modeMain, nil
+		return m.setState(it, st)
+	}
+	return m, nil
+}
+
+// updateStateFilter handles keys in the "f" dialog: the arrows move, space or x
+// ticks a state, enter applies the ticked states to the tab (none ticked turns
+// the state filter off for it), esc or q cancels.
+func (m model) updateStateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "w", "k":
+		m.pick.move(-1)
+	case "down", "s", "j":
+		m.pick.move(1)
+	case " ", "x":
+		m.pick.toggle()
+	case "esc", "q":
+		m.mode = modeMain
+	case "enter":
+		m.mode = modeMain
+		m.clearTabStates()
+		next := m.tree.states
+		for st := range m.pick.checked {
+			next[st] = true
+		}
+		m.tree.setStates(next)
+	}
+	return m, nil
 }
 
 // updateMainItemKey handles the item-scoped main-view keys (add/edit/delete/
@@ -259,21 +363,17 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.openForm(targetEdit)
 	case " ":
-		// On a header (category) space expands/collapses it; on a task it toggles
-		// completion. x stays a task-only "toggle done".
+		// Space folds a category. A task's state is set only through the t dialog.
 		if sel := m.tree.selected(); sel != nil && sel.Kind == todo.Category {
 			m.tree.toggleFold()
-			return m, nil
 		}
-		return m.toggleDone()
-	case "x":
-		return m.toggleDone()
-	case "]":
+		return m, nil
+	case "p":
 		return m.shiftColumn(1)
-	case "[":
+	case "P":
 		return m.shiftColumn(-1)
 	case "t":
-		return m.cycleState()
+		return m.openStatePicker()
 	case "n":
 		return m.openForm(targetAddSibling)
 	case "N":
@@ -320,7 +420,7 @@ func (m model) startMove() (tea.Model, tea.Cmd) {
 		m.status = msgCategoriesInBacklog
 		return m, nil
 	}
-	if m.tree.filter != "" {
+	if m.tree.filtering() {
 		m.status = "Clear the filter (esc) before moving items."
 		return m, nil
 	}
@@ -631,33 +731,6 @@ func (m model) selectedItem() *todo.Item {
 	return m.tree.selected()
 }
 
-// toggleDone is x/space on a task. A subtask toggles between open and done. A
-// top-level task that isn't done is completed (see complete). A done one is
-// reopened: with the undo snapshot from completing it, back to exactly the
-// states it had, its own included; without one, to working, its subtasks
-// keeping their states.
-func (m model) toggleDone() (tea.Model, tea.Cmd) {
-	it := m.selectedItem()
-	if it == nil {
-		return m, nil
-	}
-	if !it.IsTask() {
-		m.status = "Only tasks can be completed."
-		return m, nil
-	}
-	switch {
-	case it.IsSubtask():
-		return m.toggleSubtask(it)
-	case !it.IsDone():
-		return m.complete(it)
-	}
-	st := todo.Working
-	if prev, ok := m.snapshots[it.ID][it.ID]; ok {
-		st = prev
-	}
-	return m.reopen(it, st)
-}
-
 // toggleSubtask flips subtask it between open and done. The manual change
 // invalidates its parent's undo snapshot, since reverting the parent later
 // would fight it.
@@ -675,7 +748,7 @@ func (m model) toggleSubtask(it *todo.Item) (tea.Model, tea.Cmd) {
 // complete moves top-level task it into Done and cascades done to its
 // subtasks. It first records the undo snapshot — the task's own state
 // included, even without subtasks — so an accidental complete can be undone
-// exactly (see toggleDone and reopen).
+// exactly (see openStatePicker and reopen).
 func (m model) complete(it *todo.Item) (tea.Model, tea.Cmd) {
 	id := it.ID
 	m.snapshots[id] = todo.SnapshotDone(it)
@@ -701,7 +774,7 @@ func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// shiftColumn is ]/[: it moves the selected top-level task delta columns along
+// shiftColumn is p/P: it moves the selected top-level task delta columns along
 // the board (no wrap), into the target column's first state. Into Done it
 // completes the task (cascade and undo snapshot); out of Done it reopens it,
 // restoring its subtasks from the snapshot when there is one. A subtask (it
@@ -740,10 +813,12 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// cycleState is t: it steps the selected top-level task to the next state of
-// its column (see Status.NextInColumn). Subtasks are only open or done, and
-// Done has a single state, so those get a footer hint instead.
-func (m model) cycleState() (tea.Model, tea.Cmd) {
+// openStatePicker is t: it opens the dialog that sets the selected task's state
+// (any state for a top-level task, open or done for a subtask), the cursor on
+// its current state. On a task completed in this session the cursor starts on
+// the state it had before, so t then enter undoes an accidental complete.
+// Categories have no state, so they get a footer hint instead.
+func (m model) openStatePicker() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {
 	case it == nil:
@@ -751,17 +826,33 @@ func (m model) cycleState() (tea.Model, tea.Cmd) {
 	case !it.IsTask():
 		m.status = "only tasks have a state"
 		return m, nil
+	}
+	m.pick, m.pickItem = newStatePicker(it), it
+	if prev, ok := m.snapshots[it.ID][it.ID]; ok && it.IsDone() {
+		m.pick.focus(prev)
+	}
+	m.mode = modeStatePick
+	return m, nil
+}
+
+// setState moves task it to state st, picked in the "t" dialog. A subtask
+// toggles between open and done. Into Done a top-level task completes (cascade
+// and undo snapshot), out of Done it reopens; any other change is a plain state
+// write, which may move the task to another column. Picking the current state
+// changes nothing.
+func (m model) setState(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
+	switch {
+	case it == nil || st == it.Status:
+		return m, nil
 	case it.IsSubtask():
-		m.status = "subtasks are open or done (x toggles)"
-		return m, nil
+		return m.toggleSubtask(it)
+	case st == todo.Done:
+		return m.complete(it)
+	case it.IsDone():
+		return m.reopen(it, st)
 	}
-	next := it.Status.NextInColumn()
-	if next == it.Status {
-		m.status = it.Status.Column().Title() + " has no other state"
-		return m, nil
-	}
-	it.Status = next
-	m.commit(it.ID, m.setStatusesWrite(it.ID, next))
+	it.Status = st
+	m.commitStatus(it.ID, m.setStatusesWrite(it.ID, st))
 	return m, nil
 }
 
@@ -797,7 +888,7 @@ func (m *model) noteLeftTab(id uint) bool {
 		if it.IsSubtask() {
 			task = it.Parent
 		}
-		m.status = fmt.Sprintf("moved to %s — %s", task.Status.Column().Title(), task.Status)
+		m.status = fmt.Sprintf("moved to %s — %s", task.Status.Column().Title(), task.Status.Label())
 	}
 	return true
 }
@@ -1056,6 +1147,10 @@ func (m model) View() string {
 		return placeCenter(m.mainView(true), m.form.view())
 	case modeConfirm:
 		return placeCenter(m.mainView(true), confirmModal(m.confirmQuestion(), m.confirmOnDelete, m.width))
+	case modeHelp:
+		return placeCenter(m.mainView(true), helpModal(m.width, m.height, m.helpOffset))
+	case modeStatePick, modeStateFilter:
+		return placeCenter(m.mainView(true), m.pick.view())
 	default:
 		return m.mainView(false)
 	}
@@ -1134,17 +1229,25 @@ func (m model) footer(width int) string {
 			hint("↑↓", "Move"), hint("→", "Child"), hint("←", "Sibling"), hint("m/esc", "Drop"),
 		}
 		return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
-	case m.tree.filter != "":
-		// A filter is applied but the bar is closed: show it, with how to edit/clear.
-		info := helpKeyStyle.Render("filter") + helpTextStyle.Render(": "+m.tree.filter+"  ") +
-			hint("/", "Edit") + "  " + hint("esc", "Clear")
-		return ansi.Truncate(" "+info, width, "")
+	case m.tree.filter != "" || len(m.tree.tabStates()) > 0:
+		// A search and/or state filter is applied but the bar is closed: show it,
+		// with how to edit/clear.
+		var info []string
+		if m.tree.filter != "" {
+			info = append(info, helpKeyStyle.Render("filter")+helpTextStyle.Render(": "+m.tree.filter), hint("/", "Edit"))
+		}
+		if states := m.tree.tabStates(); len(states) > 0 {
+			names := make([]string, len(states))
+			for i, st := range states {
+				names[i] = st.Label()
+			}
+			info = append(info, helpKeyStyle.Render("states")+helpTextStyle.Render(": "+strings.Join(names, ", ")), hint("f", "Edit"))
+		}
+		info = append(info, hint("esc", "Clear"))
+		return ansi.Truncate(" "+strings.Join(info, "  "), width, "")
 	}
-	parts := []string{
-		hint("↑↓", "Move"), hint("←→", "Fold"), hint("tab", "Tab"), hint("]/[", "Column"), hint("t", "State"),
-		hint("space", "Done"), hint("/", "Search"), hint("n/N", "New"), hint("c", "Cat"), hint("m", "Move"),
-		hint("enter/e", "Edit"), hint("y", "Copy"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
-	}
+	// The full key list lives in the "?" dialog; the footer only points at it.
+	parts := []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }
 
@@ -1165,7 +1268,7 @@ func itemMeta(it *todo.Item) string {
 	if it.IsSubtask() && it.Parent != nil {
 		col = it.Parent.Status.Column() // a subtask sits in its parent's column
 	}
-	status := st.Render(glyph + " " + col.Title() + " · " + it.Status.String())
+	status := st.Render(glyph + " " + col.Title() + " · " + it.Status.Label())
 	if done, total := it.TaskCounts(); total > 0 {
 		status += helpTextStyle.Render("  ·  ") + labelStyle.Render("Subtasks") + helpTextStyle.Render(fmt.Sprintf(" %d/%d done", done, total))
 	}

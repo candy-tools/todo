@@ -38,6 +38,7 @@ const (
 	Ready    Status = 5
 	Review   Status = 6
 	Followup Status = 7
+	WontDo   Status = 8 // a Backlog task that will not be done; it never counts as complete
 )
 
 // Column is a kanban column: a group of statuses. Columns are derived from a
@@ -54,6 +55,7 @@ const (
 var statusNames = map[Status]string{
 	Open: "open", Working: "working", Deferred: "deferred", Done: "done",
 	New: "new", Ready: "ready", Review: "review", Followup: "followup",
+	WontDo: "wontdo",
 }
 
 // String returns the lowercase state name used by the CLI (JSON output and the
@@ -63,6 +65,15 @@ func (s Status) String() string {
 		return n
 	}
 	return fmt.Sprintf("status(%d)", int(s))
+}
+
+// Label returns the state's human-readable name for display, e.g. "won't do"
+// for WontDo; for every other state it is the same as String.
+func (s Status) Label() string {
+	if s == WontDo {
+		return "won't do"
+	}
+	return s.String()
 }
 
 // Marker returns the checkbox marker char for the status, e.g. "x" for Done, or
@@ -115,29 +126,6 @@ func (s Status) Column() Column {
 // only ever Open or Done. It does not limit which tasks hold subtasks; a task
 // in any state (Working, for one) may.
 func (s Status) SubtaskAllowed() bool { return s == Open || s == Done }
-
-// NextInColumn returns the next state within the same column, cycling:
-// open↔deferred, new↔ready, working→review→followup→working. Done and unknown
-// values map to themselves.
-func (s Status) NextInColumn() Status {
-	switch s {
-	case Open:
-		return Deferred
-	case Deferred:
-		return Open
-	case New:
-		return Ready
-	case Ready:
-		return New
-	case Working:
-		return Review
-	case Review:
-		return Followup
-	case Followup:
-		return Working
-	}
-	return s
-}
 
 // Columns returns the four columns in board order.
 func Columns() []Column { return []Column{ColBacklog, ColNext, ColInProgress, ColDone} }
@@ -192,7 +180,7 @@ func (c Column) States() []Status {
 	case ColDone:
 		return []Status{Done}
 	}
-	return []Status{Open, Deferred}
+	return []Status{Open, Deferred, WontDo}
 }
 
 // FirstState returns the state a task takes when it enters the column.

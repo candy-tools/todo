@@ -51,6 +51,12 @@ type tree struct {
 	// visibleItems), ignores the collapse state so matches inside collapsed
 	// parents surface, and drops the placeholder row.
 	filter string
+	// states is the state filter picked with "f": when it holds any of the tab's
+	// states, the tab shows only top-level tasks in those states (with their
+	// subtasks and category paths). Columns have disjoint states, so one set
+	// serves every tab: each tab only looks at its own states. Kept across tab
+	// switches, like filter.
+	states map[todo.Status]bool
 	// grabbed is true while the item under the cursor is "picked up" for moving:
 	// the arrow keys reorder/re-nest it instead of navigating, and its row is
 	// drawn with the grabbed marker (see rowString).
@@ -76,6 +82,30 @@ func newTree(doc *todo.Document) tree {
 // (spaces only) filters nothing, as in todo.VisibleItems.
 func (t *tree) searching() bool { return strings.TrimSpace(t.filter) != "" }
 
+// tabStates returns the states of the state filter that belong to the current
+// tab, in the column's order; empty when the state filter is off for this tab.
+func (t *tree) tabStates() []todo.Status {
+	var out []todo.Status
+	for _, st := range t.column.States() {
+		if t.states[st] {
+			out = append(out, st)
+		}
+	}
+	return out
+}
+
+// filtering reports whether the tab's rows are narrowed, by a search query or by
+// the state filter. A filtered view ignores folds and drops the placeholder row.
+func (t *tree) filtering() bool { return t.searching() || len(t.tabStates()) > 0 }
+
+// setStates replaces the state filter (nil or empty clears it) and rebuilds,
+// resetting the cursor to the first row.
+func (t *tree) setStates(states map[todo.Status]bool) {
+	t.states = states
+	t.cursor = 0
+	t.rebuild()
+}
+
 // shownBefore counts the items the tab showed at the last rebuild that come
 // before it in document order. A move that changes the count has carried it
 // past a shown row.
@@ -94,9 +124,14 @@ func (t *tree) shownBefore(it *todo.Item) int {
 
 // visibleItems returns the items the current tab shows: the column's items
 // and, while searching, only those on a path to a match that is itself in the
-// tab (see todo.Document.ColumnMatches).
+// tab (see todo.Document.ColumnMatches), narrowed to the state filter when it
+// is on for the tab (see todo.Document.KeepStates).
 func (t *tree) visibleItems() map[*todo.Item]bool {
-	return t.doc.ColumnMatches(t.column, t.filter)
+	vis := t.doc.ColumnMatches(t.column, t.filter)
+	if len(t.tabStates()) > 0 {
+		vis = t.doc.KeepStates(vis, t.column, t.states)
+	}
+	return vis
 }
 
 // foldable reports whether it has a child the tab shows (folded or not), so it
@@ -119,7 +154,7 @@ func (t *tree) foldable(it *todo.Item) bool {
 func (t *tree) rebuild() {
 	t.rows = t.rows[:0]
 	t.shown = t.visibleItems()
-	searching := t.searching()
+	searching := t.filtering()
 	var walk func(items []*todo.Item, depth int)
 	walk = func(items []*todo.Item, depth int) {
 		for _, it := range items {
@@ -222,7 +257,7 @@ func (t *tree) adopt(doc *todo.Document, focusID uint, onPlaceholder bool) {
 	if t.selectID(focusID) {
 		return
 	}
-	if onPlaceholder && !t.searching() {
+	if onPlaceholder && !t.filtering() {
 		t.cursor = len(t.rows) - 1
 		t.reconcileOffset()
 	}
@@ -347,7 +382,7 @@ func (t *tree) expand() {
 func (t *tree) view(width, height int) string {
 	if len(t.rows) == 0 {
 		empty := "nothing in "
-		if t.searching() {
+		if t.filtering() {
 			empty = "no matches in "
 		}
 		return "  " + helpTextStyle.Render(empty+t.column.Title())
@@ -400,7 +435,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	if t.foldable(r.item) {
 		fold = "▾ "
 		// A filtered view expands everything, so never show a collapsed caret.
-		if t.collapsed[r.item.ID] && !t.searching() {
+		if t.collapsed[r.item.ID] && !t.filtering() {
 			fold = "▸ "
 		}
 	}
@@ -444,7 +479,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	}
 	state := ""
 	if !subtask {
-		state = " " + r.item.Status.String()
+		state = " " + r.item.Status.Label()
 		if done, total := r.item.TaskCounts(); total > 0 {
 			state += fmt.Sprintf(" (%d/%d)", done, total)
 		}

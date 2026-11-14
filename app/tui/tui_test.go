@@ -7,6 +7,7 @@ import (
 	"github.com/candy-tools/todo/app/metainfo"
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestNavigateAndSelect(t *testing.T) {
@@ -45,8 +46,8 @@ func TestEnterOpensEditDialog(t *testing.T) {
 }
 
 func TestToggleLeafPersists(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(m, "down", "space")
+	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
+	m = pickState(t, press(m, "down"), todo.Done)
 	if !find(m.doc, "a").IsDone() {
 		t.Errorf("task should be done in memory")
 	}
@@ -56,11 +57,11 @@ func TestToggleLeafPersists(t *testing.T) {
 }
 
 func TestCascadeCompleteAndRevert(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [x] c2\n")
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [x] c2\n", todo.ColInProgress)
 	m = press(m, "down") // select parent
 
 	// Mark the parent done: everything cascades to done.
-	m = press(m, "space")
+	m = pickState(t, m, todo.Done)
 	for _, tt := range []string{"parent", "c1", "c2"} {
 		if !find(m.doc, tt).IsDone() {
 			t.Fatalf("%s should be done after cascade", tt)
@@ -69,7 +70,7 @@ func TestCascadeCompleteAndRevert(t *testing.T) {
 
 	// Unmark the parent: children restore to the prior mixed state.
 	m = showOn(t, m, todo.ColDone, "parent")
-	m = press(m, "space")
+	m = press(m, "t", "enter") // t starts on the parent's prior state: enter undoes
 	if find(m.doc, "parent").IsDone() {
 		t.Errorf("parent should be undone")
 	}
@@ -82,15 +83,15 @@ func TestCascadeCompleteAndRevert(t *testing.T) {
 }
 
 func TestManualChildToggleInvalidatesSnapshot(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [ ] c2\n")
-	m = press(m, "down")  // parent
-	m = press(m, "space") // cascade all done (snapshot: all were false)
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n", todo.ColInProgress)
+	m = press(m, "down")           // parent
+	m = pickState(t, m, todo.Done) // cascade all done (snapshot: all were false)
 
-	m = showOn(t, m, todo.ColDone, "c1") // the done parent and its subtasks left Backlog
-	m = press(m, "space")                // manual toggle c1 off -> invalidates parent's snapshot
+	m = showOn(t, m, todo.ColDone, "c1") // the done parent and its subtasks left In Progress
+	m = pickState(t, m, todo.Open)       // manual toggle c1 off -> invalidates parent's snapshot
 
-	m = press(m, "up")    // parent
-	m = press(m, "space") // unmark parent (no snapshot now)
+	m = press(m, "up")                // parent
+	m = pickState(t, m, todo.Working) // unmark parent (no snapshot now)
 
 	if find(m.doc, "parent").IsDone() {
 		t.Errorf("parent should be undone")
@@ -121,9 +122,9 @@ func TestSpaceFoldsCategory(t *testing.T) {
 
 func TestCompleteCategoryIsNoOp(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(m, "x") // x still means "toggle done", which a category can't be
-	if m.status == "" {
-		t.Errorf("expected a status message explaining categories can't be completed")
+	m = press(m, "t") // a category has no state to set
+	if m.mode != modeMain || m.status == "" {
+		t.Errorf("expected a status message explaining categories have no state, mode %v", m.mode)
 	}
 }
 
@@ -517,10 +518,9 @@ func TestDeleteAfterCancelledClear(t *testing.T) {
 	}
 }
 
-func TestFooterShowsClearDoneHint(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [x] a\n")
-	if got := m.footer(200); !strings.Contains(got, "Clear") {
-		t.Errorf("footer should advertise the clear-done shortcut:\n%s", got)
+func TestHelpShowsClearDoneKey(t *testing.T) {
+	if got := ansi.Strip(helpModal(200, 60, 0)); !strings.Contains(got, "Remove every completed task") {
+		t.Errorf("help dialog should list the clear-done shortcut:\n%s", got)
 	}
 }
 

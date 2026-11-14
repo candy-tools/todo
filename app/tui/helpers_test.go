@@ -133,3 +133,22 @@ func find(d *todo.Document, title string) *todo.Item {
 	walk(d.Roots)
 	return out
 }
+
+// pickState sets the selected task's state through the t dialog: it opens the
+// picker, puts the cursor on st and presses enter. It fails the test when the
+// dialog doesn't open or doesn't offer st.
+func pickState(t *testing.T, m model, st todo.Status) model {
+	t.Helper()
+	m = press(m, "t")
+	if m.mode != modeStatePick {
+		t.Fatalf("t should open the state dialog, mode = %v", m.mode)
+	}
+	for i, r := range m.pick.rows {
+		if r.header == "" && r.state == st {
+			m.pick.cursor = i
+			return press(m, "enter")
+		}
+	}
+	t.Fatalf("the state dialog doesn't offer %v", st)
+	return m
+}

@@ -39,7 +39,7 @@ func setStatus(cmd *cobra.Command, verb string, target func(*todo.Item) todo.Sta
 }
 
 // statusNames lists the accepted state names for flag help and error messages.
-const statusNames = "open|working|deferred|done|new|ready|review|followup"
+const statusNames = "open|working|deferred|done|new|ready|review|followup|wontdo"
 
 // fixed is a target that does not depend on the item.
 func fixed(st todo.Status) func(*todo.Item) todo.Status {

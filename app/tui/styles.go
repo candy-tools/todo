@@ -77,9 +77,9 @@ func highlight(s, query string, base lipgloss.Style) string {
 }
 
 // statusGlyph returns a task's glyph and its colour for status st. The glyphs
-// extend the circle family: open ○, deferred ⏸, new ◌, ready ◉, working ◐,
-// review ◑, followup ◒, done ●. A subtask is only ever open or done, so it shows
-// ○ or ●; an unknown status reads as open.
+// extend the circle family: open ○, deferred ⏸, won't do ⊘, new ◌, ready ◉,
+// working ◐, review ◑, followup ◒, done ●. A subtask is only ever open or done,
+// so it shows ○ or ●; an unknown status reads as open.
 func statusGlyph(st todo.Status, subtask bool) (string, lipgloss.Style) {
 	if subtask {
 		if st == todo.Done {
@@ -90,6 +90,8 @@ func statusGlyph(st todo.Status, subtask bool) (string, lipgloss.Style) {
 	switch st {
 	case todo.Deferred:
 		return "⏸", deferStyle
+	case todo.WontDo:
+		return "⊘", helpTextStyle
 	case todo.New:
 		return "◌", nextStyle
 	case todo.Ready:

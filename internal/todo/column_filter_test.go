@@ -106,3 +106,18 @@ func TestColumnMatchesOnlyInTab(t *testing.T) {
 		"D": true, "betaWork": true, "s": true,
 	})
 }
+
+func TestKeepStates(t *testing.T) {
+	d := parse("# A\n- [ ] open\n  - [ ] sub\n- [>] deferred\n# B\n- [ ] other\n# Empty\n")
+	vis := d.KeepStates(d.ColumnItems(todo.ColBacklog), todo.ColBacklog, map[todo.Status]bool{todo.Open: true})
+	for _, title := range []string{"A", "open", "sub", "B", "other"} {
+		if !vis[findByTitle(d, title)] {
+			t.Errorf("%q should be kept", title)
+		}
+	}
+	for _, title := range []string{"deferred", "Empty"} {
+		if vis[findByTitle(d, title)] {
+			t.Errorf("%q should be dropped", title)
+		}
+	}
+}

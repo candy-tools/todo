@@ -118,6 +118,21 @@ func (d *Document) ColumnMatches(c Column, query string) map[*Item]bool {
 	return vis
 }
 
+// KeepStates narrows vis, a tab's visible set for column c (see ColumnItems and
+// ColumnMatches), to the top-level tasks of c whose status is in states, their
+// subtasks and the category path above them. Categories left without such a
+// task drop out. It returns a new map and leaves vis untouched.
+func (d *Document) KeepStates(vis map[*Item]bool, c Column, states map[Status]bool) map[*Item]bool {
+	keep := d.VisibleWhere(func(it *Item) bool { return inColumn(it, c) && states[it.Status] })
+	out := make(map[*Item]bool, len(keep))
+	for it := range keep {
+		if vis[it] {
+			out[it] = true
+		}
+	}
+	return out
+}
+
 // ColumnCounts counts the top-level tasks in each board column.
 func (d *Document) ColumnCounts() map[Column]int {
 	counts := map[Column]int{}
