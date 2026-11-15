@@ -160,3 +160,33 @@ func TestWriteRefusesReplacedFile(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadRevisionMatchesTree(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	other, err := OpenStore(s.Path())
+	if err != nil {
+		t.Fatalf("OpenStore second handle: %v", err)
+	}
+	t.Cleanup(func() { _ = other.Close() })
+	before, err := s.Revision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	loadBetweenReads = func() {
+		loadBetweenReads = nil
+		if _, err := other.AppendCategory(ctx, "external", 0); err != nil {
+			t.Errorf("external write: %v", err)
+		}
+	}
+	t.Cleanup(func() { loadBetweenReads = nil })
+
+	doc, rev, err := s.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := len(doc.Roots); (rev == before) != (got == 0) {
+		t.Fatalf("Load = %d roots at revision %d (before the external write: %d); want the tree and revision from one snapshot", got, rev, before)
+	}
+}

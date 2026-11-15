@@ -204,15 +204,28 @@ func revisionIn(ctx context.Context, db *gorm.DB) (int64, error) {
 	return m.Revision, nil
 }
 
-// Load reads the whole list and the revision it reflects. The revision is read
-// first, without a transaction: a write landing in between only makes the
-// caller reload once more later, never miss a change.
+// loadBetweenReads, when set by a test, runs in Load between the revision read
+// and the tree read, so a test can land a write from another handle there.
+var loadBetweenReads func()
+
+// Load reads the whole list and the revision it reflects. Both are read in one
+// transaction on the read-only pool, which begins deferred (not holding the
+// writer) and whose first read fixes the snapshot (SQLite WAL), so a write
+// landing in between cannot pair a newer tree with an older revision.
 func (s *Store) Load(ctx context.Context) (*Document, int64, error) {
-	rev, err := revisionIn(ctx, s.db)
-	if err != nil {
-		return nil, 0, err
-	}
-	doc, err := loadDocument(ctx, s.db)
+	var doc *Document
+	var rev int64
+	err := s.db.WithContext(ctx).Clauses(gormdb.Read).Transaction(func(tx *gorm.DB) error {
+		var err error
+		if rev, err = revisionIn(ctx, tx); err != nil {
+			return err
+		}
+		if loadBetweenReads != nil {
+			loadBetweenReads()
+		}
+		doc, err = loadDocument(ctx, tx)
+		return err
+	})
 	if err != nil {
 		return nil, 0, err
 	}
