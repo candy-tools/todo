@@ -18,6 +18,24 @@ var badTitles = map[string]string{
 	"c1":        "a\u009bb",
 	"overlong":  strings.Repeat("x", MaxTitleLen+1),
 	"overlong2": strings.Repeat("é", MaxTitleLen+1),
+	"rlo":       "abc\u202edef",
+	"lre":       "abc\u202adef",
+	"lri":       "abc\u2066def",
+	"pdi":       "abc\u2069def",
+	"lineSep":   "a\u2028b",
+	"paraSep":   "a\u2029b",
+	"bom":       "a\ufeffb",
+}
+
+// TestCleanTitleKeepsJoinersAndSoftHyphen checks the format characters that
+// legitimate titles use (ZWJ emoji sequences, ZWNJ, soft hyphen) are accepted.
+func TestCleanTitleKeepsJoinersAndSoftHyphen(t *testing.T) {
+	for _, title := range []string{"👨\u200d👩\u200d👧", "می\u200cخواهم", "co\u00adop"} {
+		got, err := CleanTitle(title)
+		if err != nil || got != title {
+			t.Errorf("CleanTitle(%q) = %q, %v; want it unchanged", title, got, err)
+		}
+	}
 }
 
 func TestAddCategoryRejectsInvalidTitles(t *testing.T) {
@@ -93,6 +111,7 @@ func TestImportMarkdownSanitizesTitles(t *testing.T) {
 		"- [ ] t\r\n" +
 		"- [ ] bad\x1b]0;pwned\x07\n" +
 		"- [ ] tab\there\n" +
+		"- [ ] rl\u202eo\u2066x\u2069\u2028y\u2029\ufeff 👨\u200d👩\u200d👧\n" +
 		"- [ ] " + strings.Repeat("x", MaxTitleLen+5) + "\n" +
 		"- [ ] \n" +
 		"#  \n"
@@ -104,7 +123,7 @@ func TestImportMarkdownSanitizesTitles(t *testing.T) {
 		t.Fatalf("roots = %d, want 2", len(doc.Roots))
 	}
 	got := titles(doc.Roots[0].Children)
-	want := []string{"t", "bad]0;pwned", "tab here", strings.Repeat("x", MaxTitleLen), untitled}
+	want := []string{"t", "bad]0;pwned", "tab here", "rloxy 👨\u200d👩\u200d👧", strings.Repeat("x", MaxTitleLen), untitled}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("task titles = %q, want %q", got, want)
 	}
@@ -114,9 +133,10 @@ func TestImportMarkdownSanitizesTitles(t *testing.T) {
 	wantWarn := []string{
 		"line 3: control characters removed from the title",
 		"line 4: control characters removed from the title",
-		"line 5: title cut to 200 characters",
-		`line 6: empty title replaced with "Untitled"`,
+		"line 5: control characters removed from the title",
+		"line 6: title cut to 200 characters",
 		`line 7: empty title replaced with "Untitled"`,
+		`line 8: empty title replaced with "Untitled"`,
 	}
 	if strings.Join(rep.Warnings, "\n") != strings.Join(wantWarn, "\n") {
 		t.Errorf("warnings = %q\nwant %q", rep.Warnings, wantWarn)
@@ -129,12 +149,15 @@ func TestImportMarkdownSanitizesTitles(t *testing.T) {
 
 func TestPrintable(t *testing.T) {
 	for in, want := range map[string]string{
-		"plain":                  "plain",
-		"a\tb":                   "a b",
-		"x\x1b[31my\x1b]0;t\x07": "x[31my]0;t",
-		"c1\u009bz\x7f":          "c1z",
-		"line\r\nnext":           "linenext",
-		"ünï ✓":                  "ünï ✓",
+		"plain":                          "plain",
+		"a\tb":                           "a b",
+		"x\x1b[31my\x1b]0;t\x07":         "x[31my]0;t",
+		"c1\u009bz\x7f":                  "c1z",
+		"line\r\nnext":                   "linenext",
+		"ünï ✓":                          "ünï ✓",
+		"abc\u202edef\u202a\u2066\u2069": "abcdef",
+		"p\u2028q\u2029r\ufeff":          "pqr",
+		"👨\u200d👩\u200d👧 co\u00adop":     "👨\u200d👩\u200d👧 co\u00adop",
 	} {
 		if got := Printable(in); got != want {
 			t.Errorf("Printable(%q) = %q, want %q", in, got, want)
