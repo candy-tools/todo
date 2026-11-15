@@ -1084,7 +1084,8 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // submitForm applies the open form: editing the selected item, or inserting a
 // new task/subtask/category at the right spot. The insert is first made in
-// memory, which works out its placement, and then stored there. An empty title
+// memory, which works out its parent (and a category's placement), and then
+// stored there; the store appends a task after its parent's last task. An empty title
 // is ignored (the dialog stays open). Any structural or content change clears
 // the undo snapshots — the accidental-complete window is meant to be immediate.
 func (m model) submitForm() (tea.Model, tea.Cmd) {
@@ -1149,6 +1150,8 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		added.Status = m.view.newTaskState()
 	}
 
+	// A task goes after its parent's last task as the store finds it when it
+	// writes, so a sibling another process moved or deleted does not matter.
 	parentID, afterID := m.doc.Placement(added)
 	var newID uint
 	m.commit(0, func(ctx context.Context) error {
@@ -1156,7 +1159,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		if added.Kind == todo.Category {
 			newID, err = m.store.AddCategory(ctx, title, parentID, afterID)
 		} else {
-			newID, err = m.store.AddTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, added.Status, parentID, afterID)
+			newID, err = m.store.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, added.Status, parentID)
 		}
 		return err
 	})

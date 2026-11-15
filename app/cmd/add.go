@@ -34,19 +34,14 @@ func addCmd() *cobra.Command {
 					return usageErr(fmt.Sprintf("invalid --status %q (%s)", statusName, statusNames))
 				}
 				plan, _ := cmd.Flags().GetString("plan")
-				task := &todo.Item{Kind: todo.Task, Title: title, Description: desc, Plan: plan, Status: st}
-				switch parent.Kind {
-				case todo.Category:
-					parent.AppendTask(task)
-				default: // Task
-					parent.AppendChild(task)
-				}
-				parentID, afterID := doc.Placement(task)
+				task := &todo.Item{Kind: todo.Task, Title: title, Status: st, Parent: parent}
 				s, err := open()
 				if err != nil {
 					return err
 				}
-				if _, err := s.AddTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parentID, afterID); err != nil {
+				// The store places the task after the parent's last task as the tree
+				// is when it writes, so a sibling changed meanwhile does not matter.
+				if _, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parent.ID); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), task.Title, categoryPath(task))

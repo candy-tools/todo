@@ -149,3 +149,14 @@ func TestStoreTreeRuleIsWrongKind(t *testing.T) {
 		}
 	}
 }
+
+// A store conflict (the tree changed under the command since it read it)
+// surfaces as the CLI's conflict error with the store's message.
+func TestStoreConflictIsConflict(t *testing.T) {
+	t.Chdir(t.TempDir())
+	c := newRootCommand()
+	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrConflict })
+	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrConflict.Error() {
+		t.Errorf("withStore with ErrConflict = %v, want a conflict error with its message", err)
+	}
+}

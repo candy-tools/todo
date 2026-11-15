@@ -29,6 +29,12 @@ var ErrWrongParent = errors.New("a task must sit under a category and a category
 // only a task has a status.
 var ErrNotTask = errors.New("only a task has a status")
 
+// ErrConflict is returned by a write whose placement no longer fits the tree
+// it finds: the sibling it names to place an item after is no longer under that
+// parent, or a move would put an item under itself. It usually means another
+// process changed the list since the caller read it.
+var ErrConflict = errors.New("the list changed since it was read; reload and try again")
+
 // Fields are the editable text fields of an item. A category uses Title only.
 type Fields struct {
 	Title       string
@@ -51,7 +57,8 @@ type Changes struct {
 // sibling group runs out of room, its renormalization. Nothing in fn may use
 // s.db: the SQLite writer is one connection, already held by tx. A store a
 // newer todo has upgraded is refused with ErrNewerSchema before fn runs, and one
-// whose file was removed or replaced with ErrFileReplaced.
+// whose file was removed or replaced with ErrFileReplaced. Closure-tree's
+// missing-node errors become ErrNotFound, and its placement errors ErrConflict.
 func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretree.Tree) error) error {
 	if err := s.CheckFile(); err != nil {
 		return err
@@ -61,6 +68,9 @@ func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretre
 	})
 	if errors.Is(err, closuretree.ErrNodeNotFound) || errors.Is(err, closuretree.ErrParentNotFound) {
 		return ErrNotFound
+	}
+	if errors.Is(err, closuretree.ErrInvalidAfterNode) || errors.Is(err, closuretree.ErrInvalidMove) {
+		return ErrConflict
 	}
 	return err
 }
@@ -194,6 +204,25 @@ func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID
 // with a state other than Open or Done, with ErrSubtaskStatus. A title
 // CleanTitle refuses fails it with ErrInvalidTitle.
 func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afterID uint) (uint, error) {
+	return s.addTask(ctx, f, st, parentID, func(context.Context, *closuretree.Tree) (uint, error) {
+		return afterID, nil
+	})
+}
+
+// AppendTask adds a task like AddTask, placed after the last task child of
+// parentID and before any subcategory, as the tree is at write time: a sibling
+// another process moved or deleted since the caller read the tree cannot make
+// the add fail.
+func (s *Store) AppendTask(ctx context.Context, f Fields, st Status, parentID uint) (uint, error) {
+	return s.addTask(ctx, f, st, parentID, func(ctx context.Context, tree *closuretree.Tree) (uint, error) {
+		return lastTaskChild(ctx, tree, parentID)
+	})
+}
+
+// addTask is AddTask with the sibling to place the task after worked out by
+// after, inside the write's transaction.
+func (s *Store) addTask(ctx context.Context, f Fields, st Status, parentID uint,
+	after func(context.Context, *closuretree.Tree) (uint, error)) (uint, error) {
 	title, err := CleanTitle(f.Title)
 	if err != nil {
 		return 0, err
@@ -210,12 +239,34 @@ func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afte
 		if underTask && !st.SubtaskAllowed() {
 			return ErrSubtaskStatus
 		}
+		afterID, err := after(ctx, tree)
+		if err != nil {
+			return err
+		}
 		return addRow(ctx, tree, row, parentID, afterID)
 	})
 	if err != nil {
 		return 0, err
 	}
 	return row.NodeId, nil
+}
+
+// lastTaskChild returns the ID of the last task among parentID's children that
+// precede its first subcategory (0 when there is none), reading the tree
+// through tree (bound to the write's transaction).
+func lastTaskChild(ctx context.Context, tree *closuretree.Tree, parentID uint) (uint, error) {
+	var children []dbItem
+	if err := tree.Descendants(ctx, parentID, 1, storeScope, &children); err != nil {
+		return 0, err
+	}
+	var afterID uint
+	for _, c := range children {
+		if Kind(c.Kind) == Category {
+			break
+		}
+		afterID = c.NodeId
+	}
+	return afterID, nil
 }
 
 // itemRows scopes a query to the rows of the store's tree with the given IDs.

@@ -606,3 +606,95 @@ func TestStatusOnCategoryIsNotTask(t *testing.T) {
 		t.Fatalf("task status after the rejected writes = %v, want open", got.Status)
 	}
 }
+
+// An add whose sibling was moved away by another process since the caller
+// read the tree is a conflict, not a raw closure-tree error.
+func TestAddAfterMovedSiblingIsConflict(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addSample(t, s)
+	mustOK(t, s.Move(ctx, ids.t2, ids.B, 0)) // another process moves t2 away
+
+	rejects(t, s, ErrConflict, func() error {
+		_, err := s.AddTask(ctx, Fields{Title: "t3"}, Open, ids.A, ids.t2)
+		return err
+	})
+	rejects(t, s, ErrConflict, func() error {
+		_, err := s.AddCategory(ctx, "C", ids.A, ids.t2)
+		return err
+	})
+	rejects(t, s, ErrConflict, func() error { return s.Move(ctx, ids.t1, ids.A, ids.t2) })
+}
+
+// Moving a category under its own descendant is a conflict.
+func TestMoveUnderOwnDescendantIsConflict(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addSample(t, s)
+	rejects(t, s, ErrConflict, func() error { return s.Move(ctx, ids.A, ids.B, 0) })
+}
+
+// AppendTask places the task after the last task child of its parent, before
+// any subcategory, as the tree is at write time.
+func TestAppendTaskPlacesAfterLastTask(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addSample(t, s)
+	mustOK(t, s.Move(ctx, ids.t2, ids.B, 0)) // another process moves t2 away
+
+	t3 := mustID(t)(s.AppendTask(ctx, Fields{Title: "t3", Description: "d3", Plan: "p3"}, Working, ids.A))
+	doc := load(t, s)
+	if got, want := titles(item(t, doc, ids.A).Children), []string{"t1", "t3", "B"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("A's children = %v, want %v", got, want)
+	}
+	if got := item(t, doc, t3); got.Status != Working || got.Description != "d3" || got.Plan != "p3" {
+		t.Fatalf("t3 = %+v; want working task described d3 with plan p3", got)
+	}
+
+	// Only a subcategory: the task goes first. No children: it is the only one.
+	mustID(t)(s.AppendTask(ctx, Fields{Title: "u"}, Open, mustID(t)(s.AddCategory(ctx, "D", 0, ids.A))))
+	c := mustID(t)(s.AddCategory(ctx, "E", 0, 0))
+	sub := mustID(t)(s.AddCategory(ctx, "Esub", c, 0))
+	mustID(t)(s.AppendTask(ctx, Fields{Title: "e1"}, Open, c))
+	// Under a task: a subtask, appended after the last one.
+	mustID(t)(s.AppendTask(ctx, Fields{Title: "s3"}, Done, ids.t1))
+	mustID(t)(s.AppendTask(ctx, Fields{Title: "s4"}, Open, ids.t1))
+
+	doc = load(t, s)
+	if got, want := titles(item(t, doc, c).Children), []string{"e1", "Esub"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("E's children = %v, want %v", got, want)
+	}
+	if item(t, doc, sub).Parent.ID != c {
+		t.Fatalf("Esub moved away from E")
+	}
+	if got, want := titles(item(t, doc, ids.t1).Children), []string{"s3", "s4"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("t1's children = %v, want %v", got, want)
+	}
+}
+
+// AppendTask keeps the store's tree rules.
+func TestAppendTaskRules(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	tt := addTaskTree(t, s, Open)
+	rejects(t, s, ErrWrongParent, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, 0)
+		return err
+	})
+	rejects(t, s, ErrTooDeep, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, tt.sub)
+		return err
+	})
+	rejects(t, s, ErrSubtaskStatus, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Working, tt.task)
+		return err
+	})
+	rejects(t, s, ErrNotFound, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, 999)
+		return err
+	})
+	rejects(t, s, ErrInvalidTitle, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: " "}, Open, tt.C)
+		return err
+	})
+}

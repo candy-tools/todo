@@ -24,6 +24,7 @@ const (
 	exitNotFound  = 3
 	exitAmbiguous = 4
 	exitWrongKind = 5
+	exitConflict  = 6
 )
 
 // cliError carries an exit code alongside its message so Execute can exit with

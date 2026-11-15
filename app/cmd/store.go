@@ -118,7 +118,8 @@ type storeOpener func() (*todo.Store, error)
 // it. fn calls open only once it is about to write, so a command that fails
 // earlier — a selector that matches nothing, a usage error — never creates the
 // store. The store is closed afterwards. A store ErrNotFound becomes the CLI's
-// not-found error, and a store ErrWrongParent or ErrNotTask its wrong-kind one.
+// not-found error, a store ErrWrongParent or ErrNotTask its wrong-kind one, and
+// a store ErrConflict its conflict one.
 func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener, doc *todo.Document) error) error {
 	path, isDefault, err := resolvePath(cmd, nil)
 	if err != nil {
@@ -154,6 +155,9 @@ func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener
 		}
 		if errors.Is(err, todo.ErrWrongParent) || errors.Is(err, todo.ErrNotTask) {
 			return &cliError{exitWrongKind, err.Error()}
+		}
+		if errors.Is(err, todo.ErrConflict) {
+			return &cliError{exitConflict, err.Error()}
 		}
 		return err
 	}

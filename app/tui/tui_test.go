@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -605,5 +607,52 @@ func TestVimAliasesRemoved(t *testing.T) {
 	h := press(send(m, tea.WindowSizeMsg{Width: 100, Height: 10}), "?", "j")
 	if h.helpOffset != 0 {
 		t.Errorf("j scrolled the help dialog to %d", h.helpOffset)
+	}
+}
+
+// A task added after another process moved the category's last task away still
+// lands after the category's last task: the store works the placement out when
+// it writes, not from the view's stale copy of the tree.
+func TestAddTaskAfterExternallyMovedSibling(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n\n## Sub\n")
+	other := openSecond(t, path)
+	doc, _, err := other.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Move(context.Background(), find(doc, "b").ID, find(doc, "Sub").ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "n") // Work is selected
+	m = typeText(m, "c")
+	m = press(m, "enter")
+	if m.err != nil {
+		t.Fatalf("add after an external move failed: %v", m.err)
+	}
+	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] a\n- [ ] c\n\n## Sub\n\n- [ ] b\n"; got != want {
+		t.Errorf("store:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A write whose placement another process made stale shows the store's
+// conflict in the footer.
+func TestStalePlacementShowsConflict(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n# Home\n")
+	other := openSecond(t, path)
+	doc, _, err := other.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Delete(context.Background(), find(doc, "Home").ID); err != nil {
+		t.Fatal(err)
+	}
+	for !m.tree.onPlaceholder() {
+		m = press(m, "down")
+	}
+	m = press(m, "c")
+	m = typeText(m, "Later")
+	m = press(m, "enter")
+	if !errors.Is(m.err, todo.ErrConflict) || !strings.Contains(m.footer(200), "save failed: "+todo.ErrConflict.Error()) {
+		t.Errorf("err = %v, footer = %q; want the store's conflict", m.err, m.footer(200))
 	}
 }
