@@ -8,7 +8,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -825,13 +824,10 @@ func (m model) toggleSubtask(it *todo.Item) (tea.Model, tea.Cmd) {
 // exactly (see openStatePicker and reopen).
 func (m model) complete(it *todo.Item) (tea.Model, tea.Cmd) {
 	id := it.ID
+	cascade := len(it.Children) > 0
 	m.snapshots[id] = todo.SnapshotDone(it)
-	write := m.setStatusesWrite(id, todo.Done)
-	if len(it.Children) > 0 {
-		write = func(ctx context.Context) error { return m.store.CascadeStatus(ctx, id, todo.Done) }
-	}
 	todo.CascadeSetDone(it, true)
-	m.commitStatus(id, write)
+	m.commitStatus(id, func(ctx context.Context) error { return m.store.Complete(ctx, id, cascade) })
 	return m, nil
 }
 
@@ -839,12 +835,13 @@ func (m model) complete(it *todo.Item) (tea.Model, tea.Cmd) {
 // snapshot from completing it, its subtasks get their snapshot states back;
 // without one they keep theirs. The snapshot is used up either way.
 func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
-	states := map[uint]todo.Status{}
-	maps.Copy(states, m.snapshots[it.ID])
-	delete(m.snapshots, it.ID)
-	states[it.ID] = st
-	m.doc.ApplyStatuses(states)
-	m.commitStatus(it.ID, func(ctx context.Context) error { return m.store.SetStatuses(ctx, states) })
+	id := it.ID
+	restore := m.snapshots[id]
+	delete(m.snapshots, id)
+	m.doc.ApplyStatuses(todo.ReopenStates(id, st, restore))
+	m.commitStatus(id, func(ctx context.Context) error {
+		return m.store.Reopen(ctx, id, st, todo.ReopenOptions{Restore: restore})
+	})
 	return m, nil
 }
 
