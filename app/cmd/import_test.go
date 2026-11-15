@@ -66,3 +66,19 @@ func TestImportCmdForceNamesBackup(t *testing.T) {
 		t.Errorf("backup holds %q", got)
 	}
 }
+
+// An import that gives up waiting for another todo's writer lock fails with
+// the CLI's conflict error and the store's busy message, like the other write
+// commands, so a script knows to re-run it.
+func TestImportCmdBusyIsConflict(t *testing.T) {
+	db := todotest.Seed(t, "# Old\n")
+	orig := importFile
+	importFile = func(string, string, bool, ...todo.Option) (*todo.Store, todo.ImportReport, error) {
+		return nil, todo.ImportReport{}, todo.ErrBusy
+	}
+	t.Cleanup(func() { importFile = orig })
+	_, err := runCmd(t, "import", writeMD(t, "# New\n"), "-f", db, "--force")
+	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
+		t.Errorf("import that found the list busy = %v, want a conflict error with the busy message", err)
+	}
+}

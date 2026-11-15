@@ -8,6 +8,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// importFile imports a markdown file into a store; tests replace it to make
+// the import fail the way a store can.
+var importFile = todo.ImportFile
+
 func importCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "import <file.md>",
@@ -19,12 +23,12 @@ func importCmd() *cobra.Command {
 				return err
 			}
 			force, _ := cmd.Flags().GetBool("force")
-			s, rep, err := todo.ImportFile(db, args[0], force)
+			s, rep, err := importFile(db, args[0], force)
 			if errors.Is(err, todo.ErrNotEmpty) {
 				return &cliError{exitGeneric, fmt.Sprintf("%s already has items; use --force to replace them", db)}
 			}
-			if errors.Is(err, todo.ErrConflict) {
-				return &cliError{exitConflict, err.Error()}
+			if c := conflictErr(err); c != nil {
+				return c
 			}
 			if err != nil {
 				return err

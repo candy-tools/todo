@@ -177,10 +177,20 @@ func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener
 		if errors.Is(err, todo.ErrWrongParent) || errors.Is(err, todo.ErrNotTask) {
 			return &cliError{exitWrongKind, err.Error()}
 		}
-		if errors.Is(err, todo.ErrConflict) || errors.Is(err, todo.ErrBusy) {
-			return &cliError{exitConflict, err.Error()}
+		if c := conflictErr(err); c != nil {
+			return c
 		}
 		return err
+	}
+	return nil
+}
+
+// conflictErr returns a store ErrConflict or ErrBusy as the CLI's conflict
+// error with the store's message, and nil for any other error: re-running the
+// command is the fix for both.
+func conflictErr(err error) error {
+	if errors.Is(err, todo.ErrConflict) || errors.Is(err, todo.ErrBusy) {
+		return &cliError{exitConflict, err.Error()}
 	}
 	return nil
 }
