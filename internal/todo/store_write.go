@@ -20,6 +20,15 @@ var ErrTooDeep = errors.New("subtasks cannot have subtasks")
 // other than Open or Done.
 var ErrSubtaskStatus = errors.New("a subtask can only be open or done")
 
+// ErrWrongParent is returned by a write that would place a task at the root or
+// a category under a task: a task always sits under a category or a task, and a
+// category under a category or at the root.
+var ErrWrongParent = errors.New("a task must sit under a category and a category cannot sit under a task")
+
+// ErrNotTask is returned by a write that would set the status of a category:
+// only a task has a status.
+var ErrNotTask = errors.New("only a task has a status")
+
 // Fields are the editable text fields of an item. A category uses Title only.
 type Fields struct {
 	Title       string
@@ -123,6 +132,29 @@ func taskParent(ctx context.Context, tree *closuretree.Tree, parentID uint) (isT
 	return true, isSubtask, err
 }
 
+// checkParent reports ErrWrongParent when an item of kind k may not sit under
+// parentID (0 for the root): a task needs a parent, and a category's parent
+// must not be a task. A missing parent is closuretree.ErrNodeNotFound.
+func checkParent(ctx context.Context, tree *closuretree.Tree, k Kind, parentID uint) error {
+	if parentID == 0 {
+		if k == Task {
+			return ErrWrongParent
+		}
+		return nil
+	}
+	if k != Category {
+		return nil
+	}
+	p, err := kindAndParent(ctx, tree, parentID)
+	if err != nil {
+		return err
+	}
+	if Kind(p.Kind) == Task {
+		return ErrWrongParent
+	}
+	return nil
+}
+
 // add inserts row under parentID, after the sibling afterID (0 places it
 // first), and returns its new ID.
 func (s *Store) add(ctx context.Context, row *dbItem, parentID, afterID uint) (uint, error) {
@@ -136,20 +168,25 @@ func (s *Store) add(ctx context.Context, row *dbItem, parentID, afterID uint) (u
 }
 
 // addRow inserts row through tree (bound to the caller's transaction) under
-// parentID, after the sibling afterID; row.NodeId holds its ID afterwards.
+// parentID, after the sibling afterID; row.NodeId holds its ID afterwards. A
+// parent row's kind may not take is refused with ErrWrongParent.
 func addRow(ctx context.Context, tree *closuretree.Tree, row *dbItem, parentID, afterID uint) error {
+	if err := checkParent(ctx, tree, Kind(row.Kind), parentID); err != nil {
+		return err
+	}
 	return tree.Add(ctx, row, &parentID, &afterID, storeScope)
 }
 
 // AddCategory adds a category under parentID (0 for a root), after the sibling
-// afterID (0 places it first), and returns its ID.
+// afterID (0 places it first), and returns its ID. Under a task it fails with
+// ErrWrongParent.
 func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID uint) (uint, error) {
 	return s.add(ctx, &dbItem{Kind: int(Category), Title: title}, parentID, afterID)
 }
 
 // AddTask adds a task with fields f and status st under parentID (0 for a
 // root), after the sibling afterID (0 places it first), and returns its ID.
-// Under a subtask it fails with ErrTooDeep; under a task (making a subtask)
+// At the root it fails with ErrWrongParent; under a subtask it fails with ErrTooDeep; under a task (making a subtask)
 // with a state other than Open or Done, with ErrSubtaskStatus.
 func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afterID uint) (uint, error) {
 	row := &dbItem{Kind: int(Task), Title: f.Title, Status: int(st), Description: f.Description, Plan: f.Plan}
@@ -211,13 +248,17 @@ func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
 // SetStatuses sets the status of every item in states. An ID the store does not
 // hold is skipped, so restoring statuses after one of the tasks was deleted
 // still restores the others. Giving a subtask a state other than Open or Done
-// fails the whole write with ErrSubtaskStatus.
+// fails the whole write with ErrSubtaskStatus, and naming a category with
+// ErrNotTask.
 func (s *Store) SetStatuses(ctx context.Context, states map[uint]Status) error {
 	byStatus := map[Status][]uint{}
 	for id, st := range states {
 		byStatus[st] = append(byStatus[st], id)
 	}
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
+		if err := noCategories(tx, states); err != nil {
+			return err
+		}
 		for id, st := range states {
 			if st.SubtaskAllowed() {
 				continue
@@ -246,15 +287,37 @@ func (s *Store) SetStatuses(ctx context.Context, states map[uint]Status) error {
 	})
 }
 
+// noCategories reports ErrNotTask when any ID in states is a category.
+func noCategories(tx *gorm.DB, states map[uint]Status) error {
+	if len(states) == 0 {
+		return nil
+	}
+	ids := make([]uint, 0, len(states))
+	for id := range states {
+		ids = append(ids, id)
+	}
+	var n int64
+	if err := itemRows(tx, ids...).Where("kind = ?", int(Category)).Count(&n).Error; err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrNotTask
+	}
+	return nil
+}
+
 // CascadeStatus sets item id to st and every item below it, as the tree is at
 // write time, to Done when st is Done and to Open otherwise: a board state never
 // reaches a subtask. When id is itself a subtask, st must be Open or Done, or
-// the write fails with ErrSubtaskStatus.
+// the write fails with ErrSubtaskStatus. A category fails it with ErrNotTask.
 func (s *Store) CascadeStatus(ctx context.Context, id uint, st Status) error {
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
 		r, err := kindAndParent(ctx, tree, id)
 		if err != nil {
 			return err
+		}
+		if Kind(r.Kind) != Task {
+			return ErrNotTask
 		}
 		if !st.SubtaskAllowed() {
 			sub, err := isSubtaskRow(ctx, tree, r)
@@ -287,7 +350,8 @@ func (s *Store) CascadeStatus(ctx context.Context, id uint, st Status) error {
 // closure-tree's Update takes a missing node for a root one and reports a move
 // of it to the root as done.
 //
-// A task moved under a task must have no children, and the new parent must not
+// A task moved to the root, or a category moved under a task, fails with
+// ErrWrongParent. A task moved under a task must have no children, and the new parent must not
 // be a subtask, or the move fails with ErrTooDeep. A task that becomes, stays
 // or stops being a subtask takes its status from StatusAfterMove; a task moved
 // between categories keeps its status.
@@ -295,6 +359,9 @@ func (s *Store) Move(ctx context.Context, id, parentID, afterID uint) error {
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
 		r, err := kindAndParent(ctx, tree, id)
 		if err != nil {
+			return err
+		}
+		if err := checkParent(ctx, tree, Kind(r.Kind), parentID); err != nil {
 			return err
 		}
 		if Kind(r.Kind) == Task {

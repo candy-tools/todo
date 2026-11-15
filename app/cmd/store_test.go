@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -133,5 +134,18 @@ func TestAddCategoryAutoImportsFirst(t *testing.T) {
 	}
 	if out != "add-category: ## Sub\n" || !contains(errOut, "imported") {
 		t.Errorf("out=%q err=%q", out, errOut)
+	}
+}
+
+// A tree rule the store enforces itself (one a race got past the command's own
+// kind checks) surfaces as the CLI's wrong-kind error.
+func TestStoreTreeRuleIsWrongKind(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, want := range []error{todo.ErrWrongParent, todo.ErrNotTask} {
+		c := newRootCommand()
+		err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return want })
+		if codeOf(t, err) != exitWrongKind || err.Error() != want.Error() {
+			t.Errorf("withStore with %v = %v, want a wrong-kind error with its message", want, err)
+		}
 	}
 }
