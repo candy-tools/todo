@@ -329,6 +329,7 @@ func TestEveryWriteBumpsRevision(t *testing.T) {
 		{"AddCategory", func() (err error) { c, err = s.AddCategory(ctx, "C", 0, 0); return err }},
 		{"AddTask", func() (err error) { task, err = s.AddTask(ctx, Fields{Title: "t"}, Open, c, 0); return err }},
 		{"AppendCategory", func() error { _, err := s.AppendCategory(ctx, "D", c); return err }},
+		{"AppendTask", func() error { _, err := s.AppendTask(ctx, Fields{Title: "u"}, Open, c); return err }},
 		{"Edit", func() error { return s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("d")}) }},
 		{"SetStatuses", func() error { return s.SetStatuses(ctx, map[uint]Status{task: Done}) }},
 		{"CascadeStatus", func() error { return s.CascadeStatus(ctx, task, Done) }},

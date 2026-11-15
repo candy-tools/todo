@@ -207,6 +207,11 @@ func addRow(ctx context.Context, tree *closuretree.Tree, row *dbItem, parentID, 
 // AddCategory adds a category under parentID (0 for a root), after the sibling
 // afterID (0 places it first), and returns its ID. Under a task it fails with
 // ErrWrongParent; a title CleanTitle refuses fails it with ErrInvalidTitle.
+// It is the explicit-placement form of AppendCategory, for a caller that must
+// put the category at a given position (tests use it to build an exact
+// order); an afterID that is no longer a child of parentID fails it with
+// ErrConflict. A caller that only wants the category last uses AppendCategory,
+// which cannot conflict.
 func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID uint) (uint, error) {
 	title, err := CleanTitle(title)
 	if err != nil {
@@ -255,7 +260,12 @@ func lastChild(ctx context.Context, tree *closuretree.Tree, parentID uint) (uint
 // root), after the sibling afterID (0 places it first), and returns its ID.
 // At the root it fails with ErrWrongParent; under a subtask it fails with ErrTooDeep; under a task (making a subtask)
 // with a state other than Open or Done, with ErrSubtaskStatus. A title
-// CleanTitle refuses fails it with ErrInvalidTitle.
+// CleanTitle refuses fails it with ErrInvalidTitle. It is the
+// explicit-placement form of AppendTask, for a caller that must put the task
+// at a given position (tests use it to build an exact order); an afterID that
+// is no longer a child of parentID fails it with ErrConflict. A caller that
+// only wants the task after its last task sibling uses AppendTask, which
+// cannot conflict.
 func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afterID uint) (uint, error) {
 	return s.addTask(ctx, f, st, parentID, func(context.Context, *closuretree.Tree) (uint, error) {
 		return afterID, nil
