@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 // runSplit runs the root command capturing stdout and stderr separately.
@@ -158,5 +159,36 @@ func TestStoreConflictIsConflict(t *testing.T) {
 	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrConflict })
 	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrConflict.Error() {
 		t.Errorf("withStore with ErrConflict = %v, want a conflict error with its message", err)
+	}
+}
+
+// Each write command opens the database once and writes through the handle it
+// loaded from, rather than reopening it for the write.
+func TestWriteCommandsOpenTheStoreOnce(t *testing.T) {
+	for _, args := range [][]string{
+		{"done", "--title", "a"},
+		{"status", "--title", "a", "--to", "review"},
+		{"add", "--parent-title", "Work", "--title", "c"},
+		{"add-category", "--title", "Other"},
+		{"edit", "--title", "a", "--set-title", "A"},
+		{"rm", "--title", "b"},
+		{"prune"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			db := todotest.Seed(t, "# Work\n\n- [ ] a\n- [x] b\n")
+			opens := 0
+			orig := openDB
+			openDB = func(path string) (*todo.Store, error) {
+				opens++
+				return orig(path)
+			}
+			t.Cleanup(func() { openDB = orig })
+			if _, err := runCmd(t, append(args, "-f", db)...); err != nil {
+				t.Fatalf("%v: %v", args, err)
+			}
+			if opens != 1 {
+				t.Errorf("%v opened the store %d times, want 1", args, opens)
+			}
+		})
 	}
 }
