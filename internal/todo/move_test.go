@@ -218,6 +218,18 @@ func TestMoveDownSubcategoryDescendsIntoNextCategory(t *testing.T) {
 	}
 }
 
+func TestMoveDownSubcategoryLandsAfterTasksBeforeSubcategories(t *testing.T) {
+	// Crossing into a category that already holds tasks and subcategories, the
+	// moved subcategory becomes the first subcategory: after p, before Other.
+	d := todotest.Parse(t, "# Work\n\n## Sub\n\n- [ ] x\n\n# Personal\n\n- [ ] p\n\n## Other\n")
+	if !d.MoveDown(find(d, "Sub")) {
+		t.Fatal("MoveDown should carry the subcategory across to the next category")
+	}
+	if got := titles(find(d, "Personal").Children); len(got) != 3 || got[0] != "p" || got[1] != "Sub" || got[2] != "Other" {
+		t.Errorf("Personal's children = %v, want [p Sub Other]", got)
+	}
+}
+
 func TestMoveUpSubcategoryAscendsIntoPreviousCategory(t *testing.T) {
 	d := todotest.Parse(t, "# Work\n\n# Personal\n\n## Sub\n\n- [ ] x\n")
 	sub := find(d, "Sub")

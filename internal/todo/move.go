@@ -85,7 +85,7 @@ func (d *Document) crossDown(it *Item) bool {
 		return false
 	}
 	d.Remove(it)
-	insertFirstSubcategory(nc, it)
+	insertBeforeCategories(nc, it) // its first subcategory
 	relevel(it, nc.Level+1)
 	return true
 }
@@ -276,21 +276,4 @@ func (d *Document) prevSiblingCategory(it *Item) *Item {
 func prependTask(cat, task *Item) {
 	task.Parent = cat
 	cat.Children = append([]*Item{task}, cat.Children...)
-}
-
-// insertFirstSubcategory inserts sub as cat's first subcategory: after cat's
-// direct tasks but before any existing subcategory, preserving the "tasks before
-// subcategories" ordering. It sets sub.Parent.
-func insertFirstSubcategory(cat, sub *Item) {
-	sub.Parent = cat
-	pos := len(cat.Children)
-	for i, c := range cat.Children {
-		if c.Kind == Category {
-			pos = i
-			break
-		}
-	}
-	cat.Children = append(cat.Children, nil)
-	copy(cat.Children[pos+1:], cat.Children[pos:])
-	cat.Children[pos] = sub
 }

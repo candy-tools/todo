@@ -277,17 +277,25 @@ func (it *Item) AppendChild(c *Item) {
 // rules (crossUp/crossDown) and the displayed tree depend on. For a task
 // parent (a subtask) there are no category children, so it simply appends.
 func (it *Item) AppendTask(task *Item) {
-	task.Parent = it
-	pos := len(it.Children)
-	for i, c := range it.Children {
-		if c.Kind == Category {
+	insertBeforeCategories(it, task)
+}
+
+// insertBeforeCategories inserts c among parent's children just before the
+// first category child — after every direct task, or at the end when there is
+// no category child — and sets c.Parent. For a task c that is its last task;
+// for a category c it is its first subcategory.
+func insertBeforeCategories(parent, c *Item) {
+	c.Parent = parent
+	pos := len(parent.Children)
+	for i, ch := range parent.Children {
+		if ch.Kind == Category {
 			pos = i
 			break
 		}
 	}
-	it.Children = append(it.Children, nil)
-	copy(it.Children[pos+1:], it.Children[pos:])
-	it.Children[pos] = task
+	parent.Children = append(parent.Children, nil)
+	copy(parent.Children[pos+1:], parent.Children[pos:])
+	parent.Children[pos] = c
 }
 
 // Clone returns a deep copy of the document: every item is copied, with its
