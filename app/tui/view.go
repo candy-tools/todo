@@ -260,7 +260,7 @@ func (m *model) adoptAll(doc *todo.Document, focusID uint, onPH bool) {
 		mainID, mainPH = focusID, onPH
 	}
 	m.side.adopt(doc, sideID, sidePH)
-	if !(sideID != 0 && m.side.selectedID() == sideID) && !(sidePH && m.side.onPlaceholder()) {
+	if (sideID == 0 || m.side.selectedID() != sideID) && (!sidePH || !m.side.onPlaceholder()) {
 		m.side.selectTop()
 	}
 	m.tree.scope = m.side.selectedID()

@@ -94,6 +94,12 @@ func TestUnifiedNewTaskIsOpen(t *testing.T) {
 	m = press(m, "n")
 	m = typeText(m, "z")
 	m = press(m, "enter")
+	if m.mode != modeMain {
+		t.Errorf("enter should save and close the form, mode %v status %q", m.mode, m.status)
+	}
+	if sel := m.tree.selected(); sel == nil || sel.Title != "z" {
+		t.Errorf("the new task should be selected in the unified view, got %v", sel)
+	}
 	if st := storedItem(t, path, "z").Status; st != todo.Open {
 		t.Errorf("a new task in the unified view stored %v, want open", st)
 	}
