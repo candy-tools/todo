@@ -437,17 +437,21 @@ func TestWriteErrorShowsAndReloads(t *testing.T) {
 	if got := m.footer(200); !strings.Contains(got, "save failed:") {
 		t.Errorf("footer should report the failed save, got %q", got)
 	}
-	// The in-memory toggle stays in view: a, now done, shows on the Done tab.
-	m.setColumn(todo.ColDone)
-	if find(m.doc, "a") == nil || !hasRow(m, "a") {
-		t.Errorf("a failed reload must keep the current view")
+	// The write and the reload both failed: the unsaved toggle must not stay on
+	// screen as if saved, so a is still working on the In Progress tab.
+	if got := find(m.doc, "a").Status; got != todo.Working {
+		t.Errorf("a = %v after a failed save, want working (the unsaved change undone)", got)
+	}
+	if !hasRow(m, "a") || m.tree.selected() == nil || m.tree.selected().Title != "a" {
+		t.Errorf("a must stay shown and selected on In Progress, rows %v", rowTitles(m.tree))
 	}
 }
 
-// TestFailedWriteAndReloadRebuildsTree deletes an item while the store is
-// unreachable: the write and the reload both fail, so the view shows the
-// in-memory document — and its rows must be rebuilt from it, not left stale.
-func TestFailedWriteAndReloadRebuildsTree(t *testing.T) {
+// TestFailedWriteAndReloadRestoresTree deletes an item while the store is
+// unreachable: the write and the reload both fail, so the view goes back to the
+// document as last loaded — the item is still there, its rows rebuilt — and
+// the selection stays valid.
+func TestFailedWriteAndReloadRestoresTree(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	m = press(m, "down", "down") // b
 	if err := m.store.Close(); err != nil {
@@ -457,11 +461,39 @@ func TestFailedWriteAndReloadRebuildsTree(t *testing.T) {
 	if m.err == nil || !strings.Contains(m.footer(200), "save failed:") {
 		t.Errorf("footer should report the failed save, got %q", m.footer(200))
 	}
-	if hasRow(m, "b") {
-		t.Errorf("the tree rows must be rebuilt from the in-memory document after a failed reload")
+	if find(m.doc, "b") == nil || !hasRow(m, "b") {
+		t.Errorf("the unsaved delete must be undone in the view, rows %v", rowTitles(m.tree))
 	}
-	if got := m.tree.selected().Title; got != "a" {
-		t.Errorf("selection = %q, want a (the row above the deleted item)", got)
+	if sel := m.tree.selected(); sel == nil || sel.Title != "a" {
+		t.Errorf("selection = %v, want a (the row above the item whose delete failed)", sel)
+	}
+}
+
+// TestFailedWriteAndReloadRestoresEdit edits a task while the store is
+// unreachable: the edited title must not stay on screen as if saved, and a
+// second failed write must still restore the same, last loaded document.
+func TestFailedWriteAndReloadRestoresEdit(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	if err := m.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "down") // a
+	for range 2 {
+		m = press(m, "e")
+		if m.mode != modeForm {
+			t.Fatalf("e should open the edit form, mode = %v", m.mode)
+		}
+		m = typeText(m, "-edited")
+		m = press(m, "tab", "tab", "enter")
+		if m.err == nil || !strings.Contains(m.footer(200), "save failed:") {
+			t.Errorf("footer should report the failed save, got %q", m.footer(200))
+		}
+		if find(m.doc, "a-edited") != nil || find(m.doc, "a") == nil || !hasRow(m, "a") {
+			t.Errorf("the unsaved edit must be undone in the view, rows %v", rowTitles(m.tree))
+		}
+		if sel := m.tree.selected(); sel == nil || sel.Title != "a" {
+			t.Errorf("selection = %v, want a", sel)
+		}
 	}
 }
 

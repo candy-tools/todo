@@ -19,6 +19,28 @@ func buildTree() (parent, c1, c2, g1 *todo.Item) {
 	return
 }
 
+// TestCloneIsDeep checks that a cloned document shares no item with the
+// original and that its Parent links point into the copy.
+func TestCloneIsDeep(t *testing.T) {
+	parent, c1, _, g1 := buildTree()
+	d := &todo.Document{}
+	d.AppendRoot(parent)
+	c := d.Clone()
+	cp := c.Roots[0]
+	if cp == parent || cp.Title != "parent" || cp.Parent != nil || len(cp.Children) != 2 {
+		t.Fatalf("clone root = %+v, want a copy of parent", cp)
+	}
+	cc1 := cp.Children[0]
+	if cc1 == c1 || cc1.Parent != cp || cc1.Children[0] == g1 || cc1.Children[0].Parent != cc1 {
+		t.Errorf("clone children must be copies linked to their cloned parents")
+	}
+	c.Remove(cc1)
+	cp.Title = "changed"
+	if len(parent.Children) != 2 || parent.Title != "parent" {
+		t.Errorf("changing the clone changed the original: %+v", parent)
+	}
+}
+
 func TestDescendants(t *testing.T) {
 	parent, c1, c2, g1 := buildTree()
 	got := parent.Descendants()

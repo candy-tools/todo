@@ -130,7 +130,7 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 	if sel := m.focused().selected(); sel != nil && !onPH {
 		focus = sel.ID
 	}
-	m.doc, m.lastRev = msg.doc, msg.rev
+	m.doc, m.saved, m.lastRev = msg.doc, msg.doc.Clone(), msg.rev
 	m.snapshots = map[uint]todo.DoneStates{}
 	m.adoptAll(msg.doc, focus, onPH)
 	m.status = "reloaded — list changed externally"

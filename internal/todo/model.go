@@ -290,6 +290,27 @@ func (it *Item) AppendTask(task *Item) {
 	it.Children[pos] = task
 }
 
+// Clone returns a deep copy of the document: every item is copied, with its
+// Parent pointing into the copy, so changing one never shows in the other.
+func (d *Document) Clone() *Document {
+	c := &Document{Roots: make([]*Item, len(d.Roots))}
+	for i, it := range d.Roots {
+		c.Roots[i] = it.clone(nil)
+	}
+	return c
+}
+
+// clone deep-copies it and its subtree under parent.
+func (it *Item) clone(parent *Item) *Item {
+	c := *it
+	c.Parent = parent
+	c.Children = make([]*Item, len(it.Children))
+	for i, ch := range it.Children {
+		c.Children[i] = ch.clone(&c)
+	}
+	return &c
+}
+
 // AppendRoot appends it as the last top-level item of the document.
 func (d *Document) AppendRoot(it *Item) {
 	it.Parent = nil

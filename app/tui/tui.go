@@ -65,6 +65,12 @@ type model struct {
 	store   *todo.Store
 	version string
 	doc     *todo.Document
+	// saved is an untouched copy of doc as the store last gave it (or, after a
+	// write that succeeded but could not be reloaded, as that write left it).
+	// The actions change doc in memory before they write, so when the write
+	// fails and the reload cannot replace doc either, commit puts a copy of
+	// saved back rather than show the unsaved change as if it were saved.
+	saved *todo.Document
 	// view is the tab, search query and state filter every tree shows the
 	// list through; the model changes it (setColumn, setFilter, setStates)
 	// and rebuilds the trees.
@@ -152,6 +158,7 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		store:     st,
 		version:   metainfo.Version,
 		doc:       doc,
+		saved:     doc.Clone(),
 		view:      v,
 		tree:      newTree(doc, v),
 		side:      newSidebar(doc, v),
@@ -1202,9 +1209,11 @@ func applyChanges(it *todo.Item, ch todo.Changes) {
 // once and a failed one rolls back, so any other revision than that means an
 // external write landed since the last load, and the reload is handled as
 // external (snapshots dropped, the status line says so). If the reload itself
-// fails, the current document stays, its rows are rebuilt (the caller may have
-// changed its structure) with focusID selected, and the error is shown: the
-// write's when it failed, else the reload's.
+// fails, the error is shown (the write's when it failed, else the reload's) and
+// the trees are rebuilt with focusID selected, from the current document when
+// the write succeeded (the caller's in-memory change is what the store now
+// holds), else from a copy of the document as last loaded, so the change the
+// caller made in memory does not stay on screen as if it were saved.
 func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 	ctx := context.Background()
 	m.err = nil
@@ -1214,17 +1223,19 @@ func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 	} else {
 		expected++
 	}
+	onPH := m.focused().onPlaceholder()
 	doc, rev, err := m.store.Load(ctx)
 	if err != nil {
 		if m.err == nil {
 			m.err = fmt.Errorf("reload failed: %w", err)
+			m.saved = m.doc.Clone()
+		} else {
+			m.doc = m.saved.Clone()
 		}
-		m.focused().rebuild()
-		m.focused().selectID(focusID)
+		m.adoptAll(m.doc, focusID, onPH)
 		return
 	}
-	onPH := m.focused().onPlaceholder()
-	m.doc, m.lastRev = doc, rev
+	m.doc, m.saved, m.lastRev = doc, doc.Clone(), rev
 	m.adoptAll(doc, focusID, onPH)
 	if rev != expected {
 		m.snapshots = map[uint]todo.DoneStates{}
