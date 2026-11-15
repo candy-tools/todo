@@ -361,8 +361,8 @@ func TestGrabIgnoresModeKeys(t *testing.T) {
 	if !m.side.grabbed {
 		t.Error("keys outside the move set must leave the item grabbed")
 	}
-	if m.mode != modeMain || m.searching {
-		t.Errorf("keys must not open a mode while grabbed: mode %v, searching %v", m.mode, m.searching)
+	if m.mode != modeMain {
+		t.Errorf("keys must not open a mode while grabbed: mode %v, want modeMain", m.mode)
 	}
 	if !m.sideFocus {
 		t.Error("x must not switch panes while grabbed")

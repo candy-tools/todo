@@ -25,6 +25,10 @@ const (
 	modeHelp        // the "?" shortcuts dialog
 	modeStatePick   // the "t" dialog: pick the selected task's state
 	modeStateFilter // the "f" dialog: tick the states the tab shows
+	// modeSearch is the "/" search bar, focused and capturing keys. The query
+	// lives in search; the resulting filter lives on the view (m.view.filter),
+	// so it stays applied for navigation after the bar closes.
+	modeSearch
 )
 
 type model struct {
@@ -61,11 +65,7 @@ type model struct {
 	mode mode
 	form form
 
-	// searching is true while the "/" search bar is focused and capturing keys.
-	// The query itself lives in search; the resulting filter lives on the tree
-	// (m.view.filter), so it stays applied for navigation after search closes.
-	searching bool
-	search    textinput.Model
+	search textinput.Model // the "/" search bar's input, for modeSearch
 
 	target   formTarget
 	editing  *todo.Item // the item being edited, for targetEdit
@@ -156,10 +156,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tree.reconcileOffset()
 		m.side.viewHeight = m.treeViewHeight()
 		m.side.reconcileOffset()
-		if m.mode == modeForm {
+		switch m.mode {
+		case modeForm:
 			m.form.setWidth(msg.Width)
-		}
-		if m.searching {
+		case modeSearch:
 			m.search.Width = m.searchWidth()
 		}
 		return m, nil
@@ -184,17 +184,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return nm, cmd
 	}
 	// Non-key messages (cursor blink, etc.) drive the focused text input.
-	if m.mode == modeForm {
-		var cmd tea.Cmd
+	var cmd tea.Cmd
+	switch m.mode {
+	case modeForm:
 		m.form, cmd = m.form.update(msg)
-		return m, cmd
-	}
-	if m.searching {
-		var cmd tea.Cmd
+	case modeSearch:
 		m.search, cmd = m.search.Update(msg)
-		return m, cmd
 	}
-	return m, nil
+	return m, cmd
 }
 
 // updateKey routes a key press to the search bar (which captures keys while it
@@ -204,10 +201,9 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	if m.searching {
-		return m.updateSearch(msg)
-	}
 	switch m.mode {
+	case modeSearch:
+		return m.updateSearch(msg)
 	case modeForm:
 		return m.updateForm(msg)
 	case modeConfirm:

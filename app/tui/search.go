@@ -16,7 +16,7 @@ func (m model) openSearch() (tea.Model, tea.Cmd) {
 	ti.SetValue(m.view.filter)
 	ti.CursorEnd()
 	m.search = ti
-	m.searching = true
+	m.mode = modeSearch
 	return m, tea.Batch(m.search.Focus(), textinput.Blink)
 }
 
@@ -27,10 +27,11 @@ func (m model) openSearch() (tea.Model, tea.Cmd) {
 func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
+		m.mode = modeMain
 		m.clearFilter()
 		return m, nil
 	case "enter":
-		m.searching = false
+		m.mode = modeMain
 		m.search.Blur()
 		return m, nil
 	case "up":
@@ -52,12 +53,11 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// clearFilter closes the search bar and drops the active filter, restoring the
-// full tree (and its collapse state). The item under the cursor stays selected,
+// clearFilter drops the active search filter, restoring the full tree (and its
+// collapse state). The item under the cursor stays selected,
 // so returning from a search leaves you on the item you navigated to rather than
 // back at the top.
 func (m *model) clearFilter() {
-	m.searching = false
 	sel := m.focused().selected()
 	m.setFilter("")
 	if sel != nil {

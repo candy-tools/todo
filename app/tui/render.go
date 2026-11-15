@@ -98,7 +98,7 @@ func (m model) header(width int) string {
 
 func (m model) footer(width int) string {
 	switch {
-	case m.searching:
+	case m.mode == modeSearch:
 		// The live search bar replaces the footer while typing a query.
 		return ansi.Truncate(" "+helpKeyStyle.Render("/")+" "+m.search.View(), width, "")
 	case m.err != nil:

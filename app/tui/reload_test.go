@@ -299,7 +299,7 @@ func TestReloadAppliedWhileSearchBarOpen(t *testing.T) {
 	if find(m.doc, "ab") == nil {
 		t.Errorf("a reload must be applied while the search bar is open")
 	}
-	if !m.searching {
+	if m.mode != modeSearch {
 		t.Errorf("a reload must leave the search bar open")
 	}
 	if m.view.filter != "a" || m.search.Value() != "a" {

@@ -13,7 +13,7 @@ import (
 func TestSlashOpensSearch(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	m = press(m, "/")
-	if !m.searching {
+	if m.mode != modeSearch {
 		t.Fatal("/ should open the search input")
 	}
 }
@@ -35,7 +35,7 @@ func TestSearchEscClearsFilter(t *testing.T) {
 	m = press(m, "/")
 	m = typeText(m, "cat")
 	m = press(m, "esc")
-	if m.searching {
+	if m.mode == modeSearch {
 		t.Error("esc should close the search input")
 	}
 	if m.view.filter != "" {
@@ -51,7 +51,7 @@ func TestSearchEnterKeepsFilter(t *testing.T) {
 	m = press(m, "/")
 	m = typeText(m, "cat")
 	m = press(m, "enter")
-	if m.searching {
+	if m.mode == modeSearch {
 		t.Error("enter should stop editing the query")
 	}
 	if m.view.filter != "cat" {
@@ -214,8 +214,8 @@ func TestSearchCapturesMainKeys(t *testing.T) {
 			t.Fatalf("%q in the search bar must be typed, not quit", k)
 		}
 	}
-	if m.mode != modeMain || !m.searching {
-		t.Errorf("the search bar must stay open: mode %v, searching %v", m.mode, m.searching)
+	if m.mode != modeSearch {
+		t.Errorf("the search bar must stay open: mode %v, want modeSearch", m.mode)
 	}
 	if m.tree.grabbed || m.split {
 		t.Errorf("keys typed into the search bar must not act: grabbed %v, split %v", m.tree.grabbed, m.split)

@@ -108,13 +108,14 @@ func (m *model) clearPollErr() {
 // raced one (applying it would roll the view back past that write). While a
 // modal is open or an item is grabbed for moving the reload is deferred, so an
 // edit is never yanked out from under the user; the next tick re-detects it
-// once they return to plain navigation.
+// once they return to plain navigation. The search bar is not a modal: a
+// reload applies while it is open.
 func (m model) handleReload(msg storeReloadedMsg) (tea.Model, tea.Cmd) {
 	m.clearPollErr()
 	if msg.rev <= m.lastRev {
 		return m, nil
 	}
-	if m.mode != modeMain || m.focused().grabbed {
+	if (m.mode != modeMain && m.mode != modeSearch) || m.focused().grabbed {
 		return m, nil
 	}
 	m.applyReload(msg)
