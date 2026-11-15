@@ -3,6 +3,9 @@ package todo
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
+	"slices"
 
 	closuretree "github.com/go-bumbu/closure-tree"
 	"gorm.io/gorm"
@@ -354,37 +357,39 @@ func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
 	})
 }
 
-// SetStatuses sets the status of every item in states. An ID the store does not
-// hold is skipped, so restoring statuses after one of the tasks was deleted
-// still restores the others. Giving a subtask a state other than Open or Done
-// fails the whole write with ErrSubtaskStatus, and naming a category with
+// SetStatuses sets the status of every item in states. Naming an ID the store
+// does not hold, such as a task another process deleted since the caller's
+// read, fails the whole write with ErrNotFound; giving a subtask a state other
+// than Open or Done fails it with ErrSubtaskStatus, and naming a category with
 // ErrNotTask.
 func (s *Store) SetStatuses(ctx context.Context, states map[uint]Status) error {
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
-		if err := noCategories(tx, states); err != nil {
+		return setStatuses(ctx, tx, tree, states)
+	})
+}
+
+// setStatuses is the body of SetStatuses, run inside its write.
+func setStatuses(ctx context.Context, tx *gorm.DB, tree *closuretree.Tree, states map[uint]Status) error {
+	if err := tasksOnly(tx, states); err != nil {
+		return err
+	}
+	for id, st := range states {
+		if st.SubtaskAllowed() {
+			continue
+		}
+		r, err := kindAndParent(ctx, tree, id)
+		if err != nil {
 			return err
 		}
-		for id, st := range states {
-			if st.SubtaskAllowed() {
-				continue
-			}
-			r, err := kindAndParent(ctx, tree, id)
-			if errors.Is(err, closuretree.ErrNodeNotFound) {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			sub, err := isSubtaskRow(ctx, tree, r)
-			if err != nil {
-				return err
-			}
-			if sub {
-				return ErrSubtaskStatus
-			}
+		sub, err := isSubtaskRow(ctx, tree, r)
+		if err != nil {
+			return err
 		}
-		return writeStatuses(tx, states)
-	})
+		if sub {
+			return ErrSubtaskStatus
+		}
+	}
+	return writeStatuses(tx, states)
 }
 
 // writeStatuses stores every status in states through tx, one update per status
@@ -403,23 +408,51 @@ func writeStatuses(tx *gorm.DB, states map[uint]Status) error {
 	return nil
 }
 
-// noCategories reports ErrNotTask when any ID in states is a category.
-func noCategories(tx *gorm.DB, states map[uint]Status) error {
+// tasksOnly reports ErrNotFound, naming the lowest missing ID, when the store
+// does not hold every ID in states, and ErrNotTask when any of them is a
+// category.
+func tasksOnly(tx *gorm.DB, states map[uint]Status) error {
 	if len(states) == 0 {
 		return nil
 	}
-	ids := make([]uint, 0, len(states))
-	for id := range states {
-		ids = append(ids, id)
+	ids := slices.Sorted(maps.Keys(states))
+	var rows []struct {
+		NodeId uint
+		Kind   int
 	}
-	var n int64
-	if err := itemRows(tx, ids...).Where("kind = ?", int(Category)).Count(&n).Error; err != nil {
+	if err := itemRows(tx, ids...).Select("node_id", "kind").Find(&rows).Error; err != nil {
 		return err
 	}
-	if n > 0 {
-		return ErrNotTask
+	held := make(map[uint]bool, len(rows))
+	for _, r := range rows {
+		if Kind(r.Kind) == Category {
+			return ErrNotTask
+		}
+		held[r.NodeId] = true
+	}
+	for _, id := range ids {
+		if !held[id] {
+			return fmt.Errorf("%w: id %d", ErrNotFound, id)
+		}
 	}
 	return nil
+}
+
+// heldStates returns the entries of states whose IDs the store holds, nil when
+// states is empty.
+func heldStates(tx *gorm.DB, states map[uint]Status) (map[uint]Status, error) {
+	if len(states) == 0 {
+		return nil, nil
+	}
+	var ids []uint
+	if err := itemRows(tx, slices.Collect(maps.Keys(states))...).Pluck("node_id", &ids).Error; err != nil {
+		return nil, err
+	}
+	held := make(map[uint]Status, len(ids))
+	for _, id := range ids {
+		held[id] = states[id]
+	}
+	return held, nil
 }
 
 // CascadeStatus sets item id to st and every item below it, as the tree is at

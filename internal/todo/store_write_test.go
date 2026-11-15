@@ -139,11 +139,32 @@ func TestSetStatusesBackToOpen(t *testing.T) {
 	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
 	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "desc"}, Done, c, 0))
 
-	mustOK(t, s.SetStatuses(ctx, map[uint]Status{id: Open, 999: Done}))
+	mustOK(t, s.SetStatuses(ctx, map[uint]Status{id: Open}))
 
 	got := item(t, load(t, s), id)
 	if got.Status != Open || got.Title != "t" || got.Description != "desc" {
 		t.Fatalf("task = %+v; want open task t described desc", got)
+	}
+}
+
+// TestSetStatusesRejectsMissingID: a write naming an item the store does not
+// hold, such as one another process deleted since the caller's read, fails
+// whole with ErrNotFound instead of reporting success for 0 rows.
+func TestSetStatusesRejectsMissingID(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Done, c, 0))
+	gone := mustID(t)(s.AddTask(ctx, Fields{Title: "gone"}, Open, c, id))
+	mustOK(t, s.Delete(ctx, gone))
+
+	rejects(t, s, ErrNotFound, func() error { return s.SetStatuses(ctx, map[uint]Status{gone: Working}) })
+	rejects(t, s, ErrNotFound, func() error { return s.SetStatuses(ctx, map[uint]Status{id: Open, 999: Done}) })
+	rejects(t, s, ErrNotFound, func() error { return s.Complete(ctx, gone, false) })
+	rejects(t, s, ErrNotFound, func() error { return s.Reopen(ctx, gone, Working, ReopenOptions{}) })
+
+	if got := item(t, load(t, s), id); got.Status != Done {
+		t.Fatalf("task after rejected writes = %+v; want it still done", got)
 	}
 }
 

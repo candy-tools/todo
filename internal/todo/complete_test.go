@@ -98,6 +98,25 @@ func TestReopenKeepsSubtasks(t *testing.T) {
 	}
 }
 
+// TestReopenRestoreSkipsVanishedSubtask: a subtask deleted since the snapshot
+// was taken is left out of the restore, so the reopen still lands.
+func TestReopenRestoreSkipsVanishedSubtask(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids, sub2 := doneTaskTree(t, s)
+	restore := DoneStates{ids.task: Review, ids.sub: Open, sub2: Open}
+	mustOK(t, s.Delete(ctx, sub2))
+
+	mustOK(t, s.Reopen(ctx, ids.task, Working, ReopenOptions{Restore: restore}))
+
+	if got, want := statuses(t, s, ids.task, ids.sub), []Status{Working, Open}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("task, sub after Reopen with a vanished subtask = %v, want %v", got, want)
+	}
+	rejects(t, s, ErrNotFound, func() error {
+		return s.Reopen(ctx, sub2, Open, ReopenOptions{Restore: DoneStates{ids.sub: Done}})
+	})
+}
+
 func TestReopenRestore(t *testing.T) {
 	s := newStore(t)
 	ids, sub2 := doneTaskTree(t, s)

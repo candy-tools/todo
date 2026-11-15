@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"maps"
+
+	closuretree "github.com/go-bumbu/closure-tree"
+	"gorm.io/gorm"
 )
 
 // ErrRestoreAndCascade is returned by a Reopen asked both to restore the
@@ -53,9 +56,11 @@ func (s *Store) Complete(ctx context.Context, id uint, cascade bool) error {
 // Reopen sets task id to st, in one write, and treats its subtasks as o says:
 // o.Cascade opens them all (see CascadeStatus), o.Restore gives them their
 // snapshot states back (see ReopenStates), and with neither they keep theirs.
-// Setting both fails with ErrRestoreAndCascade before anything is written. A
-// category fails it with ErrNotTask, and a subtask given a state other than
-// Open or Done with ErrSubtaskStatus.
+// A task in o.Restore deleted since the snapshot is left out; task id itself
+// missing fails the write with ErrNotFound. Setting both fails with
+// ErrRestoreAndCascade before anything is written. A category fails it with
+// ErrNotTask, and a subtask given a state other than Open or Done with
+// ErrSubtaskStatus.
 func (s *Store) Reopen(ctx context.Context, id uint, st Status, o ReopenOptions) error {
 	if o.Restore != nil && o.Cascade {
 		return ErrRestoreAndCascade
@@ -63,5 +68,11 @@ func (s *Store) Reopen(ctx context.Context, id uint, st Status, o ReopenOptions)
 	if o.Cascade {
 		return s.CascadeStatus(ctx, id, st)
 	}
-	return s.SetStatuses(ctx, ReopenStates(id, st, o.Restore))
+	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
+		restore, err := heldStates(tx, o.Restore)
+		if err != nil {
+			return err
+		}
+		return setStatuses(ctx, tx, tree, ReopenStates(id, st, restore))
+	})
 }
