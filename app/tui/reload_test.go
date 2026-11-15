@@ -10,6 +10,10 @@ import (
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	"github.com/go-bumbu/db/gormdb"
+	"github.com/go-bumbu/db/gormdb/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // externalAddTask adds a task through a second store handle, standing in for a
@@ -60,13 +64,125 @@ func TestReloadCheckDetectsChange(t *testing.T) {
 	}
 }
 
-func TestReloadCheckErrorIsNil(t *testing.T) {
+func TestReloadCheckErrorIsReported(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	if err := m.store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if msg := reloadCheck(m.store, m.lastRev-1); msg != nil {
-		t.Errorf("an unreadable store must not trigger a reload, got %#v", msg)
+	msg := reloadCheck(m.store, m.lastRev-1)
+	if f, ok := msg.(reloadFailedMsg); !ok || f.err == nil {
+		t.Errorf("an unreadable store must be reported as a reloadFailedMsg, got %#v", msg)
+	}
+}
+
+// openRaw opens a plain database handle on the store file at path, bypassing
+// the store's checks; it is closed when the test ends.
+func openRaw(t *testing.T, path string) *gorm.DB {
+	t.Helper()
+	db, err := gormdb.Open(gormdb.Cfg{
+		Driver: gormdb.DriverSqlite,
+		Sqlite: gormdb.SqliteCfg{Path: path},
+		Logger: logger.Discard,
+	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+	if err != nil {
+		t.Fatalf("open raw handle: %v", err)
+	}
+	t.Cleanup(func() { _ = gormdb.Close(db) })
+	return db
+}
+
+// setSchemaVersion records schema version v in the store at path through a
+// second database handle, standing in for a newer todo that migrated the file
+// (or, set back, for the file becoming readable again) while the TUI runs.
+func setSchemaVersion(t *testing.T, path string, v int) {
+	t.Helper()
+	db := openRaw(t, path)
+	if err := db.Exec("UPDATE meta SET schema_version = ? WHERE id = 1", v).Error; err != nil {
+		t.Fatalf("set schema version: %v", err)
+	}
+}
+
+// schemaVersionOf reads the schema version recorded in the store at path.
+func schemaVersionOf(t *testing.T, path string) int {
+	t.Helper()
+	db := openRaw(t, path)
+	var v int
+	if err := db.Raw("SELECT schema_version FROM meta WHERE id = 1").Scan(&v).Error; err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	return v
+}
+
+// pollCmdOnce runs one poll the way the tick does and feeds its message, if
+// any, to the model.
+func pollCmdOnce(m model) model {
+	if msg := m.reloadCheckCmd()(); msg != nil {
+		return send(m, msg)
+	}
+	return m
+}
+
+// TestReloadFailureShownAndCleared upgrades the store under the running TUI:
+// the failing poll must put the error in the footer instead of dropping it,
+// and the next poll that succeeds must clear it again.
+func TestReloadFailureShownAndCleared(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := schemaVersionOf(t, path)
+	setSchemaVersion(t, path, v+1)
+
+	m = pollCmdOnce(m)
+	if !errors.Is(m.err, todo.ErrNewerSchema) {
+		t.Fatalf("m.err = %v, want the failed reload (ErrNewerSchema)", m.err)
+	}
+	if got := m.footer(200); !strings.Contains(got, "reload failed:") || !strings.Contains(got, "newer todo") {
+		t.Errorf("footer should report the failed reload, got %q", got)
+	}
+
+	setSchemaVersion(t, path, v)
+	m = pollCmdOnce(m)
+	if m.err != nil {
+		t.Errorf("a successful poll must clear the reload error, got %v", m.err)
+	}
+}
+
+// TestReloadFailureShownOnce has the same poll failure repeat: once shown it
+// must not be set again, so an unrelated error that replaced it (a failed
+// save) stays in the footer; a poll that succeeds must not clear that one.
+func TestReloadFailureShownOnce(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := schemaVersionOf(t, path)
+	setSchemaVersion(t, path, v+1)
+
+	m = pollCmdOnce(m)
+	if !errors.Is(m.err, todo.ErrNewerSchema) {
+		t.Fatalf("m.err = %v, want the failed reload", m.err)
+	}
+	saveErr := errors.New("save failed: boom")
+	m.err = saveErr
+	m = pollCmdOnce(m)
+	if !errors.Is(m.err, saveErr) {
+		t.Errorf("a repeated reload failure must not replace another error, got %v", m.err)
+	}
+
+	setSchemaVersion(t, path, v)
+	m = pollCmdOnce(m)
+	if !errors.Is(m.err, saveErr) {
+		t.Errorf("a successful poll must not clear an unrelated error, got %v", m.err)
+	}
+}
+
+// TestReloadFailureDistinctShown has the poll fail with a different error: it
+// replaces the one shown.
+func TestReloadFailureDistinctShown(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := schemaVersionOf(t, path)
+	setSchemaVersion(t, path, v+1)
+	m = pollCmdOnce(m)
+	m.err = errors.New("save failed: boom")
+	setSchemaVersion(t, path, v+2)
+	m = pollCmdOnce(m)
+	if got := m.footer(200); !strings.Contains(got, fmt.Sprintf("schema %d", v+2)) {
+		t.Errorf("a distinct reload failure must be shown, got %q", got)
 	}
 }
 

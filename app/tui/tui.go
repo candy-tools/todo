@@ -119,6 +119,10 @@ type model struct {
 
 	status string // transient one-line footer message
 	err    error  // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
+
+	// pollErr is the poll failure last put in err, kept to show each distinct
+	// failure once and to clear it when a later poll succeeds.
+	pollErr error
 }
 
 // Run loads the list from st and starts the interactive TUI. notice (e.g. the
@@ -184,8 +188,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.reloadCheckCmd(), pollCmd())
 	case storeReloadedMsg:
 		return m.handleReload(msg)
-	case storeFileErrMsg:
-		m.err = msg.err
+	case reloadFailedMsg:
+		return m.handleReloadFailed(msg)
+	case reloadRecoveredMsg:
+		m.clearPollErr()
 		return m, nil
 	case tea.KeyMsg:
 		nm, cmd := m.updateKey(msg)
