@@ -212,6 +212,9 @@ func TestImportFileReplaceBacksUpNonEmptyStore(t *testing.T) {
 	if want := todo.BackupPath(db, 0); rep.Backup != want {
 		t.Fatalf("Backup = %q, want %q", rep.Backup, want)
 	}
+	if _, err := os.Stat(rep.Backup); err != nil {
+		t.Fatalf("backup after a successful import: %v", err)
+	}
 	if got := todotest.Dump(t, rep.Backup); got != "# Old\n\n- [ ] keep me\n" {
 		t.Fatalf("backup holds:\n%s", got)
 	}

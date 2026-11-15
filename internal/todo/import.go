@@ -157,8 +157,10 @@ func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, par
 // store is kept and opened instead, and the report comes back empty with
 // Skipped set. Replacing a store that holds items first copies it to the next
 // free BackupPath, named in the report's Backup; a write by another process
-// after that copy fails the replace with ErrConflict, writing nothing. On
-// success the open store is returned, opened at dbPath with opts.
+// after that copy fails the replace with ErrConflict, writing nothing. When the
+// replace writes nothing, for that or any other error, the backup it took is
+// removed again. On success the open store is returned, opened at dbPath with
+// opts.
 func ImportFile(dbPath, mdPath string, replace bool, opts ...Option) (*Store, ImportReport, error) {
 	return importFile(context.Background(), dbPath, mdPath, replace, opts...)
 }
@@ -216,6 +218,13 @@ func importFile(ctx context.Context, dbPath, mdPath string, replace bool, opts .
 	}
 	if err := s.importDoc(ctx, doc, replace, expect); err != nil {
 		_ = s.Close()
+		// The store is unchanged, so the backup this run took (always a new
+		// file: backup never reuses a name) only guards data still in place.
+		if rep.Backup != "" {
+			if rmErr := os.Remove(rep.Backup); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+				return nil, ImportReport{}, fmt.Errorf("%w (backup %s left in place: %v)", err, rep.Backup, rmErr)
+			}
+		}
 		return nil, ImportReport{}, err
 	}
 	return s, rep, nil
