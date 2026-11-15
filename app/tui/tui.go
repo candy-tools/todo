@@ -195,8 +195,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateKey routes a key press to the search bar (which captures keys while it
-// is focused, ahead of the main-view bindings), the open dialog, or the main
-// view.
+// is focused, ahead of the main-view bindings), the open dialog, the move of a
+// grabbed item, or the main view.
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
@@ -215,15 +215,15 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeStateFilter:
 		return m.updateStateFilter(msg)
 	default:
+		// While an item is grabbed, the arrows drive the move instead of navigation.
+		if m.focused().grabbed {
+			return m.updateMove(msg)
+		}
 		return m.updateMain(msg)
 	}
 }
 
 func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// While an item is grabbed, the arrows drive the move instead of navigation.
-	if m.focused().grabbed {
-		return m.updateMove(msg)
-	}
 	m.status = ""
 	switch msg.String() {
 	case "q":
