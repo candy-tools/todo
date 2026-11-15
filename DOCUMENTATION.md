@@ -273,6 +273,8 @@ dialog opens on the task's previous state, so `enter` restores it and its
 subtasks' states exactly — that undo memory is kept in RAM for the session, so
 the database only ever records the current states. Without undo history the
 dialog opens on `done`, and the subtasks keep their states when you reopen it.
+The CLI's `todo done` completes only the task unless you pass `--cascade`, and
+it has no undo.
 
 ## Live reload
 
