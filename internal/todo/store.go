@@ -99,8 +99,18 @@ func WithBusyTimeout(d time.Duration) Option {
 	return func(c *storeCfg) { c.busyTimeout = d }
 }
 
+// openStoreBeforeIdentity, when set by a test, runs in OpenStore after the
+// final open and before the file's identity is recorded, so a test can replace
+// the file there.
+var openStoreBeforeIdentity func()
+
+// openAttempts is how many times OpenStore opens the file when another file
+// keeps taking its place during the open, before failing with ErrFileReplaced.
+const openAttempts = 3
+
 // OpenStore opens the SQLite store at path, creating the file and its schema
-// when they do not exist yet.
+// when they do not exist yet. It fails with ErrFileReplaced when other files
+// keep being moved in at path while it opens.
 func OpenStore(path string, opts ...Option) (*Store, error) {
 	cfg := storeCfg{busyTimeout: DefaultBusyTimeout}
 	for _, o := range opts {
@@ -108,6 +118,26 @@ func OpenStore(path string, opts ...Option) (*Store, error) {
 	}
 	if cfg.busyTimeout <= 0 {
 		cfg.busyTimeout = DefaultBusyTimeout
+	}
+	var err error
+	for range openAttempts {
+		var s *Store
+		if s, err = openStoreOnce(path, cfg.busyTimeout); !errors.Is(err, ErrFileReplaced) {
+			return s, err
+		}
+	}
+	return nil, err
+}
+
+// openStoreOnce is one attempt of OpenStore. It records the identity of the file
+// at path before the final open and checks it is still there after, so
+// CheckFile compares with the file the connections hold; ErrFileReplaced
+// means another file took its place in between.
+func openStoreOnce(path string, busyTimeout time.Duration) (*Store, error) {
+	before, err := os.Stat(path)
+	created := errors.Is(err, os.ErrNotExist)
+	if err != nil && !created {
+		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	db, err := openDB(path, DefaultBusyTimeout)
 	if err != nil {
@@ -118,21 +148,41 @@ func OpenStore(path string, opts ...Option) (*Store, error) {
 		_ = gormdb.Close(db)
 		return nil, fmt.Errorf("prepare %s: %w", path, err)
 	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		_ = gormdb.Close(db)
-		return nil, fmt.Errorf("open %s: %w", path, err)
-	}
-	s.file = fi
-	if cfg.busyTimeout != DefaultBusyTimeout {
+	if busyTimeout != DefaultBusyTimeout || created {
 		// busy_timeout is set per connection when the pools open them, so the
-		// store reopens with the caller's timeout for the writes that follow.
+		// store reopens with the caller's timeout for the writes that follow. A
+		// file the open created is reopened too, as its identity before the
+		// open is unknown.
 		_ = gormdb.Close(db)
-		if s.db, err = openDB(path, cfg.busyTimeout); err != nil {
+		if before, err = os.Stat(path); err != nil {
+			return nil, openStatError(path, err)
+		}
+		if s.db, err = openDB(path, busyTimeout); err != nil {
 			return nil, fmt.Errorf("open %s: %w", path, err)
 		}
 	}
+	if openStoreBeforeIdentity != nil {
+		openStoreBeforeIdentity()
+	}
+	after, err := os.Stat(path)
+	if err == nil && !os.SameFile(before, after) {
+		err = ErrFileReplaced
+	}
+	if err != nil {
+		_ = gormdb.Close(s.db)
+		return nil, openStatError(path, err)
+	}
+	s.file = after
 	return s, nil
+}
+
+// openStatError wraps an error of openStoreOnce's os.Stat of path. A file gone
+// from path is reported as ErrFileReplaced, so OpenStore tries again.
+func openStatError(path string, err error) error {
+	if errors.Is(err, os.ErrNotExist) {
+		err = ErrFileReplaced
+	}
+	return fmt.Errorf("open %s: %w", path, err)
 }
 
 // CheckFile returns ErrFileReplaced when the file at the store's path is no
