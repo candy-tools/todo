@@ -126,3 +126,18 @@ func TestImportMarkdownSanitizesTitles(t *testing.T) {
 		t.Fatalf("Import of a sanitized document: %v", err)
 	}
 }
+
+func TestPrintable(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain":                  "plain",
+		"a\tb":                   "a b",
+		"x\x1b[31my\x1b]0;t\x07": "x[31my]0;t",
+		"c1\u009bz\x7f":          "c1z",
+		"line\r\nnext":           "linenext",
+		"ünï ✓":                  "ünï ✓",
+	} {
+		if got := Printable(in); got != want {
+			t.Errorf("Printable(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

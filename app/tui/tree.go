@@ -617,7 +617,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 		}
 		return "  " + categoryStyle.Render("All")
 	case rowHeader:
-		return "  " + helpTextStyle.Render("── ") + categoryStyle.Render(r.label)
+		return "  " + helpTextStyle.Render("── ") + categoryStyle.Render(todo.Printable(r.label))
 	}
 	if r.kind == rowNewCategory {
 		if selected {
@@ -645,7 +645,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	}
 
 	if r.item.Kind == todo.Category {
-		title := r.item.Title
+		title := todo.Printable(r.item.Title)
 		// Backlog shows the category's overall progress; the other tabs count
 		// the category's tasks in that tab.
 		counts := fmt.Sprintf(" (%d)", r.item.CountInColumn(t.vs.column))
@@ -675,9 +675,9 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	}
 	state, warn, note := taskTrailer(r.item)
 	if selected {
-		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(r.item.Title, t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
+		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(todo.Printable(r.item.Title), t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
 	}
-	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(r.item.Title, t.vs.filter, titleStyle) +
+	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(todo.Printable(r.item.Title), t.vs.filter, titleStyle) +
 		helpTextStyle.Render(state) + deferStyle.Render(warn) + helpTextStyle.Render(note)
 }
 

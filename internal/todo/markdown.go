@@ -298,7 +298,7 @@ func parseMarkdown(src string) (*Document, []string) {
 				continue
 			}
 			if leadingWhitespace(line) > curTaskIndent {
-				descBuf = append(descBuf, line)
+				descBuf = append(descBuf, strings.TrimSuffix(line, "\r"))
 				continue
 			}
 			// A dedented non-blank line closes the current task's description.

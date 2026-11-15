@@ -37,7 +37,7 @@ func (m *model) noteLeftTab(id uint) bool {
 		// out of scope: name that category.
 		if t := m.focused(); t.pane == paneTasks && t.visibleItems()[it] {
 			if c := task.EnclosingCategory(); c != nil {
-				m.status = "moved to " + c.Title
+				m.status = "moved to " + todo.Printable(c.Title)
 				return true
 			}
 		}

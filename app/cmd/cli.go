@@ -49,7 +49,7 @@ func kindName(it *todo.Item) string {
 // categoryPath returns the enclosing category's title, for confirmation lines.
 func categoryPath(it *todo.Item) string {
 	if c := it.EnclosingCategory(); c != nil {
-		return c.Title
+		return todo.Printable(c.Title)
 	}
 	return ""
 }

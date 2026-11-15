@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	"github.com/go-bumbu/db/gormdb"
+	"github.com/go-bumbu/db/gormdb/sqlite"
+	"gorm.io/gorm/logger"
 )
 
 func runCmd(t *testing.T, args ...string) (string, error) {
@@ -202,5 +205,36 @@ func TestListColumnFilterMatchesWithinColumn(t *testing.T) {
 	}
 	if rows := strings.SplitN(out, "\n", 2)[1]; strings.TrimSpace(rows) != "" {
 		t.Errorf("a match outside the column must show no rows, not even its category:\n%s", out)
+	}
+}
+
+func TestListTableDropsStoredControlCharacters(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	db, err := gormdb.Open(gormdb.Cfg{
+		Driver: gormdb.DriverSqlite,
+		Sqlite: gormdb.SqliteCfg{Path: path},
+		Logger: logger.Discard,
+	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+	if err != nil {
+		t.Fatalf("open raw handle: %v", err)
+	}
+	// An older version could store escapes; write them past the store's checks.
+	const hostile = "\x1b[31m\x1b]0;pwn\x07"
+	err = db.Exec("UPDATE items SET title = title || ?, description = ?", hostile, "d"+hostile).Error
+	_ = gormdb.Close(db)
+	if err != nil {
+		t.Fatalf("store raw titles: %v", err)
+	}
+	out, err := runCmd(t, "list", "--file", path)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Errorf("list text output carries stored control characters:\n%q", out)
+	}
+	for _, want := range []string{"Work[31m]0;pwn", "a[31m]0;pwn"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list output missing the printable rest %q:\n%q", want, out)
+		}
 	}
 }

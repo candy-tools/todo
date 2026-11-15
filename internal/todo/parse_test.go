@@ -303,3 +303,10 @@ func TestParseTabIndentIsFourColumns(t *testing.T) {
 		t.Errorf("tree mismatch:\n got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestParseCRLFDescriptionDropsCarriageReturns(t *testing.T) {
+	d := parse("# C\r\n- [ ] t\r\n  desc\r\n  more\r\n")
+	if got := d.Roots[0].Children[0].Description; got != "desc\nmore" {
+		t.Errorf("description = %q, want %q", got, "desc\nmore")
+	}
+}

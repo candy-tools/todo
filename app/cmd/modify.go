@@ -27,7 +27,7 @@ func rmCmd() *cobra.Command {
 				if err := s.Delete(ctx, it.ID); err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "rm: %s\n", it.Title)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "rm: %s\n", todo.Printable(it.Title))
 				return nil
 			})
 		},

@@ -31,7 +31,7 @@ func setStatus(cmd *cobra.Command, verb string, write statusWrite) error {
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, st.String(), it.Title, categoryPath(it))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, st.String(), todo.Printable(it.Title), categoryPath(it))
 		return nil
 	})
 }

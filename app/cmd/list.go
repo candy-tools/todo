@@ -70,7 +70,7 @@ func writeListTable(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool
 			st = it.Status.String()
 		}
 		indent := strings.Repeat("  ", depthOf(it))
-		_, _ = fmt.Fprintf(w, "%3d %5d  %-9s %s%s\n", i+1, it.ID, st, indent, it.Title)
+		_, _ = fmt.Fprintf(w, "%3d %5d  %-9s %s%s\n", i+1, it.ID, st, indent, todo.Printable(it.Title))
 	}
 	return nil
 }
