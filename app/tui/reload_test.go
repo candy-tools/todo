@@ -643,6 +643,12 @@ func hasRow(m model, title string) bool {
 // and vanish when the TUI quits.
 func TestReplacedFileShowsErrorAndRefusesWrite(t *testing.T) {
 	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
+	// A second link keeps the file the store holds reachable once another is
+	// renamed over its path, so the end of the test can read it.
+	held := path + ".held"
+	if err := os.Link(path, held); err != nil {
+		t.Fatal(err)
+	}
 	other := todotest.Seed(t, "# Other\n")
 	if err := os.Rename(other, path); err != nil {
 		t.Fatal(err)
@@ -661,7 +667,18 @@ func TestReplacedFileShowsErrorAndRefusesWrite(t *testing.T) {
 	if !errors.Is(m.err, todo.ErrFileReplaced) || !strings.Contains(m.footer(200), "save failed:") {
 		t.Errorf("footer should report the refused save, got %q", m.footer(200))
 	}
-	doc, _, err := m.store.Load(context.Background())
+	if _, _, err := m.store.Load(context.Background()); !errors.Is(err, todo.ErrFileReplaced) {
+		t.Fatalf("Load = %v, want ErrFileReplaced (a read may run on the file now at the path)", err)
+	}
+	if err := m.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := todo.OpenStore(held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	doc, _, err := st.Load(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -258,9 +258,28 @@ func (s *Store) Close() error {
 // Path returns the path of the store file.
 func (s *Store) Path() string { return s.path }
 
-// Revision returns the store's write counter.
+// Revision returns the store's write counter. It fails with ErrFileReplaced when
+// the file was removed or replaced, see checkRead.
 func (s *Store) Revision(ctx context.Context) (int64, error) {
-	return revisionIn(ctx, s.db)
+	rev, err := revisionIn(ctx, s.db)
+	if err = s.checkRead(err); err != nil {
+		return 0, err
+	}
+	return rev, nil
+}
+
+// checkRead returns ErrFileReplaced when the file at the store's path is no
+// longer the one it opened, else err, the error of a read on the read pool
+// that just ran. The pool opens its connections by path, lazily, and again
+// after dropping one (database/sql drops a transaction's connection when its
+// context is cancelled), so once another file took the path a read may have
+// run on that file while writes still go to the held one. Checking after the
+// read covers every connection opened before the check.
+func (s *Store) checkRead(err error) error {
+	if ferr := s.CheckFile(); errors.Is(ferr, ErrFileReplaced) {
+		return ferr
+	}
+	return err
 }
 
 // revisionIn reads the revision through db, which may be a transaction handle.
@@ -284,7 +303,8 @@ var loadBetweenReads func()
 // Load reads the whole list and the revision it reflects. Both are read in one
 // transaction on the read-only pool, which begins deferred (not holding the
 // writer) and whose first read fixes the snapshot (SQLite WAL), so a write
-// landing in between cannot pair a newer tree with an older revision.
+// landing in between cannot pair a newer tree with an older revision. It fails
+// with ErrFileReplaced when the file was removed or replaced, see checkRead.
 func (s *Store) Load(ctx context.Context) (*Document, int64, error) {
 	var doc *Document
 	var rev int64
@@ -299,7 +319,7 @@ func (s *Store) Load(ctx context.Context) (*Document, int64, error) {
 		doc, err = loadDocument(ctx, tx)
 		return err
 	})
-	if err != nil {
+	if err = s.checkRead(err); err != nil {
 		return nil, 0, err
 	}
 	return doc, rev, nil

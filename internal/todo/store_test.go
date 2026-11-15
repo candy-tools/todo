@@ -151,12 +151,85 @@ func TestWriteRefusesReplacedFile(t *testing.T) {
 			if _, err := s.AddCategory(context.Background(), "C", 0, 0); !errors.Is(err, ErrFileReplaced) {
 				t.Fatalf("AddCategory = %v, want ErrFileReplaced", err)
 			}
-			doc, _, err := s.Load(context.Background())
+			// The writer connection reads the file the store holds; Load would
+			// refuse it, as a read may run on the file now at the path.
+			var count int64
+			if err := s.db.Clauses(gormdb.Write).Model(&dbItem{}).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatalf("the refused write reached the unlinked file: %d items", count)
+			}
+		})
+	}
+}
+
+// TestReadRefusesReplacedFile renames another store, holding other categories
+// and a higher revision, over the file of an open store, then holds the read
+// connection the store already has so the next read must open a new one,
+// which SQLite does by path. That read would see the other file while the
+// writes still go to the held one: Load and Revision must refuse it with
+// ErrFileReplaced rather than return the other file's data.
+func TestReadRefusesReplacedFile(t *testing.T) {
+	ctx := context.Background()
+	reads := map[string]func(s *Store) (string, error){
+		"Load": func(s *Store) (string, error) {
+			doc, rev, err := s.Load(ctx)
+			if err != nil {
+				return "", err
+			}
+			var titles []string
+			for _, r := range doc.Roots {
+				titles = append(titles, r.Title)
+			}
+			return fmt.Sprintf("roots %q at revision %d", strings.Join(titles, ","), rev), nil
+		},
+		"Revision": func(s *Store) (string, error) {
+			rev, err := s.Revision(ctx)
+			return fmt.Sprintf("revision %d", rev), err
+		},
+	}
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "t.db")
+			storeWithCategory(t, path, "A")
+			s, err := OpenStore(path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(doc.Roots) != 0 {
-				t.Fatalf("the refused write reached the unlinked file: %d roots", len(doc.Roots))
+			t.Cleanup(func() { _ = s.Close() })
+			if _, err := read(s); err != nil {
+				t.Fatal(err)
+			}
+
+			other, err := OpenStore(filepath.Join(t.TempDir(), "other.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, title := range []string{"B", "C", "D"} {
+				if _, err := other.AppendCategory(ctx, title, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := other.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(other.Path(), path); err != nil {
+				t.Fatal(err)
+			}
+
+			hold := s.db.Clauses(gormdb.Read).Begin()
+			if err := hold.Error; err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { hold.Rollback() })
+			var n int64
+			if err := hold.Model(&dbItem{}).Count(&n).Error; err != nil {
+				t.Fatal(err)
+			}
+
+			if got, err := read(s); !errors.Is(err, ErrFileReplaced) {
+				t.Fatalf("%s after the file was replaced = %s, %v; want ErrFileReplaced", name, got, err)
 			}
 		})
 	}
