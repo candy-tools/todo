@@ -184,6 +184,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.reloadCheckCmd(), pollCmd())
 	case storeReloadedMsg:
 		return m.handleReload(msg)
+	case storeFileErrMsg:
+		m.err = msg.err
+		return m, nil
 	case tea.KeyMsg:
 		nm, cmd := m.updateKey(msg)
 		// In the split view the task list follows the sidebar's category,

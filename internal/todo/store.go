@@ -26,6 +26,12 @@ const schemaVersion = 2
 // with the version found.
 var ErrNewerSchema = errors.New("database was created by a newer todo")
 
+// ErrFileReplaced is returned when the store file was removed, or another file
+// was moved in at its path, since the store was opened. SQLite keeps using the
+// file it opened, so a write would land in an unlinked copy and be lost; the
+// store must be reopened instead.
+var ErrFileReplaced = errors.New("database file was removed or replaced; reopen todo")
+
 // newerSchemaError returns ErrNewerSchema wrapped with the schema version found
 // in the meta row.
 func newerSchemaError(version int) error {
@@ -64,6 +70,7 @@ func (dbMeta) TableName() string { return "meta" }
 type Store struct {
 	db   *gorm.DB
 	path string
+	file os.FileInfo // the file at path when the store was opened
 }
 
 // OpenStore opens the SQLite store at path, creating the file and its schema
@@ -78,7 +85,24 @@ func OpenStore(path string) (*Store, error) {
 		_ = gormdb.Close(db)
 		return nil, fmt.Errorf("prepare %s: %w", path, err)
 	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		_ = gormdb.Close(db)
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	s.file = fi
 	return s, nil
+}
+
+// CheckFile returns ErrFileReplaced when the file at the store's path is no
+// longer the one it opened: it was removed, or another file took its place (a
+// `git checkout`, a sync tool renaming a new copy in).
+func (s *Store) CheckFile() error {
+	fi, err := os.Stat(s.path)
+	if errors.Is(err, os.ErrNotExist) || (err == nil && !os.SameFile(fi, s.file)) {
+		return fmt.Errorf("%s: %w", s.path, ErrFileReplaced)
+	}
+	return err
 }
 
 // openBusyWait is how long openDB retries an open that SQLite reports busy, and

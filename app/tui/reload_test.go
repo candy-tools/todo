@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -407,4 +408,37 @@ func hasRow(m model, title string) bool {
 		}
 	}
 	return false
+}
+
+// TestReplacedFileShowsErrorAndRefusesWrite swaps another store in over the
+// open one by rename, as `git checkout` or a sync tool would: the poll must
+// report it, and a write must be refused rather than land in the unlinked file
+// and vanish when the TUI quits.
+func TestReplacedFileShowsErrorAndRefusesWrite(t *testing.T) {
+	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
+	other := todotest.Seed(t, "# Other\n")
+	if err := os.Rename(other, path); err != nil {
+		t.Fatal(err)
+	}
+
+	msg := reloadCheck(m.store, m.lastRev)
+	if msg == nil {
+		t.Fatal("the poll must report a replaced store file")
+	}
+	m = send(m, msg)
+	if m.err == nil || !errors.Is(m.err, todo.ErrFileReplaced) {
+		t.Fatalf("m.err = %v, want ErrFileReplaced", m.err)
+	}
+
+	m = pickState(t, press(m, "down"), todo.Done)
+	if !errors.Is(m.err, todo.ErrFileReplaced) || !strings.Contains(m.footer(200), "save failed:") {
+		t.Errorf("footer should report the refused save, got %q", m.footer(200))
+	}
+	doc, _, err := m.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := find(doc, "a").Status; got != todo.Working {
+		t.Errorf("a = %v in the unlinked file, want working (the write must be refused)", got)
+	}
 }

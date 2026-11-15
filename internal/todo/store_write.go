@@ -41,8 +41,12 @@ type Changes struct {
 // savepoints of this one), the revision bump and, when the sort order of some
 // sibling group runs out of room, its renormalization. Nothing in fn may use
 // s.db: the SQLite writer is one connection, already held by tx. A store a
-// newer todo has upgraded is refused with ErrNewerSchema before fn runs.
+// newer todo has upgraded is refused with ErrNewerSchema before fn runs, and one
+// whose file was removed or replaced with ErrFileReplaced.
 func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretree.Tree) error) error {
+	if err := s.CheckFile(); err != nil {
+		return err
+	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return writeIn(ctx, tx, fn)
 	})

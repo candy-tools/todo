@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -113,5 +114,49 @@ func TestOpenStoreRejectsDirectoryPath(t *testing.T) {
 	if s, err := OpenStore(t.TempDir()); err == nil {
 		_ = s.Close()
 		t.Fatal("OpenStore on a directory succeeded; want an error")
+	}
+}
+
+// TestWriteRefusesReplacedFile removes the store file, or renames another store
+// over it, while s stays open: SQLite would keep writing to the unlinked inode,
+// so the check must report ErrFileReplaced and every write must be refused.
+func TestWriteRefusesReplacedFile(t *testing.T) {
+	replace := map[string]func(t *testing.T, path string){
+		"removed": func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"renamed over": func(t *testing.T, path string) {
+			other := newStore(t)
+			if err := other.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(other.Path(), path); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, fn := range replace {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			if err := s.CheckFile(); err != nil {
+				t.Fatalf("CheckFile on the open file = %v, want nil", err)
+			}
+			fn(t, s.Path())
+			if err := s.CheckFile(); !errors.Is(err, ErrFileReplaced) {
+				t.Fatalf("CheckFile = %v, want ErrFileReplaced", err)
+			}
+			if _, err := s.AddCategory(context.Background(), "C", 0, 0); !errors.Is(err, ErrFileReplaced) {
+				t.Fatalf("AddCategory = %v, want ErrFileReplaced", err)
+			}
+			doc, _, err := s.Load(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(doc.Roots) != 0 {
+				t.Fatalf("the refused write reached the unlinked file: %d roots", len(doc.Roots))
+			}
+		})
 	}
 }

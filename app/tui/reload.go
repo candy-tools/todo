@@ -25,6 +25,11 @@ type storeReloadedMsg struct {
 	rev int64
 }
 
+// storeFileErrMsg reports that the store file was removed or replaced while
+// the app runs; writes are refused (see todo.ErrFileReplaced), so the error
+// stays in the footer.
+type storeFileErrMsg struct{ err error }
+
 // pollCmd schedules the next reload tick.
 func pollCmd() tea.Cmd {
 	return tea.Tick(pollInterval, func(time.Time) tea.Msg { return reloadTickMsg{} })
@@ -39,8 +44,13 @@ func (m model) reloadCheckCmd() tea.Cmd {
 // reloadCheck reads the store's revision and, when it differs from last, loads
 // the list and returns it as a storeReloadedMsg. It returns nil when nothing
 // changed or on any read error — a transient failure must never wipe the
-// current view.
+// current view. A store file that was removed or replaced is reported as a
+// storeFileErrMsg instead: the open handle still reads the old copy, so its
+// revision says nothing about the file at the path.
 func reloadCheck(st *todo.Store, last int64) tea.Msg {
+	if err := st.CheckFile(); err != nil {
+		return storeFileErrMsg{err: err}
+	}
 	ctx := context.Background()
 	rev, err := st.Revision(ctx)
 	if err != nil || rev == last {
