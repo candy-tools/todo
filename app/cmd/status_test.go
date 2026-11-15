@@ -212,3 +212,41 @@ func TestSubtaskBoardStateIsUsageError(t *testing.T) {
 		t.Error("the subtask must be unchanged")
 	}
 }
+
+func TestStatusToDoneDoesNotCascade(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] child\n")
+	if _, err := runCmd(t, "status", "--file", path, "--title", "parent", "--to", "done"); err != nil {
+		t.Fatal(err)
+	}
+	got := todotest.Dump(t, path)
+	if !strings.Contains(got, "- [x] parent") || !strings.Contains(got, "  - [ ] child") {
+		t.Errorf("status --to done must complete only the task:\n%s", got)
+	}
+}
+
+func TestReopenWithoutCascadeKeepsSubtasks(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [x] parent\n  - [x] child\n")
+	if _, err := runCmd(t, "reopen", "--file", path, "--title", "parent"); err != nil {
+		t.Fatal(err)
+	}
+	got := todotest.Dump(t, path)
+	if !strings.Contains(got, "- [/] parent") || !strings.Contains(got, "  - [x] child") {
+		t.Errorf("reopen without --cascade must leave the subtask done:\n%s", got)
+	}
+}
+
+func TestReopenNotDoneTaskGoesToWorking(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	if _, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(todotest.Dump(t, path), "- [new] a") {
+		t.Fatalf("a should be new:\n%s", todotest.Dump(t, path))
+	}
+	if _, err := runCmd(t, "reopen", "--file", path, "--title", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(todotest.Dump(t, path), "- [/] a") {
+		t.Errorf("reopen on a task that is not done should still set working:\n%s", todotest.Dump(t, path))
+	}
+}

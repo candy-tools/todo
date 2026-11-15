@@ -410,3 +410,27 @@ func TestHelpShowsBoardKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestReopenFromSnapshotIntoPickedState(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] r\n  - [ ] s1\n  - [x] s2\n")
+	m = setStatusExternally(t, m, path, "r", todo.Review)
+	m = showOn(t, m, todo.ColInProgress, "r")
+	m = press(m, "p") // into Done: snapshot, cascade
+	if len(m.snapshots) != 1 {
+		t.Fatalf("completing r must take one snapshot, got %d", len(m.snapshots))
+	}
+	m = showOn(t, m, todo.ColDone, "r")
+	m = pickState(t, m, todo.New) // out of Done into the picked state
+	if st := storedItem(t, path, "r").Status; st != todo.New {
+		t.Errorf("picking new out of Done must store r as new, got %v", st)
+	}
+	if st := storedItem(t, path, "s1").Status; st != todo.Open {
+		t.Errorf("s1 must be restored to open, got %v", st)
+	}
+	if st := storedItem(t, path, "s2").Status; st != todo.Done {
+		t.Errorf("s2 must be restored to done, got %v", st)
+	}
+	if len(m.snapshots) != 0 {
+		t.Errorf("leaving Done must consume the snapshot, got %d", len(m.snapshots))
+	}
+}
