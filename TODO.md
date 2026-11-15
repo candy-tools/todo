@@ -103,3 +103,20 @@ and `todo list --json` cover the common actions — run `todo --help`.
   Titles accepted bidi overrides and line/paragraph separators. Fixed in ac5d8ae: unsafeRune (control, U+202A-202E, U+2066-2069, U+2028/2029, U+FEFF) used by CleanTitle, importTitle and Printable; ZWJ/ZWNJ/soft hyphen still allowed. Tests: extended badTitles, TestImportMarkdownSanitizesTitles, TestPrintable; new TestCleanTitleKeepsJoinersAndSoftHyphen. Tests 554 -> 576 passing (table cases), lint 0, coverage ok.
 - [x] R2-16: Dead Store.AddTask and redundant title checks in CLI
   Fixed in 645b0e5 (CLI add/add-category/edit rely on CleanTitle only; exit 2 unchanged; message now '--title: invalid title: it must not be empty'; tests TestAddBlankTitleIsUsageError, TestEditBlankTitleIsUsageError) and 17179ab (AddTask/AddCategory kept exported and documented as the explicit-placement API since cross-package tests depend on afterID; AppendTask added to TestEveryWriteBumpsRevision). Tests 587 -> 589 passing, lint 0, coverage ok.
+
+# auto-improve follow-ups
+
+- [ ] F-01: Read pool reopens connections by path after a file replacement
+  From R2-13 residual. internal/todo/store.go: the read pool opens connections lazily by path, so after the file at the path is replaced, new read connections read the new file while the writer still holds the old one (Load/poll see a different DB than writes go to). Fix: pin read connections to the file opened at OpenStore time (open eagerly, keep idle conns, no lifetime/idle expiry), or detect the replacement on read and fail with ErrFileReplaced. Severity medium, effort medium, plausible.
+- [ ] F-02: TUI first-run import uses the short 750ms busy timeout
+  From R2-14 note. The TUI's first-run ImportFile runs on a store opened with WithBusyTimeout(750ms), so a large import that meets a held lock fails fast. Fix: ImportFile (one large deliberate write) waits with DefaultBusyTimeout regardless of the store's timeout. Severity low, effort small.
+- [ ] F-03: import does not map ErrBusy to exit code 6
+  From R2-08 residual. app/cmd import maps ErrConflict to exit 6 but not ErrBusy, unlike the other write commands (DOCUMENTATION.md says 6 covers conflict and busy). Fix: map ErrBusy to exitConflict in import. Severity low, effort small.
+- [ ] F-04: import --force leaves the .bak file after a conflict
+  From R2-08 residual. When import --force backs up and the replacing write then fails with ErrConflict, nothing was overwritten but the .bak stays. Decision (orchestrator default): delete the backup made by this run when the import writes nothing; keep it on success. Severity low, effort small.
+- [ ] F-05: Category edit naming only ignored fields bumps the revision
+  From R2-11 residual. Store.Edit on a category with Changes that only set fields a category ignores (description, plan) still writes and bumps the revision, dropping TUI undo snapshots. Fix: treat it as a no-op like an empty Changes. Severity low, effort small.
+- [ ] F-06: TUI edit form shows raw stored strings
+  From R2-02 residual. The edit form is filled with stored title/description/plan as-is, so legacy control characters reach the terminal. Fix: clean the values before filling the form (keep newlines in description and plan); a field the user did not touch must not be written just because cleaning changed it. Severity low, effort small.
+- [ ] F-07: reload failed footer error stays after recovery
+  From R2-06 residual. After a write whose reload fails, the footer shows the reload error; when a later poll reload succeeds (unsynced recovery or external change) the error is not cleared. Fix: clear that error on the recovering reload, without clearing unrelated errors. Severity low, effort small.
