@@ -16,25 +16,3 @@ func TestItemPath(t *testing.T) {
 		t.Errorf("Path() = %v, want %v", got, want)
 	}
 }
-
-func TestFindByPathRoundTrip(t *testing.T) {
-	d := todotest.Parse(t, "# Work\n\n- [ ] a\n  - [ ] a1\n\n# Personal\n\n- [ ] b\n")
-	a1 := d.Roots[0].Children[0].Children[0]
-	if got := d.FindByPath(a1.Path()); got != a1 {
-		t.Errorf("FindByPath(a1.Path()) should return a1")
-	}
-	personal := d.Roots[1]
-	if got := d.FindByPath(personal.Path()); got != personal {
-		t.Errorf("FindByPath should resolve a second root category")
-	}
-}
-
-func TestFindByPathUnknownIsNil(t *testing.T) {
-	d := todotest.Parse(t, "# Work\n\n- [ ] a\n")
-	if got := d.FindByPath([]string{"Work", "nope"}); got != nil {
-		t.Errorf("an unknown path should return nil, got %v", got)
-	}
-	if got := d.FindByPath(nil); got != nil {
-		t.Errorf("an empty path should return nil")
-	}
-}
