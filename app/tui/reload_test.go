@@ -290,6 +290,48 @@ func TestReloadDeferredDuringModal(t *testing.T) {
 	}
 }
 
+func TestReloadAppliedWhileSearchBarOpen(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = press(m, "/")
+	m = typeText(m, "a")
+	externalAddTask(t, path, "ab", find(m.doc, "Work").ID, find(m.doc, "a").ID)
+	m = pollOnce(t, m)
+	if find(m.doc, "ab") == nil {
+		t.Errorf("a reload must be applied while the search bar is open")
+	}
+	if !m.searching {
+		t.Errorf("a reload must leave the search bar open")
+	}
+	if m.view.filter != "a" || m.search.Value() != "a" {
+		t.Errorf("a reload must keep the query: filter %q, input %q", m.view.filter, m.search.Value())
+	}
+	if !hasRow(m, "ab") {
+		t.Errorf("the new task matches the query and must be shown, rows %v", rowTitles(m.tree))
+	}
+}
+
+func TestReloadDeferredWhileGrabbed(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = selectTitle(t, m, "a")
+	m = press(m, "m")
+	if !m.tree.grabbed {
+		t.Fatal("precondition: m should grab a")
+	}
+	externalAddTask(t, path, "b", find(m.doc, "Work").ID, find(m.doc, "a").ID)
+	m = pollOnce(t, m)
+	if find(m.doc, "b") != nil {
+		t.Errorf("a reload must be deferred while an item is grabbed")
+	}
+	if !m.tree.grabbed {
+		t.Errorf("a deferred reload must leave the item grabbed")
+	}
+	m = press(m, "m") // drop
+	m = pollOnce(t, m)
+	if find(m.doc, "b") == nil {
+		t.Errorf("the deferred reload must apply after the item is dropped")
+	}
+}
+
 func TestReloadIgnoresOwnRevision(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	m = send(m, storeReloadedMsg{doc: parseDoc(t, "# Work\n\n- [ ] zzz\n"), rev: m.lastRev})
