@@ -75,6 +75,9 @@ type Store struct {
 	db   *gorm.DB
 	path string
 	file os.FileInfo // the file at path when the store was opened
+	// busyTimeout is how long the store's writes wait for another process's
+	// writer lock (see WithBusyTimeout).
+	busyTimeout time.Duration
 }
 
 // DefaultBusyTimeout is how long a store's writes wait, by default, for another
@@ -93,8 +96,8 @@ type storeCfg struct {
 // release the writer lock before failing with ErrBusy (DefaultBusyTimeout when
 // not given, or when d is not positive). An interactive caller keeps it short,
 // so a stuck writer elsewhere does not freeze it. It does not shorten
-// OpenStore itself: opening and migrating the file always wait up to
-// DefaultBusyTimeout.
+// OpenStore itself, nor an import (Import, ImportFile): opening, migrating and
+// importing always wait at least DefaultBusyTimeout.
 func WithBusyTimeout(d time.Duration) Option {
 	return func(c *storeCfg) { c.busyTimeout = d }
 }
@@ -143,7 +146,7 @@ func openStoreOnce(path string, busyTimeout time.Duration) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	s := &Store{db: db, path: path}
+	s := &Store{db: db, path: path, busyTimeout: busyTimeout}
 	if err := s.migrate(); err != nil {
 		_ = gormdb.Close(db)
 		return nil, fmt.Errorf("prepare %s: %w", path, err)

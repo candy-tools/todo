@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"time"
 
 	closuretree "github.com/go-bumbu/closure-tree"
 	"gorm.io/gorm"
@@ -71,12 +72,38 @@ type Changes struct {
 // and its move-into-own-subtree error ErrInvalidMove.
 // A write that times out waiting for another process's writer lock is ErrBusy.
 func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretree.Tree) error) error {
+	return s.writeWaiting(ctx, s.busyTimeout, fn)
+}
+
+// writeWaiting is write that waits up to wait, instead of the store's busy
+// timeout, for another process's writer lock, when wait is the longer one.
+// It holds the writer connection (the pool's only one) for the whole write,
+// raises that connection's busy_timeout before the transaction begins and
+// takes the lock, and restores the store's after it ends, so no other write
+// runs with the longer wait.
+func (s *Store) writeWaiting(ctx context.Context, wait time.Duration, fn func(tx *gorm.DB, tree *closuretree.Tree) error) error {
 	if err := s.CheckFile(); err != nil {
 		return err
 	}
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return writeIn(ctx, tx, fn)
-	})
+	run := func(db *gorm.DB) error {
+		return db.Transaction(func(tx *gorm.DB) error {
+			return writeIn(ctx, tx, fn)
+		})
+	}
+	var err error
+	if wait > s.busyTimeout {
+		err = s.db.WithContext(ctx).Connection(func(conn *gorm.DB) error {
+			if err := setBusyTimeout(conn, wait); err != nil {
+				return err
+			}
+			// Restored even when ctx is done. Should it fail anyway, later
+			// writes on this connection wait longer, which loses nothing.
+			defer func() { _ = setBusyTimeout(conn.WithContext(context.WithoutCancel(ctx)), s.busyTimeout) }()
+			return run(conn)
+		})
+	} else {
+		err = run(s.db.WithContext(ctx))
+	}
 	if errors.Is(err, closuretree.ErrNodeNotFound) || errors.Is(err, closuretree.ErrParentNotFound) {
 		return ErrNotFound
 	}
@@ -90,6 +117,12 @@ func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretre
 		return ErrBusy
 	}
 	return err
+}
+
+// setBusyTimeout sets SQLite's busy_timeout on the connection db is pinned to,
+// in whole milliseconds and at least one, as the store's DSN does.
+func setBusyTimeout(db *gorm.DB, d time.Duration) error {
+	return db.Exec(fmt.Sprintf("PRAGMA busy_timeout = %d", max(d.Milliseconds(), 1))).Error
 }
 
 // writeIn is the body of a write, run in the transaction tx the caller holds:

@@ -85,7 +85,9 @@ func count(it *Item, rep *ImportReport) {
 // items are deleted first. doc is flattened first, in place (see
 // Document.FlattenSubtasks), since the store keeps subtasks one level deep. A
 // title CleanTitle refuses fails the import with ErrInvalidTitle; ImportMarkdown
-// never yields one.
+// never yields one. As one large, deliberate write, an import waits at least
+// DefaultBusyTimeout for another process's writer lock, even on a store opened
+// with a shorter WithBusyTimeout.
 func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
 	return s.importDoc(ctx, doc, replace, nil)
 }
@@ -95,7 +97,7 @@ func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
 // returns ErrConflict and writes nothing.
 func (s *Store) importDoc(ctx context.Context, doc *Document, replace bool, expect *int64) error {
 	doc.FlattenSubtasks()
-	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
+	return s.writeWaiting(ctx, DefaultBusyTimeout, func(tx *gorm.DB, tree *closuretree.Tree) error {
 		if expect != nil {
 			rev, err := revisionIn(ctx, tx)
 			if err != nil {

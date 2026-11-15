@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -125,5 +127,44 @@ func TestOpenStoreShortBusyTimeoutWaitsAtOpen(t *testing.T) {
 				t.Errorf("err = %v, want ErrBusy", err)
 			}
 		})
+	}
+}
+
+// An import into an existing store opened with a short busy timeout (as the
+// TUI's first run does) is one large, deliberate write: it waits out another
+// process's write up to the default, not the store's timeout. Later writes
+// still give up after the short timeout.
+func TestImportFileWaitsDefaultBusyTimeout(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n- [ ] a\n")
+	md := filepath.Join(t.TempDir(), "TODO.md")
+	if err := os.WriteFile(md, []byte("# New\n- [ ] b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	todo.SetImportAfterBackup(t, func() {
+		holdWriteLockFor(t, path, 1500*time.Millisecond, false)
+	})
+
+	s, _, err := todo.ImportFile(path, md, true, todo.WithBusyTimeout(750*time.Millisecond))
+	if err != nil {
+		t.Fatalf("ImportFile: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	doc, _, err := s.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Roots) != 1 || doc.Roots[0].Title != "New" {
+		t.Fatalf("roots after import = %+v, want only New", doc.Roots)
+	}
+
+	b := doc.Roots[0].Children[0]
+	todotest.HoldWriteLock(t, path)
+	start := time.Now()
+	err = s.SetStatuses(context.Background(), map[uint]todo.Status{b.ID: todo.Done})
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("a write after the import waited %v, want the short timeout", elapsed)
+	}
+	if !errors.Is(err, todo.ErrBusy) {
+		t.Errorf("err = %v, want ErrBusy", err)
 	}
 }
