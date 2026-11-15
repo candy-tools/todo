@@ -91,8 +91,10 @@ type storeCfg struct {
 
 // WithBusyTimeout sets how long the store's writes wait for another process to
 // release the writer lock before failing with ErrBusy (DefaultBusyTimeout when
-// not given). An interactive caller keeps it short, so a stuck writer elsewhere
-// does not freeze it.
+// not given, or when d is not positive). An interactive caller keeps it short,
+// so a stuck writer elsewhere does not freeze it. It does not shorten
+// OpenStore itself: opening and migrating the file always wait up to
+// DefaultBusyTimeout.
 func WithBusyTimeout(d time.Duration) Option {
 	return func(c *storeCfg) { c.busyTimeout = d }
 }
@@ -104,7 +106,10 @@ func OpenStore(path string, opts ...Option) (*Store, error) {
 	for _, o := range opts {
 		o(&cfg)
 	}
-	db, err := openDB(path, cfg.busyTimeout)
+	if cfg.busyTimeout <= 0 {
+		cfg.busyTimeout = DefaultBusyTimeout
+	}
+	db, err := openDB(path, DefaultBusyTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -119,6 +124,14 @@ func OpenStore(path string, opts ...Option) (*Store, error) {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	s.file = fi
+	if cfg.busyTimeout != DefaultBusyTimeout {
+		// busy_timeout is set per connection when the pools open them, so the
+		// store reopens with the caller's timeout for the writes that follow.
+		_ = gormdb.Close(db)
+		if s.db, err = openDB(path, cfg.busyTimeout); err != nil {
+			return nil, fmt.Errorf("open %s: %w", path, err)
+		}
+	}
 	return s, nil
 }
 
@@ -144,10 +157,10 @@ const sqliteBusy = 5
 // busyTimeout for a lock another process holds. Processes that open a new file
 // at the same time each switch it to WAL mode, and SQLite fails all but one of
 // them with SQLITE_BUSY at once, without waiting out the busy timeout, to avoid
-// a deadlock. Such an open is retried for up to busyTimeout: once the file is in
-// WAL mode, the switch is a no-op.
+// a deadlock. Such an open is retried for up to DefaultBusyTimeout, whatever
+// busyTimeout is: once the file is in WAL mode, the switch is a no-op.
 func openDB(path string, busyTimeout time.Duration) (*gorm.DB, error) {
-	deadline := time.Now().Add(busyTimeout)
+	deadline := time.Now().Add(DefaultBusyTimeout)
 	for {
 		db, err := gormdb.Open(gormdb.Cfg{
 			Driver: gormdb.DriverSqlite,
