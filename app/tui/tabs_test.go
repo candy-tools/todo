@@ -292,7 +292,7 @@ func TestReadyWithoutPlanFlagged(t *testing.T) {
 	m = setStatusExternally(t, m, path, "r", todo.Ready)
 	m = setStatusExternally(t, m, path, "planned", todo.Ready)
 	planned := find(m.doc, "planned")
-	if err := m.store.Edit(context.Background(), planned.ID, todo.Fields{Title: "planned", Plan: "docs/plan.md"}); err != nil {
+	if err := m.store.Edit(context.Background(), planned.ID, todo.Changes{Plan: new("docs/plan.md")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
@@ -407,7 +407,7 @@ func TestSearchCarriesAcrossTabs(t *testing.T) {
 func TestEditKeepsPlan(t *testing.T) {
 	m, path := newTestModel(t, "# B\n- [ ] a\n")
 	a := find(m.doc, "a")
-	if err := m.store.Edit(context.Background(), a.ID, todo.Fields{Title: "a", Plan: "docs/a.md"}); err != nil {
+	if err := m.store.Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/a.md")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
@@ -418,6 +418,24 @@ func TestEditKeepsPlan(t *testing.T) {
 	it := storedItem(t, path, "a2")
 	if it.Plan != "docs/a.md" {
 		t.Errorf("an edit must keep the plan, got %q", it.Plan)
+	}
+}
+
+// An agent setting the plan while the edit form is open must survive the save:
+// the form writes only the fields the user changed.
+func TestEditKeepsPlanSetWhileFormOpen(t *testing.T) {
+	m, path := newTestModel(t, "# B\n- [ ] a\n")
+	a := find(m.doc, "a")
+	m.tree.selectID(a.ID)
+	m = press(m, "e")
+	if err := openSecond(t, path).Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/agent.md")}); err != nil {
+		t.Fatal(err)
+	}
+	m = pollOnce(t, m) // deferred: the form is open
+	m = typeText(m, "2")
+	m = press(m, "enter")
+	if it := storedItem(t, path, "a2"); it.Plan != "docs/agent.md" {
+		t.Errorf("an edit must keep a plan set while the form was open, got %q", it.Plan)
 	}
 }
 

@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -33,6 +34,9 @@ type form struct {
 	// item — its status and subtask progress, carried over from the old details
 	// view. Empty when adding (there is no item yet).
 	meta string
+	// start holds the field values the form opened with, as values() reads them,
+	// so an edit can send only the fields the user changed.
+	start [3]string
 }
 
 func newForm(titleVal, descVal, planVal string, isTask, editing bool) form {
@@ -53,6 +57,7 @@ func newForm(titleVal, descVal, planVal string, isTask, editing bool) form {
 	pi.SetValue(planVal)
 
 	f := form{title: ti, desc: ta, plan: pi, isTask: isTask, editing: editing, focus: focusTitle}
+	f.start[0], f.start[1], f.start[2] = f.values()
 	f.title.Focus()
 	return f
 }
@@ -142,6 +147,24 @@ func (f form) update(msg tea.Msg) (form, tea.Cmd) {
 // values returns the trimmed title, the description and the trimmed plan entered.
 func (f form) values() (title, desc, plan string) {
 	return strings.TrimSpace(f.title.Value()), strings.Trim(f.desc.Value(), "\n"), strings.TrimSpace(f.plan.Value())
+}
+
+// changes names the fields whose values differ from the ones the form opened
+// with (a category form has the title only), so saving an edit leaves alone a
+// field someone else changed while the form was open.
+func (f form) changes() todo.Changes {
+	title, desc, plan := f.values()
+	var c todo.Changes
+	if title != f.start[0] {
+		c.Title = &title
+	}
+	if f.isTask && desc != f.start[1] {
+		c.Description = &desc
+	}
+	if f.isTask && plan != f.start[2] {
+		c.Plan = &plan
+	}
+	return c
 }
 
 func (f form) view() string {

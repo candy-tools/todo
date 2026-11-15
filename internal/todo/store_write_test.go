@@ -118,8 +118,8 @@ func TestEditKeepsKind(t *testing.T) {
 	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
 	task := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Deferred, c, 0))
 
-	mustOK(t, s.Edit(ctx, c, Fields{Title: "C2", Description: "x"}))
-	mustOK(t, s.Edit(ctx, task, Fields{Title: "t2", Description: "desc"}))
+	mustOK(t, s.Edit(ctx, c, Changes{Title: new("C2"), Description: new("x")}))
+	mustOK(t, s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("desc")}))
 
 	doc := load(t, s)
 	if got := item(t, doc, c); got.Kind != Category || got.Title != "C2" || got.Description != "" {
@@ -128,7 +128,7 @@ func TestEditKeepsKind(t *testing.T) {
 	if got := item(t, doc, task); got.Kind != Task || got.Title != "t2" || got.Description != "desc" || got.Status != Deferred {
 		t.Fatalf("task after Edit = %+v; want deferred task t2 described desc", got)
 	}
-	if err := s.Edit(ctx, 999, Fields{Title: "x"}); !errors.Is(err, ErrNotFound) {
+	if err := s.Edit(ctx, 999, Changes{Title: new("x")}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Edit(999) = %v, want ErrNotFound", err)
 	}
 }
@@ -304,7 +304,7 @@ func TestEveryWriteBumpsRevision(t *testing.T) {
 	}{
 		{"AddCategory", func() (err error) { c, err = s.AddCategory(ctx, "C", 0, 0); return err }},
 		{"AddTask", func() (err error) { task, err = s.AddTask(ctx, Fields{Title: "t"}, Open, c, 0); return err }},
-		{"Edit", func() error { return s.Edit(ctx, task, Fields{Title: "t2", Description: "d"}) }},
+		{"Edit", func() error { return s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("d")}) }},
 		{"SetStatuses", func() error { return s.SetStatuses(ctx, map[uint]Status{task: Done}) }},
 		{"CascadeStatus", func() error { return s.CascadeStatus(ctx, task, Done) }},
 		{"Move", func() error { return s.Move(ctx, task, 0, c) }},
@@ -393,9 +393,28 @@ func TestPlanRoundTrip(t *testing.T) {
 		t.Fatalf("task after AddTask = %+v; want plan docs/p.md, description d", got)
 	}
 
-	mustOK(t, s.Edit(ctx, id, Fields{Title: "t2", Description: "d2"}))
+	mustOK(t, s.Edit(ctx, id, Changes{Title: new("t2"), Description: new("d2"), Plan: new("")}))
 	if got := item(t, load(t, s), id); got.Plan != "" || got.Title != "t2" || got.Description != "d2" || got.Status != Ready {
 		t.Fatalf("task after Edit = %+v; want ready task t2 described d2 with no plan", got)
+	}
+}
+
+// An edit naming only the title must not touch a description or plan another
+// process wrote since the caller read the task.
+func TestEditKeepsFieldsItDoesNotName(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "d", Plan: "docs/old.md"}, Ready, 0, 0))
+	mustOK(t, s.Edit(ctx, id, Changes{Description: new("d2"), Plan: new("docs/new.md")}))
+
+	mustOK(t, s.Edit(ctx, id, Changes{Title: new("t2")}))
+
+	if got := item(t, load(t, s), id); got.Title != "t2" || got.Description != "d2" || got.Plan != "docs/new.md" {
+		t.Fatalf("task after title-only Edit = %+v; want t2 described d2 with plan docs/new.md", got)
+	}
+	mustOK(t, s.Edit(ctx, id, Changes{}))
+	if got := item(t, load(t, s), id); got.Title != "t2" || got.Description != "d2" || got.Plan != "docs/new.md" {
+		t.Fatalf("task after empty Edit = %+v; want it unchanged", got)
 	}
 }
 
@@ -404,7 +423,7 @@ func TestEditCategoryIgnoresPlan(t *testing.T) {
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
 
-	mustOK(t, s.Edit(ctx, c, Fields{Title: "C2", Description: "x", Plan: "docs/p.md"}))
+	mustOK(t, s.Edit(ctx, c, Changes{Title: new("C2"), Description: new("x"), Plan: new("docs/p.md")}))
 
 	if got := item(t, load(t, s), c); got.Title != "C2" || got.Description != "" || got.Plan != "" {
 		t.Fatalf("category after Edit = %+v; want C2 with no description or plan", got)

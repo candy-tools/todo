@@ -1093,14 +1093,13 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	m.mode = modeMain
 
 	if m.target == targetEdit {
-		m.editing.Title = title
-		if m.editing.IsTask() {
-			m.editing.Description = desc
-			m.editing.Plan = plan
-		}
+		// Only the fields the user changed are written: the reload is deferred
+		// while the form is open, so another field may have changed in the store.
+		ch := m.form.changes()
+		applyChanges(m.editing, ch)
 		id := m.editing.ID
 		m.commit(id, func(ctx context.Context) error {
-			return m.store.Edit(ctx, id, todo.Fields{Title: title, Description: desc, Plan: plan})
+			return m.store.Edit(ctx, id, ch)
 		})
 		return m, nil
 	}
@@ -1164,6 +1163,19 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		m.tree.selectID(newID)
 	}
 	return m, nil
+}
+
+// applyChanges sets on it, in memory, the fields ch names.
+func applyChanges(it *todo.Item, ch todo.Changes) {
+	if ch.Title != nil {
+		it.Title = *ch.Title
+	}
+	if ch.Description != nil {
+		it.Description = *ch.Description
+	}
+	if ch.Plan != nil {
+		it.Plan = *ch.Plan
+	}
 }
 
 // commit runs write against the store and then reloads, so the view always

@@ -27,6 +27,15 @@ type Fields struct {
 	Plan        string // a path or reference to the task's plan
 }
 
+// Changes are the text fields an Edit sets. A nil field keeps what the store
+// holds, so an edit never reverts a field another process changed since the
+// caller read the item. A category takes Title only.
+type Changes struct {
+	Title       *string
+	Description *string
+	Plan        *string
+}
+
 // write runs fn as one store write: a single transaction holding fn's changes
 // through tx and a closure-tree bound to tx (so the tree's own transactions are
 // savepoints of this one), the revision bump and, when the sort order of some
@@ -164,10 +173,10 @@ func itemRows(tx *gorm.DB, ids ...uint) *gorm.DB {
 	return tx.Model(&dbItem{}).Where("node_id IN ? AND tenant = ?", ids, storeScope)
 }
 
-// Edit sets the title of item id and, for a task, its description and plan; a
-// category ignores f.Description and f.Plan. Kind, status and placement are
-// kept.
-func (s *Store) Edit(ctx context.Context, id uint, f Fields) error {
+// Edit sets the fields of item id that c names: its title and, for a task, its
+// description and plan; a category ignores c.Description and c.Plan. Fields c
+// leaves nil, and kind, status and placement, are kept.
+func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
 	return s.write(ctx, func(tx *gorm.DB, _ *closuretree.Tree) error {
 		var kinds []int
 		if err := itemRows(tx, id).Pluck("kind", &kinds).Error; err != nil {
@@ -176,10 +185,20 @@ func (s *Store) Edit(ctx context.Context, id uint, f Fields) error {
 		if len(kinds) == 0 {
 			return ErrNotFound
 		}
-		cols := map[string]any{"title": f.Title}
+		cols := map[string]any{}
+		if c.Title != nil {
+			cols["title"] = *c.Title
+		}
 		if Kind(kinds[0]) == Task {
-			cols["description"] = f.Description
-			cols["plan"] = f.Plan
+			if c.Description != nil {
+				cols["description"] = *c.Description
+			}
+			if c.Plan != nil {
+				cols["plan"] = *c.Plan
+			}
+		}
+		if len(cols) == 0 {
+			return nil
 		}
 		return itemRows(tx, id).Updates(cols).Error
 	})

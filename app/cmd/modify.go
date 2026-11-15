@@ -75,30 +75,36 @@ func editCmd() *cobra.Command {
 				if !setTitle && !setDesc && !setPlan {
 					return usageErr("specify --set-title, --set-desc and/or --set-plan")
 				}
-				title, desc, plan := it.Title, it.Description, it.Plan
+				// Only the flags given are written, so a field another process
+				// changed since the read is kept.
+				var ch todo.Changes
+				title := it.Title
 				if setTitle {
 					title, _ = cmd.Flags().GetString("set-title")
 					if strings.TrimSpace(title) == "" {
 						return usageErr("--set-title must not be empty")
 					}
+					ch.Title = &title
 				}
 				if setDesc {
 					if !it.IsTask() {
 						return wrongKind("set a description on", it, "task")
 					}
-					desc, _ = cmd.Flags().GetString("set-desc")
+					desc, _ := cmd.Flags().GetString("set-desc")
+					ch.Description = &desc
 				}
 				if setPlan {
 					if !it.IsTask() {
 						return wrongKind("set a plan on", it, "task")
 					}
-					plan, _ = cmd.Flags().GetString("set-plan")
+					plan, _ := cmd.Flags().GetString("set-plan")
+					ch.Plan = &plan
 				}
 				s, err := open()
 				if err != nil {
 					return err
 				}
-				if err := s.Edit(ctx, it.ID, todo.Fields{Title: title, Description: desc, Plan: plan}); err != nil {
+				if err := s.Edit(ctx, it.ID, ch); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", title)
