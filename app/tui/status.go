@@ -43,13 +43,13 @@ func (m model) toggleSubtask(it *todo.Item) (tea.Model, tea.Cmd) {
 // complete moves top-level task it into Done and cascades done to its
 // subtasks. It first records the undo snapshot — the task's own state
 // included, even without subtasks — so an accidental complete can be undone
-// exactly (see openStatePicker and reopen).
+// exactly (see openStatePicker and reopen). The store write always cascades,
+// so it also reaches subtasks another process added since the last poll.
 func (m model) complete(it *todo.Item) (tea.Model, tea.Cmd) {
 	id := it.ID
-	cascade := len(it.Children) > 0
 	m.snapshots[id] = todo.SnapshotDone(it)
 	todo.CascadeSetDone(it, true)
-	m.commitStatus(id, func(ctx context.Context) error { return m.store.Complete(ctx, id, cascade) })
+	m.commitStatus(id, func(ctx context.Context) error { return m.store.Complete(ctx, id, true) })
 	return m, nil
 }
 

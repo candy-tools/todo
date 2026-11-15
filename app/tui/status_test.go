@@ -297,6 +297,25 @@ func TestReopenWithoutSnapshotKeepsSubtasks(t *testing.T) {
 	}
 }
 
+// A subtask another process adds before the next poll is not in the TUI's
+// tree, but completing its task must still cascade to it: the store reads the
+// tree at write time.
+func TestCompleteCascadesToSubtaskAddedExternally(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	a := find(m.doc, "a").ID
+	if _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "s"}, todo.Open, a, 0); err != nil {
+		t.Fatalf("external add: %v", err)
+	}
+	m = selectTitle(t, m, "a")
+	pickState(t, m, todo.Done)
+	if st := storedItem(t, path, "a").Status; st != todo.Done {
+		t.Fatalf("completing a stored %v, want done", st)
+	}
+	if st := storedItem(t, path, "s").Status; st != todo.Done {
+		t.Errorf("the externally added subtask = %v, want done (completing a parent completes its subtasks)", st)
+	}
+}
+
 func TestSubtaskToggle(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n  - [ ] s\n")
 	m = selectTitle(t, m, "s")
