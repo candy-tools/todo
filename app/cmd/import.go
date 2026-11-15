@@ -23,6 +23,9 @@ func importCmd() *cobra.Command {
 			if errors.Is(err, todo.ErrNotEmpty) {
 				return &cliError{exitGeneric, fmt.Sprintf("%s already has items; use --force to replace them", db)}
 			}
+			if errors.Is(err, todo.ErrConflict) {
+				return &cliError{exitConflict, err.Error()}
+			}
 			if err != nil {
 				return err
 			}

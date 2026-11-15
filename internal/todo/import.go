@@ -87,8 +87,24 @@ func count(it *Item, rep *ImportReport) {
 // title CleanTitle refuses fails the import with ErrInvalidTitle; ImportMarkdown
 // never yields one.
 func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
+	return s.importDoc(ctx, doc, replace, nil)
+}
+
+// importDoc is Import that, when expect is set, first checks in its write
+// transaction that the store is still at revision *expect, and otherwise
+// returns ErrConflict and writes nothing.
+func (s *Store) importDoc(ctx context.Context, doc *Document, replace bool, expect *int64) error {
 	doc.FlattenSubtasks()
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
+		if expect != nil {
+			rev, err := revisionIn(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if rev != *expect {
+				return ErrConflict
+			}
+		}
 		existing, err := loadDocument(ctx, tx)
 		if err != nil {
 			return err
@@ -138,8 +154,9 @@ func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, par
 // import leaves no trace. When another process creates dbPath first, that
 // store is kept and opened instead, and the report comes back empty with
 // Skipped set. Replacing a store that holds items first copies it to the next
-// free BackupPath, named in the report's Backup. On success the open store is
-// returned, opened at dbPath with opts.
+// free BackupPath, named in the report's Backup; a write by another process
+// after that copy fails the replace with ErrConflict, writing nothing. On
+// success the open store is returned, opened at dbPath with opts.
 func ImportFile(dbPath, mdPath string, replace bool, opts ...Option) (*Store, ImportReport, error) {
 	return importFile(context.Background(), dbPath, mdPath, replace, opts...)
 }
@@ -152,6 +169,11 @@ var storeExists = StoreExists
 // linkFile hard-links importNew's temporary store to the target. It is a
 // variable so a test can stand in for a filesystem without hard links.
 var linkFile = os.Link
+
+// importAfterBackup, when set by a test, runs in importFile between the backup
+// of the existing store and the import that replaces it, so a test can land a
+// write from another handle there.
+var importAfterBackup func()
 
 // importFile is ImportFile with the context of the store write, so a test can
 // make the import fail after a store file was created.
@@ -175,13 +197,22 @@ func importFile(ctx context.Context, dbPath, mdPath string, replace bool, opts .
 	if err != nil {
 		return nil, ImportReport{}, err
 	}
+	// A replace pins the revision the backup reflects, so a write landing
+	// after it (which the backup would miss) fails the import with ErrConflict
+	// instead of being deleted by it.
+	var expect *int64
 	if replace {
-		if rep.Backup, err = s.backupIfNotEmpty(ctx); err != nil {
+		var rev int64
+		if rep.Backup, rev, err = s.backupIfNotEmpty(ctx); err != nil {
 			_ = s.Close()
 			return nil, ImportReport{}, err
 		}
+		expect = &rev
 	}
-	if err := s.Import(ctx, doc, replace); err != nil {
+	if importAfterBackup != nil {
+		importAfterBackup()
+	}
+	if err := s.importDoc(ctx, doc, replace, expect); err != nil {
 		_ = s.Close()
 		return nil, ImportReport{}, err
 	}
@@ -189,22 +220,23 @@ func importFile(ctx context.Context, dbPath, mdPath string, replace bool, opts .
 }
 
 // backupIfNotEmpty copies a store that holds items to the next free
-// BackupPath (see backup) and returns that path, or "" for an empty store. It
-// runs outside any transaction, since VACUUM INTO cannot run inside one, and
-// only reads the live file, which stays the one the store opened.
-func (s *Store) backupIfNotEmpty(ctx context.Context) (string, error) {
-	doc, _, err := s.Load(ctx)
+// BackupPath (see backup) and returns that path, or "" for an empty store,
+// with the revision the emptiness check read. It runs outside any
+// transaction, since VACUUM INTO cannot run inside one, and only reads the
+// live file, which stays the one the store opened.
+func (s *Store) backupIfNotEmpty(ctx context.Context) (string, int64, error) {
+	doc, rev, err := s.Load(ctx)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if len(doc.Roots) == 0 {
-		return "", nil
+		return "", rev, nil
 	}
 	path, err := s.backup()
 	if err != nil {
-		return "", fmt.Errorf("back up %s: %w", s.path, err)
+		return "", 0, fmt.Errorf("back up %s: %w", s.path, err)
 	}
-	return path, nil
+	return path, rev, nil
 }
 
 // importNew imports doc into a new store at dbPath. It fills a temporary store
