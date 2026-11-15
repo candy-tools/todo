@@ -24,6 +24,9 @@ func addCmd() *cobra.Command {
 				if strings.TrimSpace(title) == "" {
 					return usageErr("--title is required")
 				}
+				if title, err = todo.CleanTitle(title); err != nil {
+					return usageErr("--title: " + err.Error())
+				}
 				desc, _ := cmd.Flags().GetString("desc")
 				statusName, _ := cmd.Flags().GetString("status")
 				st, ok := todo.StatusFromName(statusName)
@@ -69,6 +72,10 @@ func addCategoryCmd() *cobra.Command {
 				title, _ := cmd.Flags().GetString("title")
 				if strings.TrimSpace(title) == "" {
 					return usageErr("--title is required")
+				}
+				title, err := todo.CleanTitle(title)
+				if err != nil {
+					return usageErr("--title: " + err.Error())
 				}
 				cat := &todo.Item{Kind: todo.Category, Title: title}
 				hasParent := cmd.Flags().Changed("parent-number") ||

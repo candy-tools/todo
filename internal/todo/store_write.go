@@ -179,18 +179,27 @@ func addRow(ctx context.Context, tree *closuretree.Tree, row *dbItem, parentID, 
 
 // AddCategory adds a category under parentID (0 for a root), after the sibling
 // afterID (0 places it first), and returns its ID. Under a task it fails with
-// ErrWrongParent.
+// ErrWrongParent; a title CleanTitle refuses fails it with ErrInvalidTitle.
 func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID uint) (uint, error) {
+	title, err := CleanTitle(title)
+	if err != nil {
+		return 0, err
+	}
 	return s.add(ctx, &dbItem{Kind: int(Category), Title: title}, parentID, afterID)
 }
 
 // AddTask adds a task with fields f and status st under parentID (0 for a
 // root), after the sibling afterID (0 places it first), and returns its ID.
 // At the root it fails with ErrWrongParent; under a subtask it fails with ErrTooDeep; under a task (making a subtask)
-// with a state other than Open or Done, with ErrSubtaskStatus.
+// with a state other than Open or Done, with ErrSubtaskStatus. A title
+// CleanTitle refuses fails it with ErrInvalidTitle.
 func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afterID uint) (uint, error) {
-	row := &dbItem{Kind: int(Task), Title: f.Title, Status: int(st), Description: f.Description, Plan: f.Plan}
-	err := s.write(ctx, func(_ *gorm.DB, tree *closuretree.Tree) error {
+	title, err := CleanTitle(f.Title)
+	if err != nil {
+		return 0, err
+	}
+	row := &dbItem{Kind: int(Task), Title: title, Status: int(st), Description: f.Description, Plan: f.Plan}
+	err = s.write(ctx, func(_ *gorm.DB, tree *closuretree.Tree) error {
 		underTask, underSubtask, err := taskParent(ctx, tree, parentID)
 		if err != nil {
 			return err
@@ -216,8 +225,17 @@ func itemRows(tx *gorm.DB, ids ...uint) *gorm.DB {
 
 // Edit sets the fields of item id that c names: its title and, for a task, its
 // description and plan; a category ignores c.Description and c.Plan. Fields c
-// leaves nil, and kind, status and placement, are kept.
+// leaves nil, and kind, status and placement, are kept. A title CleanTitle
+// refuses fails the edit with ErrInvalidTitle.
 func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
+	var title string
+	if c.Title != nil {
+		t, err := CleanTitle(*c.Title)
+		if err != nil {
+			return err
+		}
+		title = t
+	}
 	return s.write(ctx, func(tx *gorm.DB, _ *closuretree.Tree) error {
 		var kinds []int
 		if err := itemRows(tx, id).Pluck("kind", &kinds).Error; err != nil {
@@ -228,7 +246,7 @@ func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
 		}
 		cols := map[string]any{}
 		if c.Title != nil {
-			cols["title"] = *c.Title
+			cols["title"] = title
 		}
 		if Kind(kinds[0]) == Task {
 			if c.Description != nil {

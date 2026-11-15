@@ -83,7 +83,9 @@ func count(it *Item, rep *ImportReport) {
 // Import writes doc into the store in one transaction. It returns ErrNotEmpty
 // when the store holds items and replace is false; with replace, the existing
 // items are deleted first. doc is flattened first, in place (see
-// Document.FlattenSubtasks), since the store keeps subtasks one level deep.
+// Document.FlattenSubtasks), since the store keeps subtasks one level deep. A
+// title CleanTitle refuses fails the import with ErrInvalidTitle; ImportMarkdown
+// never yields one.
 func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
 	doc.FlattenSubtasks()
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
@@ -110,7 +112,11 @@ func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
 func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, parentID uint) error {
 	var afterID uint
 	for _, it := range items {
-		row := &dbItem{Kind: int(it.Kind), Title: it.Title, Status: int(it.Status), Description: it.Description, Plan: it.Plan}
+		title, err := CleanTitle(it.Title)
+		if err != nil {
+			return err
+		}
+		row := &dbItem{Kind: int(it.Kind), Title: title, Status: int(it.Status), Description: it.Description, Plan: it.Plan}
 		if it.Kind == Category {
 			row.Status, row.Description, row.Plan = 0, "", ""
 		}

@@ -84,6 +84,9 @@ func editCmd() *cobra.Command {
 					if strings.TrimSpace(title) == "" {
 						return usageErr("--set-title must not be empty")
 					}
+					if title, err = todo.CleanTitle(title); err != nil {
+						return usageErr("--set-title: " + err.Error())
+					}
 					ch.Title = &title
 				}
 				if setDesc {

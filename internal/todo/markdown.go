@@ -93,12 +93,17 @@ func statusFromMarker(marker string) Status {
 // or checkboxes: indented under a task they are description, otherwise dropped
 // prose. It also reports what it did not keep: one warning,
 // `line N: <reason>` with the 1-based source line, for the first non-blank line
-// of text before the first node and one for every line of prose it drops.
+// of text before the first node, one for every line of prose it drops, and one
+// for each change it makes to a title so the store accepts it (see importTitle).
 func parseMarkdown(src string) (*Document, []string) {
 	doc := &Document{}
 	var warnings []string
 	warn := func(lineNo int, format string, args ...any) {
 		warnings = append(warnings, fmt.Sprintf("line %d: ", lineNo)+fmt.Sprintf(format, args...))
+	}
+	// title makes a parsed title one the store accepts, warning for each change.
+	title := func(lineNo int, raw string) string {
+		return importTitle(raw, func(note string) { warn(lineNo, "%s", note) })
 	}
 	preambleWarned := false
 	lines := strings.Split(src, "\n")
@@ -151,7 +156,7 @@ func parseMarkdown(src string) (*Document, []string) {
 			curTask = nil
 			taskStack = nil
 			level := len(m[1])
-			cat := &Item{Kind: Category, Level: level, Title: strings.TrimRight(m[2], " \t")}
+			cat := &Item{Kind: Category, Level: level, Title: title(lineNo, m[2])}
 			for len(catStack) > 0 && catStack[len(catStack)-1].Level >= level {
 				catStack = catStack[:len(catStack)-1]
 			}
@@ -165,7 +170,7 @@ func parseMarkdown(src string) (*Document, []string) {
 			indent := len(m[1])
 			task := &Item{
 				Kind:   Task,
-				Title:  strings.TrimRight(m[3], " \t"),
+				Title:  title(lineNo, m[3]),
 				Status: statusFromMarker(m[2]),
 			}
 			for len(taskStack) > 0 && taskStack[len(taskStack)-1].indent >= indent {

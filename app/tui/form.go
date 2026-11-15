@@ -42,7 +42,7 @@ type form struct {
 func newForm(titleVal, descVal, planVal string, isTask, editing bool) form {
 	ti := textinput.New()
 	ti.Prompt = ""
-	ti.CharLimit = 200
+	ti.CharLimit = todo.MaxTitleLen
 	ti.SetValue(titleVal)
 
 	ta := textarea.New()
