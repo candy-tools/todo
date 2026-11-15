@@ -112,9 +112,6 @@ func (t *tree) useFolds(k viewKey) {
 	t.collapsed = folds
 }
 
-// searching reports whether a search query filters the rows.
-func (t *tree) searching() bool { return t.vs.searching() }
-
 // filtering reports whether the rows are narrowed, by a search query or by
 // the state filter. A filtered view ignores folds and drops the placeholder
 // row.
@@ -676,26 +673,31 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	if r.item.IsDone() {
 		titleStyle = doneTitleStyle
 	}
-	state := ""
-	if !subtask {
-		state = " " + r.item.Status.Label()
-		if done, total := r.item.TaskCounts(); total > 0 {
-			state += fmt.Sprintf(" (%d/%d)", done, total)
-		}
-	}
-	warn := ""
-	if r.item.NeedsPlan() {
-		warn = " ⚠ no plan"
-	}
-	// A task with a description gets a trailing ≡ marker, so the single-panel list
-	// still shows at a glance which items have details to open (enter).
-	note := ""
-	if r.item.Description != "" {
-		note = " ≡"
-	}
+	state, warn, note := taskTrailer(r.item)
 	if selected {
 		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(r.item.Title, t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
 	}
 	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(r.item.Title, t.vs.filter, titleStyle) +
 		helpTextStyle.Render(state) + deferStyle.Render(warn) + helpTextStyle.Render(note)
+}
+
+// taskTrailer returns the unstyled pieces drawn after a task's title: the
+// state label and subtask progress (top-level tasks only), the no-plan warning,
+// and the ≡ marker. Each piece is empty or starts with a space.
+func taskTrailer(it *todo.Item) (state, warn, note string) {
+	if !it.IsSubtask() {
+		state = " " + it.Status.Label()
+		if done, total := it.TaskCounts(); total > 0 {
+			state += fmt.Sprintf(" (%d/%d)", done, total)
+		}
+	}
+	if it.NeedsPlan() {
+		warn = " ⚠ no plan"
+	}
+	// A task with a description gets a trailing ≡ marker, so the single-panel list
+	// still shows at a glance which items have details to open (enter).
+	if it.Description != "" {
+		note = " ≡"
+	}
+	return state, warn, note
 }
