@@ -239,6 +239,42 @@ func TestParseUnclosedDescriptionFenceEndsWithTheTask(t *testing.T) {
 	}
 }
 
+func TestParseDedentedClosingFenceClosesDescriptionFence(t *testing.T) {
+	// A column-0 fence that would close the description's open block closes
+	// it rather than opening a new top-level block, so nothing after it is
+	// swallowed. The closing line itself is reported as dropped.
+	src := "# Work\n- [ ] a\n  ```\n  code\n```\n- [ ] b\n# Home\n- [ ] c\n"
+	d, warnings := todo.ParseMarkdown(src)
+	want := "H1 Work\n  [ ] a desc=\"```\\ncode\"\n  [ ] b\nH1 Home\n  [ ] c\n"
+	if got := treeString(d); got != want {
+		t.Errorf("tree mismatch:\n got:\n%s\nwant:\n%s", got, want)
+	}
+	wantWarn := []string{"line 5: unrecognised line dropped: \"```\""}
+	if strings.Join(warnings, "\n") != strings.Join(wantWarn, "\n") {
+		t.Errorf("warnings:\n got: %q\nwant: %q", warnings, wantWarn)
+	}
+}
+
+func TestParseUnclosedTopLevelFenceEndsAtNextHeadingAndWarns(t *testing.T) {
+	// A top-level fence with no close ends just before the next column-0
+	// heading (like an unclosed HTML comment), with a warning, so the
+	// categories and tasks after it are not lost.
+	src := "# Work\n- [ ] a\n~~~\n- [ ] b\n# Home\n- [ ] c\n"
+	d, warnings := todo.ParseMarkdown(src)
+	want := "H1 Work\n  [ ] a\nH1 Home\n  [ ] c\n"
+	if got := treeString(d); got != want {
+		t.Errorf("tree mismatch:\n got:\n%s\nwant:\n%s", got, want)
+	}
+	wantWarn := []string{
+		"line 3: unclosed code fence: lines 3-4 are not imported",
+		`line 3: unrecognised line dropped: "~~~"`,
+		`line 4: unrecognised line dropped: "- [ ] b"`,
+	}
+	if strings.Join(warnings, "\n") != strings.Join(wantWarn, "\n") {
+		t.Errorf("warnings:\n got: %q\nwant: %q", warnings, wantWarn)
+	}
+}
+
 func TestParseFencedDescriptionRoundTrips(t *testing.T) {
 	// import → render → import keeps a description holding a fenced block,
 	// header- and checkbox-looking lines included, and the tree around it.

@@ -68,6 +68,19 @@ func TestParseMultiLineCommentContentIsNotParsed(t *testing.T) {
 	}
 }
 
+// A heading-looking line inside a fenced block does not end an unclosed
+// comment: it runs to the next heading outside fences.
+func TestParseUnclosedCommentSkipsHeadingsInFences(t *testing.T) {
+	src := "# Work\n- [ ] a\n<!-- note\n```\n# not a heading\n```\n# Home\n- [ ] c\n"
+	d, warnings := todo.ParseMarkdown(src)
+	if got, want := treeString(d), "H1 Work\n  [ ] a\nH1 Home\n  [ ] c\n"; got != want {
+		t.Fatalf("tree:\n got %q\nwant %q", got, want)
+	}
+	if len(warnings) == 0 || !strings.Contains(warnings[0], "line 3: unclosed HTML comment: lines 3-6") {
+		t.Errorf("want a line-3 unclosed-comment warning first, got %q", warnings)
+	}
+}
+
 // An unclosed comment with no heading after it runs to EOF: its lines are
 // dropped (reported as such), never imported as tasks.
 func TestParseUnclosedCommentAtEndRunsToEOF(t *testing.T) {

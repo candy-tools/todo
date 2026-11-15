@@ -12,7 +12,8 @@ const guideMarker = "<!-- todo:guide"
 // trimmed text starts with "<!--") and, if so, the index of the comment's last
 // line. The comment runs through the first line holding the "-->" close. An
 // unclosed comment (closed=false) is taken to end just before the next
-// top-level heading, or at EOF when none follows: its content (the guide's
+// top-level heading outside a fenced block (see nextHeading), or at EOF when
+// none follows: its content (the guide's
 // example `- [ ]` lines, say) is still not parsed, but the categories and tasks
 // after it are not lost to a missing "-->".
 func commentSpan(lines []string, start int) (end int, closed, ok bool) {
@@ -28,10 +29,5 @@ func commentSpan(lines []string, start int) (end int, closed, ok bool) {
 			return j, true, true
 		}
 	}
-	for j := start + 1; j < len(lines); j++ {
-		if headerRe.MatchString(lines[j]) {
-			return j - 1, false, true
-		}
-	}
-	return len(lines) - 1, false, true
+	return nextHeading(lines, start) - 1, false, true
 }

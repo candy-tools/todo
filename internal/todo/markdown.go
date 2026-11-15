@@ -30,26 +30,91 @@ type fenceTracker struct {
 	char   byte // '`' or '~'
 	length int  // the opening run's length; a closing run must be at least as long
 	inDesc bool // the block opened inside the current task's description
+	end    int  // a top-level block's last line index (its close, see fenceSpan)
 }
 
-// fenced advances the tracker past line and reports whether line is a fence
+// fenced advances the tracker past lines[i] and reports whether it is a fence
 // line or fenced content. hasTask and taskIndent describe the current task: a
 // block opened in its description ends with it (as a CommonMark list item
-// closes its code block), so a dedented line is structure again.
-func (f *fenceTracker) fenced(line string, hasTask bool, taskIndent int) bool {
+// closes its code block), so a dedented line is structure again, except a
+// dedented run that closes the block, which is taken as its close. A top-level
+// block runs to its span's end (see fenceSpan); unclosedEnd is that end when
+// lines[i] opens a top-level block with no close, and -1 otherwise.
+func (f *fenceTracker) fenced(lines []string, i int, hasTask bool, taskIndent int) (fenced bool, unclosedEnd int) {
+	line := lines[i]
 	inDesc := hasTask && leadingWhitespace(line) > taskIndent
-	if f.open && f.inDesc && !inDesc && strings.TrimSpace(line) != "" {
+	switch {
+	case !f.open:
+	case !f.inDesc:
+		if f.open = i <= f.end; f.open {
+			return true, -1
+		}
+	case !inDesc && strings.TrimSpace(line) != "":
 		f.open = false
-	}
-	if f.open {
+		if f.closes(line) {
+			return true, -1
+		}
+	default:
 		f.open = !f.closes(line)
-		return true
+		return true, -1
 	}
 	char, n, ok := openFence(line)
-	if ok {
-		*f = fenceTracker{open: true, char: char, length: n, inDesc: inDesc}
+	if !ok {
+		return false, -1
 	}
-	return ok
+	*f = fenceTracker{open: true, char: char, length: n, inDesc: inDesc}
+	if inDesc {
+		return true, -1
+	}
+	end, closed := fenceSpan(lines, i)
+	f.end = end
+	if closed {
+		return true, -1
+	}
+	return true, end
+}
+
+// fenceSpan reports the index of the last line of the fenced block lines[start]
+// opens: its closing line, or, when it has none (closed=false), the line just
+// before the next top-level heading (EOF when none follows), so an unclosed
+// fence does not swallow the categories and tasks after it (as commentSpan
+// does for an unclosed HTML comment). lines[start] must open a fence.
+func fenceSpan(lines []string, start int) (end int, closed bool) {
+	if end, ok := fenceClose(lines, start); ok {
+		return end, true
+	}
+	return nextHeading(lines, start) - 1, false
+}
+
+// fenceClose reports the index of the line closing the fenced block that
+// lines[start] opens, if it opens one that has a close.
+func fenceClose(lines []string, start int) (int, bool) {
+	char, n, ok := openFence(lines[start])
+	if !ok {
+		return 0, false
+	}
+	f := fenceTracker{char: char, length: n}
+	for j := start + 1; j < len(lines); j++ {
+		if f.closes(lines[j]) {
+			return j, true
+		}
+	}
+	return 0, false
+}
+
+// nextHeading returns the index of the first top-level heading after
+// lines[start], skipping closed fenced blocks, or len(lines) when none follows.
+func nextHeading(lines []string, start int) int {
+	for j := start + 1; j < len(lines); j++ {
+		if end, ok := fenceClose(lines, j); ok {
+			j = end
+			continue
+		}
+		if headerRe.MatchString(lines[j]) {
+			return j
+		}
+	}
+	return len(lines)
 }
 
 // openFence reports whether line opens a fenced code block (CommonMark: 3+
@@ -84,22 +149,27 @@ type lineTracker struct {
 // structural advances past lines[i] and reports whether it may be a header or
 // checkbox (it is neither fenced nor commented) and whether it belongs to the
 // managed guide. hasTask and taskIndent describe the current task (see
-// fenceTracker.fenced). unclosed is called with the comment's last index when
-// lines[i] opens an HTML comment that has no close (see commentSpan).
-func (t *lineTracker) structural(lines []string, i int, hasTask bool, taskIndent int, unclosed func(end int)) (structural, guide bool) {
-	if i > t.commentEnd {
-		if t.fences.fenced(lines[i], hasTask, taskIndent) {
-			return false, false
+// fenceTracker.fenced). unclosed is called with what is unclosed and its last
+// index when lines[i] opens a top-level code fence or an HTML comment that has
+// no close (see fenceSpan and commentSpan).
+func (t *lineTracker) structural(lines []string, i int, hasTask bool, taskIndent int, unclosed func(what string, end int)) (structural, guide bool) {
+	if i <= t.commentEnd {
+		return false, t.commentGuide
+	}
+	if fenced, end := t.fences.fenced(lines, i, hasTask, taskIndent); fenced {
+		if end >= 0 {
+			unclosed("code fence", end)
 		}
-		end, closed, ok := commentSpan(lines, i)
-		if !ok {
-			return true, false
-		}
-		t.commentEnd = end
-		t.commentGuide = strings.HasPrefix(strings.TrimSpace(lines[i]), guideMarker)
-		if !closed {
-			unclosed(end)
-		}
+		return false, false
+	}
+	end, closed, ok := commentSpan(lines, i)
+	if !ok {
+		return true, false
+	}
+	t.commentEnd = end
+	t.commentGuide = strings.HasPrefix(strings.TrimSpace(lines[i]), guideMarker)
+	if !closed {
+		unclosed("HTML comment", end)
 	}
 	return false, t.commentGuide
 }
@@ -175,8 +245,8 @@ func parseMarkdown(src string) (*Document, []string) {
 
 	for i, line := range lines {
 		lineNo := i + 1
-		structural, guide := tracker.structural(lines, i, curTask != nil, curTaskIndent, func(end int) {
-			warn(lineNo, "unclosed HTML comment: lines %d-%d are not imported", lineNo, end+1)
+		structural, guide := tracker.structural(lines, i, curTask != nil, curTaskIndent, func(what string, end int) {
+			warn(lineNo, "unclosed %s: lines %d-%d are not imported", what, lineNo, end+1)
 		})
 		if guide {
 			continue // the managed guide block: skip but keep counting lines
