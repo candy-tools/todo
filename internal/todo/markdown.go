@@ -70,6 +70,40 @@ func (f *fenceTracker) closes(line string) bool {
 	return m != nil && m[1][0] == f.char && len(m[1]) >= f.length && strings.TrimSpace(m[2]) == ""
 }
 
+// lineTracker follows the fenced code blocks and HTML comments of the lines
+// being parsed. A commented line is never a header or checkbox: the example
+// lines of the app-managed guide block that older TODO.md files carry are
+// skipped outright, and any other comment's lines are kept or dropped like
+// fenced content.
+type lineTracker struct {
+	fences       fenceTracker
+	commentEnd   int  // index of the open comment's last line; -1 before any
+	commentGuide bool // the open comment is the managed guide block
+}
+
+// structural advances past lines[i] and reports whether it may be a header or
+// checkbox (it is neither fenced nor commented) and whether it belongs to the
+// managed guide. hasTask and taskIndent describe the current task (see
+// fenceTracker.fenced). unclosed is called with the comment's last index when
+// lines[i] opens an HTML comment that has no close (see commentSpan).
+func (t *lineTracker) structural(lines []string, i int, hasTask bool, taskIndent int, unclosed func(end int)) (structural, guide bool) {
+	if i > t.commentEnd {
+		if t.fences.fenced(lines[i], hasTask, taskIndent) {
+			return false, false
+		}
+		end, closed, ok := commentSpan(lines, i)
+		if !ok {
+			return true, false
+		}
+		t.commentEnd = end
+		t.commentGuide = strings.HasPrefix(strings.TrimSpace(lines[i]), guideMarker)
+		if !closed {
+			unclosed(end)
+		}
+	}
+	return false, t.commentGuide
+}
+
 // statusFromMarker maps a checkbox marker char (checkboxRe's group 2) to a
 // Status. It is the inverse of Status.Marker; the two must agree, and both with
 // checkboxRe's accepted set.
@@ -91,10 +125,11 @@ func statusFromMarker(marker string) Status {
 // indentation; indented non-checkbox text under a task becomes that task's
 // description. Lines inside a ``` or ~~~ fenced code block are never headers
 // or checkboxes: indented under a task they are description, otherwise dropped
-// prose. It also reports what it did not keep: one warning,
-// `line N: <reason>` with the 1-based source line, for the first non-blank line
-// of text before the first node, one for every line of prose it drops, and one
-// for each change it makes to a title so the store accepts it (see importTitle).
+// prose; the same holds for lines inside an HTML comment. It also reports what
+// it did not keep: one warning, `line N: <reason>` with the 1-based source
+// line, for the first non-blank line of text before the first node, one for
+// every line of prose it drops, one for each unclosed HTML comment, and one for
+// each change it makes to a title so the store accepts it (see importTitle).
 func parseMarkdown(src string) (*Document, []string) {
 	doc := &Document{}
 	var warnings []string
@@ -107,13 +142,6 @@ func parseMarkdown(src string) (*Document, []string) {
 	}
 	preambleWarned := false
 	lines := strings.Split(src, "\n")
-	// The app-managed guide block that older TODO.md files carry is skipped
-	// below rather than stripped up front, so its lines still count toward every
-	// other line's real index in the warnings (see guideRange). It must be
-	// excluded from parsing itself: it is an HTML comment whose own example
-	// lines (`- [ ]`, `#`) would otherwise be mis-parsed as real tasks and
-	// headers.
-	gStart, gEnd, hasGuide := guideRange(lines)
 
 	var catStack []*Item // open categories, by increasing Level
 	type taskEntry struct {
@@ -124,7 +152,10 @@ func parseMarkdown(src string) (*Document, []string) {
 	var curTask *Item         // most recent task; receives description lines
 	var curTaskIndent int
 	var descBuf []string // buffered description lines for curTask
-	var fences fenceTracker
+	// Fenced and commented lines are never headers or checkboxes (see
+	// lineTracker). Lines are skipped rather than stripped up front, so every
+	// line keeps its real index in the warnings.
+	tracker := lineTracker{commentEnd: -1}
 	seenNode := false
 
 	flushDesc := func() {
@@ -143,12 +174,15 @@ func parseMarkdown(src string) (*Document, []string) {
 	}
 
 	for i, line := range lines {
-		if inGuide(i, gStart, gEnd, hasGuide) {
+		lineNo := i + 1
+		structural, guide := tracker.structural(lines, i, curTask != nil, curTaskIndent, func(end int) {
+			warn(lineNo, "unclosed HTML comment: lines %d-%d are not imported", lineNo, end+1)
+		})
+		if guide {
 			continue // the managed guide block: skip but keep counting lines
 		}
-		lineNo := i + 1
-		var hm, cm []string // header and checkbox matches; none for fenced lines
-		if !fences.fenced(line, curTask != nil, curTaskIndent) {
+		var hm, cm []string // header and checkbox matches; none for fenced or commented lines
+		if structural {
 			hm, cm = headerRe.FindStringSubmatch(line), checkboxRe.FindStringSubmatch(line)
 		}
 		if m := hm; m != nil {
@@ -215,10 +249,6 @@ func parseMarkdown(src string) (*Document, []string) {
 	flushDesc()
 	return doc, warnings
 }
-
-// inGuide reports whether line index i falls inside the managed guide block
-// [start,end].
-func inGuide(i, start, end int, has bool) bool { return has && i >= start && i <= end }
 
 // description turns the buffered description lines into the task description:
 // trailing blank lines are dropped and the rest dedented. No lines (or only
