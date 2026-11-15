@@ -68,8 +68,19 @@ func legacyImportable(path string, isDefault bool) (bool, error) {
 // isDefault and the store does not exist but TODO.md does, it imports TODO.md
 // instead and returns the import notice; otherwise the notice is "". When
 // another process creates the store first (it ran the same first-run import),
-// that store is opened as is, without a notice.
+// that store is opened as is, without a notice. A store too busy to open
+// (another process holds the writer lock) is the CLI's conflict error, as a
+// busy write is.
 func openStore(_ *cobra.Command, path string, isDefault bool, opts ...todo.Option) (*todo.Store, string, error) {
+	s, notice, err := openOrImport(path, isDefault, opts...)
+	if c := conflictErr(err); c != nil {
+		return nil, "", c
+	}
+	return s, notice, err
+}
+
+// openOrImport is openStore before its busy store becomes the conflict error.
+func openOrImport(path string, isDefault bool, opts ...todo.Option) (*todo.Store, string, error) {
 	imp, err := legacyImportable(path, isDefault)
 	if err != nil {
 		return nil, "", err

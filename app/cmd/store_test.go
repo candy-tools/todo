@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -183,6 +184,28 @@ func TestStoreBusyIsConflict(t *testing.T) {
 	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrBusy })
 	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
 		t.Errorf("withStore with ErrBusy = %v, want a conflict error with its message", err)
+	}
+}
+
+// A store that is busy when a command opens it (another process holds the
+// writer lock while the open needs it) fails every command, the TUI start
+// included, with the conflict error and the message a busy write shows.
+func TestOpenBusyIsConflict(t *testing.T) {
+	for _, args := range [][]string{
+		{"list"},
+		{"done", "--title", "a"},
+		nil, // the TUI
+	} {
+		t.Run(fmt.Sprint(args), func(t *testing.T) {
+			db := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+			orig := openDB
+			openDB = func(string, ...todo.Option) (*todo.Store, error) { return nil, todo.ErrBusy }
+			t.Cleanup(func() { openDB = orig })
+			_, err := runCmd(t, append(args, "-f", db)...)
+			if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
+				t.Errorf("%v with a busy open = %v, want a conflict error with ErrBusy's message", args, err)
+			}
+		})
 	}
 }
 

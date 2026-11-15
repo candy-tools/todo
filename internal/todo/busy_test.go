@@ -168,3 +168,32 @@ func TestImportFileWaitsDefaultBusyTimeout(t *testing.T) {
 		t.Errorf("err = %v, want ErrBusy", err)
 	}
 }
+
+// Opening a store that has to take the writer lock (to switch a rollback
+// journal file to WAL, or to migrate a v1 store) while another process holds
+// it gives up after the open's wait and reports ErrBusy, not a raw SQLITE_BUSY.
+func TestOpenStoreWhileLockedIsBusy(t *testing.T) {
+	todo.SetOpenWait(t, 200*time.Millisecond)
+	for _, tc := range []struct {
+		name            string
+		seed            func(t *testing.T) string
+		rollbackJournal bool
+	}{
+		{"busy open", func(t *testing.T) string { return todotest.Seed(t, "# Work\n- [ ] a\n") }, true},
+		{"migration", todo.SeedV1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := tc.seed(t)
+			holdWriteLockFor(t, path, time.Second, tc.rollbackJournal)
+
+			s, err := todo.OpenStore(path, todo.WithBusyTimeout(100*time.Millisecond))
+			if err == nil {
+				_ = s.Close()
+				t.Fatal("OpenStore succeeded while the store was locked, want ErrBusy")
+			}
+			if !errors.Is(err, todo.ErrBusy) {
+				t.Errorf("err = %v, want ErrBusy", err)
+			}
+		})
+	}
+}

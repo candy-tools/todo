@@ -84,6 +84,10 @@ type Store struct {
 // process to release the SQLite writer lock before failing with ErrBusy.
 const DefaultBusyTimeout = 5 * time.Second
 
+// openWait is how long OpenStore waits for a lock another process holds while
+// it opens and migrates the store: DefaultBusyTimeout, which only tests change.
+var openWait = DefaultBusyTimeout
+
 // Option configures OpenStore.
 type Option func(*storeCfg)
 
@@ -113,7 +117,9 @@ const openAttempts = 3
 
 // OpenStore opens the SQLite store at path, creating the file and its schema
 // when they do not exist yet. It fails with ErrFileReplaced when other files
-// keep being moved in at path while it opens.
+// keep being moved in at path while it opens, and with ErrBusy when it needs
+// the writer lock (to create or migrate the store) and another process holds
+// it past DefaultBusyTimeout.
 func OpenStore(path string, opts ...Option) (*Store, error) {
 	cfg := storeCfg{busyTimeout: DefaultBusyTimeout}
 	for _, o := range opts {
@@ -125,7 +131,11 @@ func OpenStore(path string, opts ...Option) (*Store, error) {
 	var err error
 	for range openAttempts {
 		var s *Store
-		if s, err = openStoreOnce(path, cfg.busyTimeout); !errors.Is(err, ErrFileReplaced) {
+		s, err = openStoreOnce(path, cfg.busyTimeout)
+		if isBusy(err) {
+			return nil, ErrBusy
+		}
+		if !errors.Is(err, ErrFileReplaced) {
 			return s, err
 		}
 	}
@@ -142,7 +152,7 @@ func openStoreOnce(path string, busyTimeout time.Duration) (*Store, error) {
 	if err != nil && !created {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	db, err := openDB(path, DefaultBusyTimeout)
+	db, err := openDB(path, openWait)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -151,7 +161,7 @@ func openStoreOnce(path string, busyTimeout time.Duration) (*Store, error) {
 		_ = gormdb.Close(db)
 		return nil, fmt.Errorf("prepare %s: %w", path, err)
 	}
-	if busyTimeout != DefaultBusyTimeout || created {
+	if busyTimeout != openWait || created {
 		// busy_timeout is set per connection when the pools open them, so the
 		// store reopens with the caller's timeout for the writes that follow. A
 		// file the open created is reopened too, as its identity before the
@@ -210,10 +220,10 @@ const sqliteBusy = 5
 // busyTimeout for a lock another process holds. Processes that open a new file
 // at the same time each switch it to WAL mode, and SQLite fails all but one of
 // them with SQLITE_BUSY at once, without waiting out the busy timeout, to avoid
-// a deadlock. Such an open is retried for up to DefaultBusyTimeout, whatever
-// busyTimeout is: once the file is in WAL mode, the switch is a no-op.
+// a deadlock. Such an open is retried for up to openWait, whatever busyTimeout
+// is: once the file is in WAL mode, the switch is a no-op.
 func openDB(path string, busyTimeout time.Duration) (*gorm.DB, error) {
-	deadline := time.Now().Add(DefaultBusyTimeout)
+	deadline := time.Now().Add(openWait)
 	for {
 		db, err := gormdb.Open(gormdb.Cfg{
 			Driver: gormdb.DriverSqlite,
