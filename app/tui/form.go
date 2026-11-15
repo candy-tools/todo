@@ -45,15 +45,18 @@ func newForm(titleVal, descVal, planVal string, isTask, editing bool) form {
 	ti.CharLimit = todo.MaxTitleLen
 	ti.SetValue(titleVal)
 
+	// The description and plan take no length limits of their own, so any stored
+	// value round-trips: textarea.New caps the line count at 99 (MaxHeight) and a
+	// limit would otherwise cut what an edit writes back. (CharLimit is 0, none.)
 	ta := textarea.New()
 	ta.Prompt = ""
+	ta.MaxHeight = 0
 	ta.ShowLineNumbers = false
 	ta.SetValue(descVal)
 	ta.Blur()
 
 	pi := textinput.New()
 	pi.Prompt = ""
-	pi.CharLimit = 500
 	pi.SetValue(planVal)
 
 	f := form{title: ti, desc: ta, plan: pi, isTask: isTask, editing: editing, focus: focusTitle}

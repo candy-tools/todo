@@ -1,8 +1,13 @@
 package tui
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/candy-tools/todo/internal/todo"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestFormRing(t *testing.T) {
@@ -72,5 +77,73 @@ func TestFormViewTitles(t *testing.T) {
 	}
 	if strings.Contains(cat.view(), "Description") {
 		t.Errorf("category form should not show a Description field")
+	}
+}
+
+// seedLongTask stores a task "a" whose description has 150 lines and whose plan
+// is 600 characters — both beyond the edit widgets' former limits — and opens
+// the edit form on it.
+func seedLongTask(t *testing.T) (m model, path, desc, plan string) {
+	t.Helper()
+	m, path = newTestModel(t, "# B\n- [ ] a\n")
+	lines := make([]string, 150)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %d", i+1)
+	}
+	desc = strings.Join(lines, "\n")
+	plan = "docs/" + strings.Repeat("p", 592) + ".md"
+	a := find(m.doc, "a")
+	if err := m.store.Edit(context.Background(), a.ID, todo.Changes{Description: &desc, Plan: &plan}); err != nil {
+		t.Fatal(err)
+	}
+	m = pollOnce(t, m)
+	m = selectTitle(t, m, "a")
+	m = press(m, "e")
+	if m.mode != modeForm {
+		t.Fatalf("e should open the edit form, status %q", m.status)
+	}
+	return m, path, desc, plan
+}
+
+// A long description edited in the form is saved whole: every stored line is
+// kept and a new line can still be added past the widget's visible height.
+func TestEditLongDescriptionKeepsAllLines(t *testing.T) {
+	m, path, desc, _ := seedLongTask(t)
+	m = press(m, "tab") // description; the cursor sits at the end of the text
+	m = typeText(m, "x")
+	m = press(m, "enter")
+	m = typeText(m, "y")
+	press(m, "tab", "tab", "enter") // plan, Save
+	if got := storedItem(t, path, "a").Description; got != desc+"x\ny" {
+		t.Errorf("description has %d lines after the edit, want %d ending in \"x\\ny\"",
+			strings.Count(got, "\n")+1, strings.Count(desc, "\n")+2)
+	}
+}
+
+// A plan longer than the old 500-character input limit round-trips: deleting
+// its last character stores the rest of it, not a truncated copy.
+func TestEditLongPlanKeepsWholeValue(t *testing.T) {
+	m, path, _, plan := seedLongTask(t)
+	m = press(m, "tab", "tab") // plan; the cursor sits at the end
+	m = send(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	m = typeText(m, "X")
+	press(m, "tab", "enter") // Save
+	want := plan[:len(plan)-1] + "X"
+	if got := storedItem(t, path, "a").Plan; got != want {
+		t.Errorf("plan is %d chars after the edit, want %d", len(got), len(want))
+	}
+}
+
+// Editing only the title leaves a long description and plan byte-identical.
+func TestEditTitleKeepsLongDescriptionAndPlan(t *testing.T) {
+	m, path, desc, plan := seedLongTask(t)
+	m = typeText(m, "2")
+	press(m, "enter")
+	it := storedItem(t, path, "a2")
+	if it.Description != desc {
+		t.Errorf("a title edit changed the description (%d chars, want %d)", len(it.Description), len(desc))
+	}
+	if it.Plan != plan {
+		t.Errorf("a title edit changed the plan (%d chars, want %d)", len(it.Plan), len(plan))
 	}
 }
