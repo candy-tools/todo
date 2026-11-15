@@ -21,9 +21,6 @@ func addCmd() *cobra.Command {
 					return err
 				}
 				title, _ := cmd.Flags().GetString("title")
-				if strings.TrimSpace(title) == "" {
-					return usageErr("--title is required")
-				}
 				if title, err = todo.CleanTitle(title); err != nil {
 					return usageErr("--title: " + err.Error())
 				}
@@ -65,9 +62,6 @@ func addCategoryCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
 				title, _ := cmd.Flags().GetString("title")
-				if strings.TrimSpace(title) == "" {
-					return usageErr("--title is required")
-				}
 				title, err := todo.CleanTitle(title)
 				if err != nil {
 					return usageErr("--title: " + err.Error())

@@ -134,6 +134,27 @@ func TestAddWithPlan(t *testing.T) {
 	}
 }
 
+func TestAddBlankTitleIsUsageError(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	for _, title := range []string{"", "   "} {
+		if _, err := runCmd(t, "add", "--file", path, "--title", title, "--parent-title", "Work"); codeOf(t, err) != exitUsage {
+			t.Errorf("add --title %q: want a usage error, got %v", title, err)
+		}
+		if _, err := runCmd(t, "add-category", "--file", path, "--title", title); codeOf(t, err) != exitUsage {
+			t.Errorf("add-category --title %q: want a usage error, got %v", title, err)
+		}
+	}
+	if _, err := runCmd(t, "add", "--file", path, "--parent-title", "Work"); codeOf(t, err) != exitUsage {
+		t.Errorf("add without --title: want a usage error, got %v", err)
+	}
+	if _, err := runCmd(t, "add-category", "--file", path); codeOf(t, err) != exitUsage {
+		t.Errorf("add-category without --title: want a usage error, got %v", err)
+	}
+	if got := todotest.Dump(t, path); got != "# Work\n\n- [ ] a\n" {
+		t.Errorf("nothing should have been added:\n%s", got)
+	}
+}
+
 func TestAddInvalidTitleIsUsageError(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
 	for _, title := range []string{"a\nb", "\x1b]0;pwned\x07", strings.Repeat("x", 201)} {

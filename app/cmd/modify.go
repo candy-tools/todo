@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/spf13/cobra"
@@ -81,9 +80,6 @@ func editCmd() *cobra.Command {
 				title := it.Title
 				if setTitle {
 					title, _ = cmd.Flags().GetString("set-title")
-					if strings.TrimSpace(title) == "" {
-						return usageErr("--set-title must not be empty")
-					}
 					if title, err = todo.CleanTitle(title); err != nil {
 						return usageErr("--set-title: " + err.Error())
 					}

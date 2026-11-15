@@ -106,6 +106,18 @@ func TestEditPlanOnCategoryIsWrongKind(t *testing.T) {
 	}
 }
 
+func TestEditBlankTitleIsUsageError(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	for _, title := range []string{"", "   "} {
+		if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-title", title); codeOf(t, err) != exitUsage {
+			t.Errorf("edit --set-title %q: want a usage error, got %v", title, err)
+		}
+	}
+	if got := todotest.Dump(t, path); got != "# Work\n\n- [ ] a\n" {
+		t.Errorf("nothing should have changed:\n%s", got)
+	}
+}
+
 func TestEditInvalidTitleIsUsageError(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
 	for _, title := range []string{"a\nb", "\x1b]0;pwned\x07", strings.Repeat("x", 201)} {
