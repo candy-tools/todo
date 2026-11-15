@@ -8,10 +8,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// setStatus resolves the selector to a task, sets its status in the store, and
-// prints a confirmation. When cascade is true the whole subtree is set (only done and
-// reopen expose --cascade).
-func setStatus(cmd *cobra.Command, verb string, target func(*todo.Item) todo.Status, cascade bool) error {
+// statusWrite writes a new status for task it through s and returns the status
+// it set, for the confirmation line.
+type statusWrite func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error)
+
+// setStatus resolves the selector to a task, writes its new status through
+// write, and prints a confirmation.
+func setStatus(cmd *cobra.Command, verb string, write statusWrite) error {
 	return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
 		it, err := resolveSelector(cmd, doc, "")
 		if err != nil {
@@ -20,16 +23,11 @@ func setStatus(cmd *cobra.Command, verb string, target func(*todo.Item) todo.Sta
 		if !it.IsTask() {
 			return wrongKind("set the status of", it, "task")
 		}
-		st := target(it)
 		s, err := open()
 		if err != nil {
 			return err
 		}
-		if cascade {
-			err = s.CascadeStatus(ctx, it.ID, st)
-		} else {
-			err = s.SetStatuses(ctx, map[uint]todo.Status{it.ID: st})
-		}
+		st, err := write(ctx, s, it)
 		if err != nil {
 			return err
 		}
@@ -41,9 +39,11 @@ func setStatus(cmd *cobra.Command, verb string, target func(*todo.Item) todo.Sta
 // statusNames lists the accepted state names for flag help and error messages.
 const statusNames = "open|working|deferred|done|new|ready|review|followup|wontdo"
 
-// fixed is a target that does not depend on the item.
-func fixed(st todo.Status) func(*todo.Item) todo.Status {
-	return func(*todo.Item) todo.Status { return st }
+// set writes st for the task alone; its subtasks keep their states.
+func set(st todo.Status) statusWrite {
+	return func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
+		return st, s.SetStatuses(ctx, map[uint]todo.Status{it.ID: st})
+	}
 }
 
 func statusCmd() *cobra.Command {
@@ -57,7 +57,7 @@ func statusCmd() *cobra.Command {
 			if !ok {
 				return usageErr(fmt.Sprintf("invalid --to %q (%s)", name, statusNames))
 			}
-			return setStatus(cmd, "status", fixed(st), false)
+			return setStatus(cmd, "status", set(st))
 		},
 	}
 	addSelectorFlags(c, "")
@@ -72,7 +72,9 @@ func doneCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cascade, _ := cmd.Flags().GetBool("cascade")
-			return setStatus(cmd, "done", fixed(todo.Done), cascade)
+			return setStatus(cmd, "done", func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
+				return todo.Done, s.Complete(ctx, it.ID, cascade)
+			})
 		},
 	}
 	addSelectorFlags(c, "")
@@ -86,7 +88,7 @@ func progressCmd() *cobra.Command {
 		Short: "mark a task in progress",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return setStatus(cmd, "progress", fixed(todo.Working), false)
+			return setStatus(cmd, "progress", set(todo.Working))
 		},
 	}
 	addSelectorFlags(c, "")
@@ -99,7 +101,7 @@ func deferCmd() *cobra.Command {
 		Short: "mark a task deferred",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return setStatus(cmd, "defer", fixed(todo.Deferred), false)
+			return setStatus(cmd, "defer", set(todo.Deferred))
 		},
 	}
 	addSelectorFlags(c, "")
@@ -113,13 +115,10 @@ func reopenCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cascade, _ := cmd.Flags().GetBool("cascade")
-			// A subtask can only be open or done, so reopening one opens it.
-			return setStatus(cmd, "reopen", func(it *todo.Item) todo.Status {
-				if it.IsSubtask() {
-					return todo.Open
-				}
-				return todo.Working
-			}, cascade)
+			return setStatus(cmd, "reopen", func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
+				st := todo.ReopenTarget(it)
+				return st, s.Reopen(ctx, it.ID, st, todo.ReopenOptions{Cascade: cascade})
+			})
 		},
 	}
 	addSelectorFlags(c, "")
