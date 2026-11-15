@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 // parse returns the raw parse tree of src, dropping the warnings.
@@ -176,5 +177,78 @@ func TestParseSkipsGuideAndKeepsWarningLineNumbers(t *testing.T) {
 	}
 	if len(warnings) != 1 || warnings[0] != `line 5: unrecognised line dropped: "stray"` {
 		t.Errorf("warnings = %q", warnings)
+	}
+}
+
+func TestParseFencedBlockOutsideTaskIsDroppedProse(t *testing.T) {
+	// A `#` comment inside a fenced block that is not under a task must not
+	// become a category: the whole block is dropped prose, one warning a line.
+	src := "## Work\n\n- [ ] a\n\n```sh\nnpm ci\n# install deps\n- [ ] not a task\n```\n\n- [ ] b\n\n### Sub\n\n- [ ] c\n"
+	d, warnings := todo.ParseMarkdown(src)
+	want := `H2 Work
+  [ ] a
+  [ ] b
+  H3 Sub
+    [ ] c
+`
+	if got := treeString(d); got != want {
+		t.Errorf("tree mismatch:\n got:\n%s\nwant:\n%s", got, want)
+	}
+	wantWarn := []string{
+		"line 5: unrecognised line dropped: \"```sh\"",
+		`line 6: unrecognised line dropped: "npm ci"`,
+		`line 7: unrecognised line dropped: "# install deps"`,
+		`line 8: unrecognised line dropped: "- [ ] not a task"`,
+		"line 9: unrecognised line dropped: \"```\"",
+	}
+	if strings.Join(warnings, "\n") != strings.Join(wantWarn, "\n") {
+		t.Errorf("warnings:\n got: %q\nwant: %q", warnings, wantWarn)
+	}
+}
+
+func TestParseFencedBlockInDescription(t *testing.T) {
+	// A fence indented under a task is part of its description, header- and
+	// checkbox-looking lines included. A tilde fence is closed only by a tilde
+	// fence at least as long, so the inner ``` and short ~~~ are content.
+	src := "# Work\n\n- [ ] a\n  Run:\n  ~~~~\n  # install deps\n  - [ ] not a task\n  ```\n  ~~~\n  ~~~~\n  - [ ] sub\n- [ ] b\n"
+	d, warnings := todo.ParseMarkdown(src)
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %q", warnings)
+	}
+	want := `H1 Work
+  [ ] a desc="Run:\n~~~~\n# install deps\n- [ ] not a task\n` + "```" + `\n~~~\n~~~~"
+    [ ] sub
+  [ ] b
+`
+	if got := treeString(d); got != want {
+		t.Errorf("tree mismatch:\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestParseUnclosedDescriptionFenceEndsWithTheTask(t *testing.T) {
+	// A fence left open in a description ends with the description: the
+	// dedented lines after it are parsed as structure again.
+	src := "# Work\n\n- [ ] a\n  ```\n  # comment\n# Next\n\n- [ ] b\n"
+	d, warnings := todo.ParseMarkdown(src)
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %q", warnings)
+	}
+	want := "H1 Work\n  [ ] a desc=\"```\\n# comment\"\nH1 Next\n  [ ] b\n"
+	if got := treeString(d); got != want {
+		t.Errorf("tree mismatch:\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestParseFencedDescriptionRoundTrips(t *testing.T) {
+	// import → render → import keeps a description holding a fenced block,
+	// header- and checkbox-looking lines included, and the tree around it.
+	src := "# Work\n\n- [ ] a\n  ```sh\n  # install deps\n  - [ ] not a task\n  ```\n  - [ ] sub\n\n## Sub\n\n- [ ] b\n"
+	first := parse(src)
+	again := parse(todotest.Render(first))
+	if got, want := treeString(again), treeString(first); got != want {
+		t.Errorf("round trip changed the tree:\n got:\n%s\nwant:\n%s", got, want)
+	}
+	if desc := first.Roots[0].Children[0].Description; desc != "```sh\n# install deps\n- [ ] not a task\n```" {
+		t.Errorf("description = %q", desc)
 	}
 }

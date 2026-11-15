@@ -17,7 +17,58 @@ var (
 	// progress), > (deferred). Any other char fails the match, so a line the app
 	// doesn't own is left as prose rather than mis-parsed as a task.
 	checkboxRe = regexp.MustCompile(`^([ \t]*)[-*+][ \t]+\[([ xX/>])\][ \t]?(.*)$`)
+	// fenceRe matches a code-fence line: optional indentation, then a run of 3+
+	// backticks or 3+ tildes (group 1), then the rest of the line (group 2: the
+	// info string when opening; only whitespace is allowed when closing).
+	fenceRe = regexp.MustCompile("^[ \t]*(`{3,}|~{3,})(.*)$")
 )
+
+// fenceTracker follows fenced code blocks line by line, so the lines of a
+// block are never read as headers or checkboxes.
+type fenceTracker struct {
+	open   bool
+	char   byte // '`' or '~'
+	length int  // the opening run's length; a closing run must be at least as long
+	inDesc bool // the block opened inside the current task's description
+}
+
+// fenced advances the tracker past line and reports whether line is a fence
+// line or fenced content. hasTask and taskIndent describe the current task: a
+// block opened in its description ends with it (as a CommonMark list item
+// closes its code block), so a dedented line is structure again.
+func (f *fenceTracker) fenced(line string, hasTask bool, taskIndent int) bool {
+	inDesc := hasTask && leadingWhitespace(line) > taskIndent
+	if f.open && f.inDesc && !inDesc && strings.TrimSpace(line) != "" {
+		f.open = false
+	}
+	if f.open {
+		f.open = !f.closes(line)
+		return true
+	}
+	char, n, ok := openFence(line)
+	if ok {
+		*f = fenceTracker{open: true, char: char, length: n, inDesc: inDesc}
+	}
+	return ok
+}
+
+// openFence reports whether line opens a fenced code block (CommonMark: 3+
+// backticks or tildes; a backtick fence's info string may not hold a
+// backtick), returning its char and run length.
+func openFence(line string) (byte, int, bool) {
+	m := fenceRe.FindStringSubmatch(line)
+	if m == nil || (m[1][0] == '`' && strings.Contains(m[2], "`")) {
+		return 0, 0, false
+	}
+	return m[1][0], len(m[1]), true
+}
+
+// closes reports whether line closes the open block: a run of its char at
+// least as long, followed by nothing but whitespace.
+func (f *fenceTracker) closes(line string) bool {
+	m := fenceRe.FindStringSubmatch(line)
+	return m != nil && m[1][0] == f.char && len(m[1]) >= f.length && strings.TrimSpace(m[2]) == ""
+}
 
 // statusFromMarker maps a checkbox marker char (checkboxRe's group 2) to a
 // Status. It is the inverse of Status.Marker; the two must agree, and both with
@@ -38,7 +89,9 @@ func statusFromMarker(marker string) Status {
 // parseMarkdown turns markdown source into a Document, for the one-time import.
 // Headers become nested categories; `- [ ]` items become tasks nested by
 // indentation; indented non-checkbox text under a task becomes that task's
-// description. It also reports what it did not keep: one warning,
+// description. Lines inside a ``` or ~~~ fenced code block are never headers
+// or checkboxes: indented under a task they are description, otherwise dropped
+// prose. It also reports what it did not keep: one warning,
 // `line N: <reason>` with the 1-based source line, for the first non-blank line
 // of text before the first node and one for every line of prose it drops.
 func parseMarkdown(src string) (*Document, []string) {
@@ -66,6 +119,7 @@ func parseMarkdown(src string) (*Document, []string) {
 	var curTask *Item         // most recent task; receives description lines
 	var curTaskIndent int
 	var descBuf []string // buffered description lines for curTask
+	var fences fenceTracker
 	seenNode := false
 
 	flushDesc := func() {
@@ -88,7 +142,11 @@ func parseMarkdown(src string) (*Document, []string) {
 			continue // the managed guide block: skip but keep counting lines
 		}
 		lineNo := i + 1
-		if m := headerRe.FindStringSubmatch(line); m != nil {
+		var hm, cm []string // header and checkbox matches; none for fenced lines
+		if !fences.fenced(line, curTask != nil, curTaskIndent) {
+			hm, cm = headerRe.FindStringSubmatch(line), checkboxRe.FindStringSubmatch(line)
+		}
+		if m := hm; m != nil {
 			flushDesc()
 			curTask = nil
 			taskStack = nil
@@ -102,7 +160,7 @@ func parseMarkdown(src string) (*Document, []string) {
 			seenNode = true
 			continue
 		}
-		if m := checkboxRe.FindStringSubmatch(line); m != nil {
+		if m := cm; m != nil {
 			flushDesc()
 			indent := len(m[1])
 			task := &Item{
@@ -124,7 +182,7 @@ func parseMarkdown(src string) (*Document, []string) {
 			seenNode = true
 			continue
 		}
-		// Neither a header nor a checkbox.
+		// Neither a header nor a checkbox (or a fence line or fenced content).
 		if curTask != nil {
 			if strings.TrimSpace(line) == "" {
 				descBuf = append(descBuf, "")
