@@ -373,8 +373,9 @@ func itemRows(tx *gorm.DB, ids ...uint) *gorm.DB {
 // Edit sets the fields of item id that c names: its title and, for a task, its
 // description and plan; a category ignores c.Description and c.Plan. Fields c
 // leaves nil, and kind, status and placement, are kept. A title CleanTitle
-// refuses fails the edit with ErrInvalidTitle. A c naming no field is a no-op:
-// nothing is written and the revision is kept.
+// refuses fails the edit with ErrInvalidTitle. A c naming no field, or naming only
+// fields a category ignores on a category, is a no-op: nothing is written and
+// the revision is kept (a missing id is still ErrNotFound).
 func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
 	if c == (Changes{}) {
 		return nil
@@ -387,7 +388,7 @@ func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
 		}
 		title = t
 	}
-	return s.write(ctx, func(tx *gorm.DB, _ *closuretree.Tree) error {
+	err := s.write(ctx, func(tx *gorm.DB, _ *closuretree.Tree) error {
 		var kinds []int
 		if err := itemRows(tx, id).Pluck("kind", &kinds).Error; err != nil {
 			return err
@@ -408,11 +409,20 @@ func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
 			}
 		}
 		if len(cols) == 0 {
-			return nil
+			return errNothingToEdit
 		}
 		return itemRows(tx, id).Updates(cols).Error
 	})
+	if errors.Is(err, errNothingToEdit) {
+		return nil
+	}
+	return err
 }
+
+// errNothingToEdit stops an Edit whose changes name only fields the item
+// ignores (a category's description or plan): the write rolls back, so the
+// revision is not bumped for a change that stores nothing.
+var errNothingToEdit = errors.New("nothing to edit")
 
 // SetStatuses sets the status of every item in states. Naming an ID the store
 // does not hold, such as a task another process deleted since the caller's

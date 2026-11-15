@@ -483,6 +483,35 @@ func TestEditCategoryIgnoresPlan(t *testing.T) {
 	}
 }
 
+// An Edit of a category that names only the fields a category ignores changes
+// nothing it stores, so it must not bump the revision (the TUI reads a bump as an
+// external change), and a missing item is still ErrNotFound.
+func TestEditCategoryIgnoredFieldsKeepRevision(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	for name, ch := range map[string]Changes{
+		"description": {Description: new("x")},
+		"plan":        {Plan: new("docs/p.md")},
+		"both":        {Description: new("x"), Plan: new("docs/p.md")},
+	} {
+		before, err := s.Revision(ctx)
+		mustOK(t, err)
+		mustOK(t, s.Edit(ctx, c, ch))
+		after, err := s.Revision(ctx)
+		mustOK(t, err)
+		if after != before {
+			t.Fatalf("%s: a category Edit of ignored fields moved the revision from %d to %d", name, before, after)
+		}
+		if err := s.Edit(ctx, c+100, ch); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("%s: Edit of a missing item = %v; want ErrNotFound", name, err)
+		}
+	}
+	if got := item(t, load(t, s), c); got.Title != "C" || got.Description != "" || got.Plan != "" {
+		t.Fatalf("category after Edit = %+v; want C with no description or plan", got)
+	}
+}
+
 func TestAddUnderSubtaskIsTooDeep(t *testing.T) {
 	s := newStore(t)
 	ids := addTaskTree(t, s, Open)
