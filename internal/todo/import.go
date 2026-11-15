@@ -29,6 +29,9 @@ type ImportReport struct {
 	// Skipped is set by ImportFile when nothing was imported because another
 	// process created the store first; the report is otherwise empty.
 	Skipped bool
+	// Backup is the path of the copy ImportFile took of a store that held
+	// items before replacing them; it is empty when nothing was replaced.
+	Backup string
 }
 
 // ImportMarkdown parses a TODO.md leniently for import. It fails only when src
@@ -128,7 +131,9 @@ func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, par
 // then linked (or, without hard links, renamed) into place, so dbPath never holds a half-done import and a failed
 // import leaves no trace. When another process creates dbPath first, that
 // store is kept and opened instead, and the report comes back empty with
-// Skipped set. On success the open store is returned.
+// Skipped set. Replacing a store that holds items first copies it to the next
+// free BackupPath, named in the report's Backup. On success the open store is
+// returned.
 func ImportFile(dbPath, mdPath string, replace bool) (*Store, ImportReport, error) {
 	return importFile(context.Background(), dbPath, mdPath, replace)
 }
@@ -164,11 +169,36 @@ func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Stor
 	if err != nil {
 		return nil, ImportReport{}, err
 	}
+	if replace {
+		if rep.Backup, err = s.backupIfNotEmpty(ctx); err != nil {
+			_ = s.Close()
+			return nil, ImportReport{}, err
+		}
+	}
 	if err := s.Import(ctx, doc, replace); err != nil {
 		_ = s.Close()
 		return nil, ImportReport{}, err
 	}
 	return s, rep, nil
+}
+
+// backupIfNotEmpty copies a store that holds items to the next free
+// BackupPath (see backup) and returns that path, or "" for an empty store. It
+// runs outside any transaction, since VACUUM INTO cannot run inside one, and
+// only reads the live file, which stays the one the store opened.
+func (s *Store) backupIfNotEmpty(ctx context.Context) (string, error) {
+	doc, _, err := s.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(doc.Roots) == 0 {
+		return "", nil
+	}
+	path, err := s.backup()
+	if err != nil {
+		return "", fmt.Errorf("back up %s: %w", s.path, err)
+	}
+	return path, nil
 }
 
 // importNew imports doc into a new store at dbPath. It fills a temporary store

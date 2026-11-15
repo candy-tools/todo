@@ -57,7 +57,7 @@ func (s *Store) migrateOnce() error {
 	}
 	backedUp := false
 	if version == 1 {
-		if err := s.backup(); err != nil {
+		if _, err := s.backup(); err != nil {
 			return fmt.Errorf("back up %s: %w", s.path, err)
 		}
 		backedUp = true
@@ -120,24 +120,28 @@ func storedSchemaVersion(db *gorm.DB) (int, error) {
 // The copy is made with VACUUM INTO, which reads a consistent snapshot of a
 // WAL-mode database, into a temporary file next to the store, and only the
 // finished file is linked (or renamed) into place, so a backup path never
-// holds a partial copy.
-func (s *Store) backup() error {
+// holds a partial copy. It returns the backup path it used.
+func (s *Store) backup() (string, error) {
 	f, err := os.CreateTemp(filepath.Dir(s.path), ".todo-backup-*.db")
 	if err != nil {
-		return err
+		return "", err
 	}
 	tmp := f.Name()
 	defer removeStoreFiles(tmp)
 	if err := f.Close(); err != nil {
-		return err
+		return "", err
 	}
 	if err := s.db.Exec("VACUUM INTO " + sqlString(tmp)).Error; err != nil {
-		return err
+		return "", err
 	}
 	for n := 0; ; n++ {
-		placed, err := placeStore(tmp, BackupPath(s.path, n))
-		if err != nil || placed {
-			return err
+		path := BackupPath(s.path, n)
+		placed, err := placeStore(tmp, path)
+		if err != nil {
+			return "", err
+		}
+		if placed {
+			return path, nil
 		}
 	}
 }

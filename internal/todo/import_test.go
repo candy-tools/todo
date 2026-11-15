@@ -193,3 +193,48 @@ func mustLoad(t *testing.T, s *todo.Store) *todo.Document {
 	}
 	return doc
 }
+
+func TestImportFileReplaceBacksUpNonEmptyStore(t *testing.T) {
+	db := todotest.Seed(t, "# Old\n\n- [ ] keep me\n")
+	md := filepath.Join(t.TempDir(), "TODO.md")
+	if err := os.WriteFile(md, []byte("# New\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, rep, err := todo.ImportFile(db, md, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The live file must stay the one the store opened: the backup copies it.
+	if _, err := s.AddCategory(context.Background(), "After", 0, 0); err != nil {
+		t.Fatalf("write after the import: %v", err)
+	}
+	_ = s.Close()
+	if want := todo.BackupPath(db, 0); rep.Backup != want {
+		t.Fatalf("Backup = %q, want %q", rep.Backup, want)
+	}
+	if got := todotest.Dump(t, rep.Backup); got != "# Old\n\n- [ ] keep me\n" {
+		t.Fatalf("backup holds:\n%s", got)
+	}
+	if got := todotest.Dump(t, db); strings.Contains(got, "Old") || !strings.Contains(got, "# New") {
+		t.Fatalf("store not replaced:\n%s", got)
+	}
+}
+
+func TestImportFileReplaceEmptyStoreTakesNoBackup(t *testing.T) {
+	db := todotest.Seed(t, "")
+	md := filepath.Join(t.TempDir(), "TODO.md")
+	if err := os.WriteFile(md, []byte("# New\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, rep, err := todo.ImportFile(db, md, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	if rep.Backup != "" {
+		t.Fatalf("Backup = %q, want none", rep.Backup)
+	}
+	if left, _ := filepath.Glob(db + ".bak*"); len(left) > 0 {
+		t.Fatalf("backup files for an empty store: %v", left)
+	}
+}

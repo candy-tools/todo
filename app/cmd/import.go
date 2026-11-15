@@ -30,6 +30,9 @@ func importCmd() *cobra.Command {
 			if rep.Skipped {
 				return &cliError{exitGeneric, fmt.Sprintf("%s was created by another todo during the import; nothing was imported", db)}
 			}
+			if rep.Backup != "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "backed up the replaced items to %s\n", rep.Backup)
+			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), importNotice(rep, args[0]))
 			return nil
 		},

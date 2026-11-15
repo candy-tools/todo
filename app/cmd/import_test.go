@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
@@ -48,5 +49,20 @@ func TestImportCmdForce(t *testing.T) {
 	got := todotest.Dump(t, db)
 	if contains(got, "Old") || !contains(got, "# New") {
 		t.Errorf("content should be replaced:\n%s", got)
+	}
+}
+
+func TestImportCmdForceNamesBackup(t *testing.T) {
+	db := todotest.Seed(t, "# Old\n")
+	out, err := runCmd(t, "import", writeMD(t, "# New\n"), "-f", db, "--force")
+	if err != nil {
+		t.Fatalf("import --force: %v", err)
+	}
+	bak := todo.BackupPath(db, 0)
+	if !contains(out, bak) {
+		t.Errorf("output does not name the backup %s:\n%s", bak, out)
+	}
+	if got := todotest.Dump(t, bak); got != "# Old\n" {
+		t.Errorf("backup holds %q", got)
 	}
 }
