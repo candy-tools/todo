@@ -42,9 +42,13 @@ func pollCmd() tea.Cmd {
 }
 
 // reloadCheckCmd probes the store off the UI goroutine. While a poll failure
-// is shown, a probe that succeeds without a change reports the recovery.
+// is shown, a probe that succeeds without a change reports the recovery. While
+// the model is unsynced the probe loads the list even at lastRev.
 func (m model) reloadCheckCmd() tea.Cmd {
 	st, last, failing := m.store, m.lastRev, m.pollErr != nil
+	if m.unsynced {
+		last = -1 // matches no revision, so the list is loaded
+	}
 	return func() tea.Msg {
 		msg := reloadCheck(st, last)
 		if msg == nil && failing {
@@ -105,14 +109,15 @@ func (m *model) clearPollErr() {
 
 // handleReload applies an external change. A message at or behind the revision
 // the model already has is ignored: it is the app's own write, or a probe that
-// raced one (applying it would roll the view back past that write). While a
+// raced one (applying it would roll the view back past that write) — except at
+// lastRev while unsynced, when it is the list the app's own write left. While a
 // modal is open or an item is grabbed for moving the reload is deferred, so an
 // edit is never yanked out from under the user; the next tick re-detects it
 // once they return to plain navigation. The search bar is not a modal: a
 // reload applies while it is open.
 func (m model) handleReload(msg storeReloadedMsg) (tea.Model, tea.Cmd) {
 	m.clearPollErr()
-	if msg.rev <= m.lastRev {
+	if msg.rev < m.lastRev || (msg.rev == m.lastRev && !m.unsynced) {
 		return m, nil
 	}
 	if (m.mode != modeMain && m.mode != modeSearch) || m.focused().grabbed {
@@ -125,14 +130,20 @@ func (m model) handleReload(msg storeReloadedMsg) (tea.Model, tea.Cmd) {
 // applyReload swaps in the reloaded document, restoring the selection and the
 // folds by ID. The in-memory undo snapshots are dropped: the list changed under
 // us, and an undo must never write old statuses over someone else's change.
+// A reload at lastRev (only applied while unsynced) is the app's own write read
+// back: the snapshots stay and no notice is shown.
 func (m *model) applyReload(msg storeReloadedMsg) {
 	onPH := m.focused().onPlaceholder()
 	var focus uint
 	if sel := m.focused().selected(); sel != nil && !onPH {
 		focus = sel.ID
 	}
-	m.doc, m.saved, m.lastRev = msg.doc, msg.doc.Clone(), msg.rev
-	m.snapshots = map[uint]todo.DoneStates{}
+	own := msg.rev == m.lastRev
+	m.doc, m.saved, m.lastRev, m.unsynced = msg.doc, msg.doc.Clone(), msg.rev, false
 	m.adoptAll(msg.doc, focus, onPH)
+	if own {
+		return
+	}
+	m.snapshots = map[uint]todo.DoneStates{}
 	m.status = "reloaded — list changed externally"
 }

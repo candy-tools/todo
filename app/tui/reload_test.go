@@ -566,6 +566,42 @@ func TestReloadFailureAfterSavedWrite(t *testing.T) {
 	}
 }
 
+// TestOwnWriteWithFailedReloadNotExternal has an own add succeed while the
+// reload after it fails once. The next poll must load the list (the added task
+// gets its stored ID) as the app's own write: no external-reload notice, and
+// the undo snapshots kept.
+func TestOwnWriteWithFailedReloadNotExternal(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := schemaVersionOf(t, path)
+	work, a := find(m.doc, "Work"), find(m.doc, "a")
+	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
+	added := todo.NewTask("b", "", false)
+	work.AppendTask(added)
+	m.commit(0, func(ctx context.Context) error {
+		_, err := m.store.AppendTask(ctx, todo.Fields{Title: "b"}, todo.Open, work.ID)
+		setSchemaVersion(t, path, v+1) // the reload that follows fails
+		return err
+	})
+	if !strings.Contains(m.footer(200), "reload failed:") {
+		t.Fatalf("precondition: footer should report the failed reload, got %q", m.footer(200))
+	}
+	setSchemaVersion(t, path, v)
+
+	m = pollCmdOnce(m)
+	if m.status == "reloaded — list changed externally" {
+		t.Errorf("the app's own write must not be reported as an external change")
+	}
+	if len(m.snapshots) != 1 {
+		t.Errorf("the app's own write must keep the undo snapshots, got %d", len(m.snapshots))
+	}
+	if b := find(m.doc, "b"); b == nil || b.ID == 0 {
+		t.Errorf("the poll must load the list the write left, got b = %v", b)
+	}
+	if msg := reloadCheck(m.store, m.lastRev); msg != nil {
+		t.Errorf("once loaded, a poll must see no change, got %#v", msg)
+	}
+}
+
 // TestFailedWriteRevertsToStore has the write fail while the reload works: the
 // in-memory change is discarded and the view shows what the store holds.
 func TestFailedWriteRevertsToStore(t *testing.T) {

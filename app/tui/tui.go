@@ -56,7 +56,12 @@ type model struct {
 	// loop compares the store against it to tell an external write (reload) from
 	// the app's own (ignore).
 	lastRev int64
-	err     error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
+	// unsynced is set when the app's own write succeeded but the reload after
+	// it failed: lastRev is the revision that write produced, but doc is the
+	// in-memory change, not read back from the store (a new item has no ID
+	// yet). The next poll loads the list regardless, as the app's own write.
+	unsynced bool
+	err      error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
 	// pollErr is the poll failure last put in err, kept to show each distinct
 	// failure once and to clear it when a later poll succeeds.
 	pollErr error

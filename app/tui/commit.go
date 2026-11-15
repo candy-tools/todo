@@ -61,7 +61,8 @@ func (m *model) noteLeftTab(id uint) bool {
 // fails, the error is shown (the write's when it failed, else the reload's) and
 // the trees are rebuilt with focusID selected, from the current document when
 // the write succeeded (the caller's in-memory change is what the store now
-// holds), else from a copy of the document as last loaded, so the change the
+// holds; its revision is recorded and the next poll loads it as the app's
+// own, see unsynced), else from a copy of the document as last loaded, so the change the
 // caller made in memory does not stay on screen as if it were saved.
 func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 	ctx := context.Background()
@@ -78,13 +79,14 @@ func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 		if m.err == nil {
 			m.err = fmt.Errorf("reload failed: %w", err)
 			m.saved = m.doc.Clone()
+			m.lastRev, m.unsynced = expected, true
 		} else {
 			m.doc = m.saved.Clone()
 		}
 		m.adoptAll(m.doc, focusID, onPH)
 		return
 	}
-	m.doc, m.saved, m.lastRev = doc, doc.Clone(), rev
+	m.doc, m.saved, m.lastRev, m.unsynced = doc, doc.Clone(), rev, false
 	m.adoptAll(doc, focusID, onPH)
 	if rev != expected {
 		m.snapshots = map[uint]todo.DoneStates{}
