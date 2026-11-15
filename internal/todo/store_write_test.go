@@ -310,6 +310,13 @@ func TestEveryWriteBumpsRevision(t *testing.T) {
 		{"Edit", func() error { return s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("d")}) }},
 		{"SetStatuses", func() error { return s.SetStatuses(ctx, map[uint]Status{task: Done}) }},
 		{"CascadeStatus", func() error { return s.CascadeStatus(ctx, task, Done) }},
+		{"Reopen", func() error { return s.Reopen(ctx, task, Working, ReopenOptions{}) }},
+		{"Complete", func() error { return s.Complete(ctx, task, false) }},
+		{"Reopen restore", func() error {
+			return s.Reopen(ctx, task, Working, ReopenOptions{Restore: DoneStates{task: Done}})
+		}},
+		{"Complete cascade", func() error { return s.Complete(ctx, task, true) }},
+		{"Reopen cascade", func() error { return s.Reopen(ctx, task, Working, ReopenOptions{Cascade: true}) }},
 		{"Move", func() error { return s.Move(ctx, task, c, 0) }},
 		{"Prune", func() error { _, err := s.Prune(ctx); return err }},
 		{"Delete", func() error { return s.Delete(ctx, c) }},
