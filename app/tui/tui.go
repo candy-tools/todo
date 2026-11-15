@@ -65,6 +65,9 @@ type model struct {
 	// pollErr is the poll failure last put in err, kept to show each distinct
 	// failure once and to clear it when a later poll succeeds.
 	pollErr error
+	// opener opens the store again at its path, the way the caller opened it,
+	// after the file there was replaced (see reopenStore).
+	opener func() (*todo.Store, error)
 
 	// Layout: what the trees show and how the screen is split.
 	//
@@ -125,13 +128,17 @@ const BusyTimeout = 750 * time.Millisecond
 // Run loads the list from st and starts the interactive TUI. notice (e.g. the
 // automatic TODO.md import summary) is shown in the footer at start; it may be
 // empty. The caller owns st, opened with BusyTimeout, and closes it after Run
-// returns.
+// returns; a store the TUI reopened after the file was replaced is closed by
+// Run.
 func Run(st *todo.Store, notice string) error {
 	m, err := newModel(st, notice)
 	if err != nil {
 		return err
 	}
-	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	if fm, ok := final.(model); ok && fm.store != st {
+		_ = fm.store.Close()
+	}
 	return err
 }
 
@@ -146,8 +153,10 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		return model{}, err
 	}
 	v := newViewState()
+	path := st.Path()
 	return model{
 		store:     st,
+		opener:    func() (*todo.Store, error) { return todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout)) },
 		version:   metainfo.Version,
 		doc:       doc,
 		saved:     doc.Clone(),
@@ -189,6 +198,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleReload(msg)
 	case reloadFailedMsg:
 		return m.handleReloadFailed(msg)
+	case storeReopenedMsg:
+		return m.handleReopen(msg)
 	case reloadRecoveredMsg:
 		m.clearPollErr()
 		return m, nil

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -29,8 +30,18 @@ type storeReloadedMsg struct {
 // reloadFailedMsg reports that the poll could not read the store: its file was
 // removed or replaced (writes are refused, see todo.ErrFileReplaced), a newer
 // todo upgraded its schema, or it became unreadable. The error goes to the
-// footer once per distinct failure; the current view stays.
+// footer once per distinct failure; the current view stays. A replaced file is
+// reopened instead when a file is back at the path (see reopenStore).
 type reloadFailedMsg struct{ err error }
+
+// storeReopenedMsg carries the store reopened at the path after the file the
+// model's store (old) had open was replaced, with the document and revision
+// loaded from it.
+type storeReopenedMsg struct {
+	old, st *todo.Store
+	doc     *todo.Document
+	rev     int64
+}
 
 // reloadRecoveredMsg reports that a poll succeeded after one failed, so the
 // failure can be taken out of the footer.
@@ -43,14 +54,23 @@ func pollCmd() tea.Cmd {
 
 // reloadCheckCmd probes the store off the UI goroutine. While a poll failure
 // is shown, a probe that succeeds without a change reports the recovery. While
-// the model is unsynced the probe loads the list even at lastRev.
+// the model is unsynced the probe loads the list even at lastRev. When the
+// store file was replaced and a reload could be applied now, the probe reopens
+// the store at the path (see reopenStore).
 func (m model) reloadCheckCmd() tea.Cmd {
 	st, last, failing := m.store, m.lastRev, m.pollErr != nil
 	if m.unsynced {
 		last = -1 // matches no revision, so the list is loaded
 	}
+	var reopen func() (*todo.Store, error)
+	if m.canApplyReload() {
+		reopen = m.opener
+	}
 	return func() tea.Msg {
 		msg := reloadCheck(st, last)
+		if f, ok := msg.(reloadFailedMsg); ok && reopen != nil && errors.Is(f.err, todo.ErrFileReplaced) {
+			return reopenStore(st, reopen, f)
+		}
 		if msg == nil && failing {
 			return reloadRecoveredMsg{}
 		}
@@ -81,6 +101,50 @@ func reloadCheck(st *todo.Store, last int64) tea.Msg {
 		return reloadFailedMsg{err: err}
 	}
 	return storeReloadedMsg{doc: doc, rev: rev}
+}
+
+// reopenStore reopens the store at old's path after its file was replaced, and
+// loads the list from it. A path with no file stays failed: nothing is created
+// there, and a later poll reopens the file once one is back. The old store is
+// closed first, which empties its WAL at the path (see todo.Store.Close), so
+// the new file does not read the old one's pages. Any failure is returned as a
+// reloadFailedMsg (failed, when the file is gone).
+func reopenStore(old *todo.Store, reopen func() (*todo.Store, error), failed reloadFailedMsg) tea.Msg {
+	if ok, err := todo.StoreExists(old.Path()); err != nil || !ok {
+		return failed
+	}
+	_ = old.Close()
+	if ok, err := todo.StoreExists(old.Path()); err != nil || !ok {
+		return failed
+	}
+	st, err := reopen()
+	if err != nil {
+		return reloadFailedMsg{err: err}
+	}
+	doc, rev, err := st.Load(context.Background())
+	if err != nil {
+		_ = st.Close()
+		return reloadFailedMsg{err: err}
+	}
+	return storeReopenedMsg{old: old, st: st, doc: doc, rev: rev}
+}
+
+// handleReopen swaps in the store reopened after a file replacement and
+// applies its list as an external change, clearing the error. It is dropped,
+// and the new store closed, when the model's store changed since the probe (a
+// probe that raced another reopen) or a reload cannot be applied now: a dialog
+// or a grab works on the old list's IDs, which name other items in the new
+// file. The next poll reopens it again.
+func (m model) handleReopen(msg storeReopenedMsg) (tea.Model, tea.Cmd) {
+	if msg.old != m.store || !m.canApplyReload() {
+		_ = msg.st.Close()
+		return m, nil
+	}
+	m.store = msg.st
+	m.err, m.pollErr = nil, nil
+	m.lastRev, m.unsynced = -1, false // matches no revision: the list is external
+	m.applyReload(storeReloadedMsg{doc: msg.doc, rev: msg.rev})
+	return m, nil
 }
 
 // handleReloadFailed shows a poll failure in the footer, once: the same
@@ -120,11 +184,17 @@ func (m model) handleReload(msg storeReloadedMsg) (tea.Model, tea.Cmd) {
 	if msg.rev < m.lastRev || (msg.rev == m.lastRev && !m.unsynced) {
 		return m, nil
 	}
-	if (m.mode != modeMain && m.mode != modeSearch) || m.focused().grabbed {
+	if !m.canApplyReload() {
 		return m, nil
 	}
 	m.applyReload(msg)
 	return m, nil
+}
+
+// canApplyReload reports whether an external reload can be applied now: in
+// plain navigation or the search bar, with no item grabbed.
+func (m model) canApplyReload() bool {
+	return (m.mode == modeMain || m.mode == modeSearch) && !m.focused().grabbed
 }
 
 // applyReload swaps in the reloaded document, restoring the selection and the

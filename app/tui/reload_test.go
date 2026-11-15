@@ -690,3 +690,105 @@ func TestStatusChangeWhileLockedShowsBusy(t *testing.T) {
 		t.Errorf("a shows %v after the failed save, want open", st)
 	}
 }
+
+// statusIn reads the status of the item titled title from the store file at
+// path through a second handle.
+func statusIn(t *testing.T, path, title string) todo.Status {
+	t.Helper()
+	doc, _, err := openSecond(t, path).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := find(doc, title)
+	if it == nil {
+		t.Fatalf("%q is not in the store at %s", title, path)
+	}
+	return it.Status
+}
+
+// TestReplacedFileIsReopened renames another store in over the open one after
+// the TUI wrote to it: the next poll must reopen the store at the path, show
+// the new file's list as an external change, clear the error, and send the
+// writes that follow into the new file.
+func TestReplacedFileIsReopened(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = press(selectTitle(t, m, "a"), "p") // a write, so the old store has a WAL
+	other := todotest.Seed(t, "# Other\n\n- [ ] b\n")
+	if err := os.Rename(other, path); err != nil {
+		t.Fatal(err)
+	}
+	m = send(m, reloadCheck(m.store, m.lastRev))
+	if !errors.Is(m.err, todo.ErrFileReplaced) {
+		t.Fatalf("m.err = %v, want ErrFileReplaced", m.err)
+	}
+
+	m = pollCmdOnce(m)
+	t.Cleanup(func() { _ = m.store.Close() })
+	if m.err != nil {
+		t.Errorf("the reopen must clear the error, got %v", m.err)
+	}
+	if find(m.doc, "b") == nil || find(m.doc, "a") != nil || !hasRow(m, "b") {
+		t.Fatalf("the view must show the new file's list, rows %v", rowTitles(m.tree))
+	}
+	if !strings.Contains(m.status, "changed externally") {
+		t.Errorf("status = %q, want the external-change notice", m.status)
+	}
+
+	m = press(selectTitle(t, m, "b"), "p")
+	if m.err != nil {
+		t.Fatalf("a write after the reopen failed: %v", m.err)
+	}
+	if got := statusIn(t, path, "b"); got == todo.Open {
+		t.Errorf("b = %v in the file at the path, want the status change written there", got)
+	}
+}
+
+// TestRemovedFileIsNotRecreated removes the store file under the TUI: the
+// poll must keep reporting it and never create a new database at the path;
+// once a store file is put back, the next poll reopens it.
+func TestRemovedFileIsNotRecreated(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	if err := os.Rename(path, path+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		m = pollCmdOnce(m)
+		if !errors.Is(m.err, todo.ErrFileReplaced) {
+			t.Fatalf("m.err = %v, want ErrFileReplaced", m.err)
+		}
+		if ok, err := todo.StoreExists(path); err != nil || ok {
+			t.Fatalf("a store file exists at the path after the poll (%v, %v); none may be created", ok, err)
+		}
+	}
+
+	if err := os.Rename(todotest.Seed(t, "# Other\n\n- [ ] b\n"), path); err != nil {
+		t.Fatal(err)
+	}
+	m = pollCmdOnce(m)
+	t.Cleanup(func() { _ = m.store.Close() })
+	if m.err != nil || find(m.doc, "b") == nil {
+		t.Errorf("the file put back must be reopened: err %v, rows %v", m.err, rowTitles(m.tree))
+	}
+}
+
+// TestReopenDeferredWhileModal replaces the store file while a dialog is open:
+// the reopen must wait for plain navigation, so a dialog opened on the old
+// list never writes to the new file, whose IDs name other items.
+func TestReopenDeferredWhileModal(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = press(selectTitle(t, m, "a"), "t")
+	if err := os.Rename(todotest.Seed(t, "# Other\n\n- [ ] b\n"), path); err != nil {
+		t.Fatal(err)
+	}
+	old := m.store
+	m = pollCmdOnce(m)
+	if m.store != old || find(m.doc, "a") == nil {
+		t.Fatalf("the store must not be reopened while a dialog is open")
+	}
+	m = press(m, "esc")
+	m = pollCmdOnce(m)
+	t.Cleanup(func() { _ = m.store.Close() })
+	if m.store == old || find(m.doc, "b") == nil {
+		t.Errorf("back in navigation, the poll must reopen the store")
+	}
+}
