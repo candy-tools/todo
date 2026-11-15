@@ -81,9 +81,10 @@ func (m model) reloadCheckCmd() tea.Cmd {
 // reloadCheck reads the store's revision and, when it differs from last, loads
 // the list and returns it as a storeReloadedMsg. It returns nil when nothing
 // changed, and a reloadFailedMsg on any error, which never wipes the current
-// view. The file is checked first: when it was removed or replaced, the open
-// handle still reads the old copy, so its revision says nothing about the file
-// at the path.
+// view. The file is checked first, so a removed or replaced file is reported
+// before any read; Revision and Load also fail with todo.ErrFileReplaced once
+// that happens (their reads may have run on the file now at the path), so a
+// replacement during the check is reported too.
 func reloadCheck(st *todo.Store, last int64) tea.Msg {
 	if err := st.CheckFile(); err != nil {
 		return reloadFailedMsg{err: err}
