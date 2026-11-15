@@ -62,8 +62,9 @@ type model struct {
 	// yet). The next poll loads the list regardless, as the app's own write.
 	unsynced bool
 	err      error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
-	// pollErr is the poll failure last put in err, kept to show each distinct
-	// failure once and to clear it when a later poll succeeds.
+	// pollErr is the reload failure last put in err, by the poll or by commit
+	// after a write that succeeded, kept to show each distinct poll failure once
+	// and to clear it when a later reload succeeds.
 	pollErr error
 	// opener opens the store again at its path, the way the caller opened it,
 	// after the file there was replaced (see reopenStore).

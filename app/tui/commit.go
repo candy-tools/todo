@@ -78,6 +78,7 @@ func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 	if err != nil {
 		if m.err == nil {
 			m.err = fmt.Errorf("reload failed: %w", err)
+			m.pollErr = m.err // cleared by the next reload that succeeds (see clearPollErr)
 			m.saved = m.doc.Clone()
 			m.lastRev, m.unsynced = expected, true
 		} else {

@@ -602,6 +602,64 @@ func TestOwnWriteWithFailedReloadNotExternal(t *testing.T) {
 	}
 }
 
+// commitWithFailedReload has an own add of title succeed while the reload
+// after it fails (the schema is bumped by the write), and returns the schema
+// version to restore so the next reload works again.
+func commitWithFailedReload(t *testing.T, m *model, path, title string) int {
+	t.Helper()
+	v := schemaVersionOf(t, path)
+	work := find(m.doc, "Work")
+	work.AppendTask(todo.NewTask(title, "", false))
+	m.commit(0, func(ctx context.Context) error {
+		_, err := m.store.AppendTask(ctx, todo.Fields{Title: title}, todo.Open, work.ID)
+		setSchemaVersion(t, path, v+1)
+		return err
+	})
+	if !strings.Contains(m.footer(200), "reload failed:") {
+		t.Fatalf("precondition: footer should report the failed reload, got %q", m.footer(200))
+	}
+	return v
+}
+
+// TestOwnWriteFailedReloadClearedOnRecovery has an own write succeed while its
+// reload fails: once a poll reloads the list, the footer must no longer show
+// the reload error, whether the poll reads back the app's own write or an
+// external one that landed meanwhile.
+func TestOwnWriteFailedReloadClearedOnRecovery(t *testing.T) {
+	for _, external := range []bool{false, true} {
+		m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+		v := commitWithFailedReload(t, &m, path, "b")
+		setSchemaVersion(t, path, v)
+		if external {
+			externalAddTask(t, path, "c", find(m.doc, "Work").ID, 0)
+		}
+
+		m = pollCmdOnce(m)
+		if find(m.doc, "b") == nil || find(m.doc, "b").ID == 0 {
+			t.Fatalf("external=%v: the poll must load the list the write left", external)
+		}
+		if m.err != nil || strings.Contains(m.footer(200), "reload failed:") {
+			t.Errorf("external=%v: the recovered reload must clear the error, got m.err=%v footer %q",
+				external, m.err, m.footer(200))
+		}
+	}
+}
+
+// TestOwnWriteFailedReloadRecoveryKeepsLaterError has an own write's reload
+// fail, then a save be refused: the poll that recovers must clear only the
+// reload error, not the refused save shown since.
+func TestOwnWriteFailedReloadRecoveryKeepsLaterError(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := commitWithFailedReload(t, &m, path, "b")
+	m.commit(0, func(context.Context) error { return errors.New("refused") })
+	setSchemaVersion(t, path, v)
+
+	m = pollCmdOnce(m)
+	if got := m.footer(200); !strings.Contains(got, "save failed: refused") {
+		t.Errorf("the recovery must keep the refused save in the footer, got %q", got)
+	}
+}
+
 // TestFailedWriteRevertsToStore has the write fail while the reload works: the
 // in-memory change is discarded and the view shows what the store holds.
 func TestFailedWriteRevertsToStore(t *testing.T) {
