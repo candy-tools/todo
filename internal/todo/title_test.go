@@ -164,3 +164,21 @@ func TestPrintable(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintableLines(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain\nlines":                      "plain\nlines",
+		"":                                  "",
+		"crlf\r\nends\r\n":                  "crlf\nends\n",
+		"\tlead\n  \tmixed\nab\tc":          "    lead\n    mixed\nab  c",
+		"x\x1b[31my\x07\n\x7fz\u009b":       "x[31my\nz",
+		"abc\u202edef\u202a\n\u2066q\u2069": "abcdef\nq",
+		"p\u2028q\u2029r\ufeff\n\n":         "pqr\n\n",
+		"lone\rcr":                          "lonecr",
+		"👨\u200d👩\u200d👧\tco\u00adop":       "👨\u200d👩\u200d👧   co\u00adop",
+	} {
+		if got := PrintableLines(in); got != want {
+			t.Errorf("PrintableLines(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

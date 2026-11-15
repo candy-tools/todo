@@ -87,7 +87,10 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.editing = sel
-		m.form = newForm(sel.Title, sel.Description, sel.Plan, sel.IsTask(), true)
+		// The form shows the stored text made safe to draw, as the rows do: a
+		// legacy value may hold control or bidi characters. The form compares
+		// against what it opened with, so an untouched field is not rewritten.
+		m.form = newForm(todo.Printable(sel.Title), todo.PrintableLines(sel.Description), todo.Printable(sel.Plan), sel.IsTask(), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
 		if m.split && !m.sideFocus {

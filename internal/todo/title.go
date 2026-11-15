@@ -98,3 +98,39 @@ func Printable(s string) string {
 		return r
 	}, s)
 }
+
+// PrintableLines is Printable for multi-line text such as a description: it
+// keeps the newlines, drops a carriage return ending a line (a CRLF line end),
+// expands each tab to the next multiple of tabStop columns (counted in runes),
+// so indentation keeps its width, and removes every other control and unsafe
+// character from each line. It is for display only; stored data is left as it
+// is.
+func PrintableLines(s string) string {
+	if strings.IndexFunc(s, func(r rune) bool { return r != '\n' && unsafeRune(r) }) < 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = printableLine(strings.TrimSuffix(line, "\r"))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// printableLine is one line of PrintableLines.
+func printableLine(line string) string {
+	var b strings.Builder
+	col := 0
+	for _, r := range line {
+		switch {
+		case r == '\t':
+			n := tabStop - col%tabStop
+			b.WriteString(strings.Repeat(" ", n))
+			col += n
+		case unsafeRune(r):
+		default:
+			b.WriteRune(r)
+			col++
+		}
+	}
+	return b.String()
+}
