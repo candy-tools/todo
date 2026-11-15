@@ -31,16 +31,38 @@ const (
 	modeSearch
 )
 
+// model is the whole TUI state. Its fields fall into four groups:
+// persistence, layout, the mode with its per-mode data, and session data.
+//
+// Invariants:
+//   - An item is grabbed (tree.grabbed or side.grabbed) only in modeMain and
+//     only on the focused tree, m.focused().
+//   - sideFocus implies split.
+//   - An external reload is applied in modeMain and modeSearch, and deferred
+//     in the modal modes and while an item is grabbed (see handleReload).
 type model struct {
-	store   *todo.Store
-	version string
-	doc     *todo.Document
+	// Persistence: the store, the document loaded from it, and the revision
+	// and errors of the last load or write.
+	store *todo.Store
+	doc   *todo.Document
 	// saved is an untouched copy of doc as the store last gave it (or, after a
 	// write that succeeded but could not be reloaded, as that write left it).
 	// The actions change doc in memory before they write, so when the write
 	// fails and the reload cannot replace doc either, commit puts a copy of
 	// saved back rather than show the unsaved change as if it were saved.
 	saved *todo.Document
+	// lastRev is the store revision doc reflects: the one todo last loaded,
+	// which after its own write is the revision that write produced. The poll
+	// loop compares the store against it to tell an external write (reload) from
+	// the app's own (ignore).
+	lastRev int64
+	err     error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
+	// pollErr is the poll failure last put in err, kept to show each distinct
+	// failure once and to clear it when a later poll succeeds.
+	pollErr error
+
+	// Layout: what the trees show and how the screen is split.
+	//
 	// view is the tab, search query and state filter every tree shows the
 	// list through; the model changes it (setColumn, setFilter, setStates)
 	// and rebuilds the trees.
@@ -56,17 +78,11 @@ type model struct {
 	width     int
 	height    int
 
-	// lastRev is the store revision doc reflects: the one todo last loaded,
-	// which after its own write is the revision that write produced. The poll
-	// loop compares the store against it to tell an external write (reload) from
-	// the app's own (ignore).
-	lastRev int64
-
+	// Mode and per-mode data: mode routes the keys; each field below is
+	// meaningful only in the mode it names.
 	mode mode
-	form form
 
-	search textinput.Model // the "/" search bar's input, for modeSearch
-
+	form     form
 	target   formTarget
 	editing  *todo.Item // the item being edited, for targetEdit
 	deleting *todo.Item // the item the confirm dialog is guarding, for modeConfirm
@@ -77,24 +93,22 @@ type model struct {
 	// item, or clear all completed tasks.
 	confirmAction confirmAction
 
-	// snapshots holds, per task ID completed in this session, the states of the
-	// task and its subtasks captured at completion time, so un-completing it can
-	// restore them (the accidental-complete undo). Session-only: it lives here in
-	// memory and is never stored. Keyed by ID, it survives the reload after the
-	// app's own write; an external reload clears it.
-	snapshots map[uint]todo.DoneStates
-
 	helpOffset int // how far the "?" shortcuts dialog is scrolled, for modeHelp
 
 	pick     picker     // the open state dialog, for modeStatePick and modeStateFilter
 	pickItem *todo.Item // the task the "t" dialog sets the state of
 
-	status string // transient one-line footer message
-	err    error  // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
+	search textinput.Model // the "/" search bar's input, for modeSearch
 
-	// pollErr is the poll failure last put in err, kept to show each distinct
-	// failure once and to clear it when a later poll succeeds.
-	pollErr error
+	// Session data: in memory only, never stored.
+	//
+	// snapshots holds, per task ID completed in this session, the states of the
+	// task and its subtasks captured at completion time, so un-completing it can
+	// restore them (the accidental-complete undo). Keyed by ID, it survives the
+	// reload after the app's own write; an external reload clears it.
+	snapshots map[uint]todo.DoneStates
+	status    string // transient one-line footer message
+	version   string // the app version shown in the header
 }
 
 // BusyTimeout is how long a TUI write waits for another process to release the
