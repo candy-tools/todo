@@ -202,8 +202,9 @@ after any add/remove; `--title` is stable as long as it stays unique. Re-run
 `todo list` when you rely on `--number`.
 
 Exit codes: `0` ok, `2` usage, `3` not found, `4` ambiguous title, `5` wrong
-kind, `6` conflict (the list changed while the command ran; re-run it), `1`
-other. Errors go to stderr.
+kind, `6` conflict (the list changed while the command ran, or another todo
+kept it locked for writing for more than 5 seconds; re-run it), `1` other.
+Errors go to stderr.
 
 ## Keys
 

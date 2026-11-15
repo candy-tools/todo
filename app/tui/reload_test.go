@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
@@ -588,5 +589,26 @@ func TestReplacedFileShowsErrorAndRefusesWrite(t *testing.T) {
 	}
 	if got := find(doc, "a").Status; got != todo.Working {
 		t.Errorf("a = %v in the unlinked file, want working (the write must be refused)", got)
+	}
+}
+
+// A status change while another process holds the writer lock fails fast with
+// the store's busy message in the footer, instead of freezing the UI for the
+// 5 s busy timeout, and leaves the task where it was.
+func TestStatusChangeWhileLockedShowsBusy(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m = selectTitle(t, m, "a")
+	todotest.HoldWriteLock(t, path)
+
+	start := time.Now()
+	m = press(m, "p")
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("the status change blocked the UI for %v", elapsed)
+	}
+	if got := m.footer(200); !strings.Contains(got, "save failed: "+todo.ErrBusy.Error()) {
+		t.Errorf("footer = %q, want the busy message", got)
+	}
+	if st := find(m.doc, "a").Status; st != todo.Open {
+		t.Errorf("a shows %v after the failed save, want open", st)
 	}
 }

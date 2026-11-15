@@ -9,6 +9,7 @@ import (
 
 	"github.com/candy-tools/todo/app/metainfo"
 	"github.com/candy-tools/todo/app/tui"
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/spf13/cobra"
 )
 
@@ -41,8 +42,10 @@ func newRootCommand() *cobra.Command {
 				return err
 			}
 			// Opening creates the store when it is missing (or imports TODO.md),
-			// so launching todo always starts from a real database on disk.
-			st, notice, err := openStore(c, path, isDefault)
+			// so launching todo always starts from a real database on disk. Its
+			// writes wait only tui.BusyTimeout for another writer, so a stuck
+			// one elsewhere does not freeze the UI.
+			st, notice, err := openStore(c, path, isDefault, todo.WithBusyTimeout(tui.BusyTimeout))
 			if err != nil {
 				return err
 			}

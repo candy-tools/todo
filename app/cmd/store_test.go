@@ -162,6 +162,18 @@ func TestStoreConflictIsConflict(t *testing.T) {
 	}
 }
 
+// A busy store (another process held the writer lock past the busy timeout)
+// surfaces as the CLI's conflict error with the store's message: re-running
+// the command is the fix for both.
+func TestStoreBusyIsConflict(t *testing.T) {
+	t.Chdir(t.TempDir())
+	c := newRootCommand()
+	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrBusy })
+	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
+		t.Errorf("withStore with ErrBusy = %v, want a conflict error with its message", err)
+	}
+}
+
 // Each write command opens the database once and writes through the handle it
 // loaded from, rather than reopening it for the write.
 func TestWriteCommandsOpenTheStoreOnce(t *testing.T) {
@@ -178,9 +190,9 @@ func TestWriteCommandsOpenTheStoreOnce(t *testing.T) {
 			db := todotest.Seed(t, "# Work\n\n- [ ] a\n- [x] b\n")
 			opens := 0
 			orig := openDB
-			openDB = func(path string) (*todo.Store, error) {
+			openDB = func(path string, opts ...todo.Option) (*todo.Store, error) {
 				opens++
-				return orig(path)
+				return orig(path, opts...)
 			}
 			t.Cleanup(func() { openDB = orig })
 			if _, err := runCmd(t, append(args, "-f", db)...); err != nil {

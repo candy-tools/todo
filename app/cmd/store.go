@@ -64,21 +64,21 @@ func legacyImportable(path string, isDefault bool) (bool, error) {
 	return todo.StoreExists(legacyFile)
 }
 
-// openStore opens the store at path, creating it when missing. When isDefault
-// and the store does not exist but TODO.md does, it imports TODO.md instead and
-// returns the import notice; otherwise the notice is "". When another process
-// creates the store first (it ran the same first-run import), that store is
-// opened as is, without a notice.
-func openStore(_ *cobra.Command, path string, isDefault bool) (*todo.Store, string, error) {
+// openStore opens the store at path with opts, creating it when missing. When
+// isDefault and the store does not exist but TODO.md does, it imports TODO.md
+// instead and returns the import notice; otherwise the notice is "". When
+// another process creates the store first (it ran the same first-run import),
+// that store is opened as is, without a notice.
+func openStore(_ *cobra.Command, path string, isDefault bool, opts ...todo.Option) (*todo.Store, string, error) {
 	imp, err := legacyImportable(path, isDefault)
 	if err != nil {
 		return nil, "", err
 	}
 	if imp {
-		s, rep, err := todo.ImportFile(path, legacyFile, false)
+		s, rep, err := todo.ImportFile(path, legacyFile, false, opts...)
 		if errors.Is(err, todo.ErrNotEmpty) {
 			// The store appeared, already filled, after legacyImportable looked.
-			s, err := openDB(path)
+			s, err := openDB(path, opts...)
 			return s, "", err
 		}
 		if err != nil {
@@ -86,7 +86,7 @@ func openStore(_ *cobra.Command, path string, isDefault bool) (*todo.Store, stri
 		}
 		return s, importNotice(rep, legacyFile), nil
 	}
-	s, err := openDB(path)
+	s, err := openDB(path, opts...)
 	return s, "", err
 }
 
@@ -139,7 +139,8 @@ type storeOpener func() (*todo.Store, error)
 // a command that fails earlier — a selector that matches nothing, a usage error
 // — never creates the store. The store is closed afterwards. A store
 // ErrNotFound becomes the CLI's not-found error, a store ErrWrongParent or
-// ErrNotTask its wrong-kind one, and a store ErrConflict its conflict one.
+// ErrNotTask its wrong-kind one, and a store ErrConflict or ErrBusy its conflict
+// one.
 func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener, doc *todo.Document) error) error {
 	path, isDefault, err := resolvePath(cmd, nil)
 	if err != nil {
@@ -175,7 +176,7 @@ func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener
 		if errors.Is(err, todo.ErrWrongParent) || errors.Is(err, todo.ErrNotTask) {
 			return &cliError{exitWrongKind, err.Error()}
 		}
-		if errors.Is(err, todo.ErrConflict) {
+		if errors.Is(err, todo.ErrConflict) || errors.Is(err, todo.ErrBusy) {
 			return &cliError{exitConflict, err.Error()}
 		}
 		return err

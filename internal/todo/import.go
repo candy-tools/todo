@@ -139,9 +139,9 @@ func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, par
 // store is kept and opened instead, and the report comes back empty with
 // Skipped set. Replacing a store that holds items first copies it to the next
 // free BackupPath, named in the report's Backup. On success the open store is
-// returned.
-func ImportFile(dbPath, mdPath string, replace bool) (*Store, ImportReport, error) {
-	return importFile(context.Background(), dbPath, mdPath, replace)
+// returned, opened at dbPath with opts.
+func ImportFile(dbPath, mdPath string, replace bool, opts ...Option) (*Store, ImportReport, error) {
+	return importFile(context.Background(), dbPath, mdPath, replace, opts...)
 }
 
 // storeExists is the existence check importFile runs on the target. It is a
@@ -155,7 +155,7 @@ var linkFile = os.Link
 
 // importFile is ImportFile with the context of the store write, so a test can
 // make the import fail after a store file was created.
-func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Store, ImportReport, error) {
+func importFile(ctx context.Context, dbPath, mdPath string, replace bool, opts ...Option) (*Store, ImportReport, error) {
 	existed, err := storeExists(dbPath)
 	if err != nil {
 		return nil, ImportReport{}, err
@@ -169,9 +169,9 @@ func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Stor
 		return nil, ImportReport{}, fmt.Errorf("%s: %w", mdPath, err)
 	}
 	if !existed {
-		return importNew(ctx, dbPath, doc, rep)
+		return importNew(ctx, dbPath, doc, rep, opts...)
 	}
-	s, err := OpenStore(dbPath)
+	s, err := OpenStore(dbPath, opts...)
 	if err != nil {
 		return nil, ImportReport{}, err
 	}
@@ -215,7 +215,7 @@ func (s *Store) backupIfNotEmpty(ctx context.Context) (string, error) {
 // fails for another reason (a filesystem without hard links), the temporary
 // store is renamed into place instead (see placeStore). The temporary files are
 // removed either way.
-func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportReport) (*Store, ImportReport, error) {
+func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportReport, opts ...Option) (*Store, ImportReport, error) {
 	f, err := os.CreateTemp(filepath.Dir(dbPath), ".todo-import-*.db")
 	if err != nil {
 		return nil, ImportReport{}, err
@@ -249,7 +249,7 @@ func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportRepo
 	if !placed {
 		rep = ImportReport{Skipped: true}
 	}
-	s, err = OpenStore(dbPath)
+	s, err = OpenStore(dbPath, opts...)
 	if err != nil {
 		return nil, ImportReport{}, err
 	}

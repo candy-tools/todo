@@ -32,6 +32,10 @@ var ErrNewerSchema = errors.New("database was created by a newer todo")
 // store must be reopened instead.
 var ErrFileReplaced = errors.New("database file was removed or replaced; reopen todo")
 
+// ErrBusy is returned by a write that gave up waiting for another process to
+// release the SQLite writer lock (SQLITE_BUSY after the store's busy timeout).
+var ErrBusy = errors.New("list busy (another todo is writing), try again")
+
 // newerSchemaError returns ErrNewerSchema wrapped with the schema version found
 // in the meta row.
 func newerSchemaError(version int) error {
@@ -73,10 +77,34 @@ type Store struct {
 	file os.FileInfo // the file at path when the store was opened
 }
 
+// DefaultBusyTimeout is how long a store's writes wait, by default, for another
+// process to release the SQLite writer lock before failing with ErrBusy.
+const DefaultBusyTimeout = 5 * time.Second
+
+// Option configures OpenStore.
+type Option func(*storeCfg)
+
+// storeCfg holds the settings Options change.
+type storeCfg struct {
+	busyTimeout time.Duration
+}
+
+// WithBusyTimeout sets how long the store's writes wait for another process to
+// release the writer lock before failing with ErrBusy (DefaultBusyTimeout when
+// not given). An interactive caller keeps it short, so a stuck writer elsewhere
+// does not freeze it.
+func WithBusyTimeout(d time.Duration) Option {
+	return func(c *storeCfg) { c.busyTimeout = d }
+}
+
 // OpenStore opens the SQLite store at path, creating the file and its schema
 // when they do not exist yet.
-func OpenStore(path string) (*Store, error) {
-	db, err := openDB(path)
+func OpenStore(path string, opts ...Option) (*Store, error) {
+	cfg := storeCfg{busyTimeout: DefaultBusyTimeout}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	db, err := openDB(path, cfg.busyTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -105,28 +133,25 @@ func (s *Store) CheckFile() error {
 	return err
 }
 
-// openBusyWait is how long openDB retries an open that SQLite reports busy, and
-// openBusyDelay the pause between attempts. The wait matches the busy timeout
-// the connections get.
-const (
-	openBusyWait  = 5 * time.Second
-	openBusyDelay = 10 * time.Millisecond
-)
+// openBusyDelay is the pause between openDB's attempts at an open that SQLite
+// reports busy.
+const openBusyDelay = 10 * time.Millisecond
 
 // sqliteBusy is SQLite's SQLITE_BUSY result code.
 const sqliteBusy = 5
 
-// openDB opens the SQLite file at path. Processes that open a new file at the
-// same time each switch it to WAL mode, and SQLite fails all but one of them
-// with SQLITE_BUSY at once, without waiting out the busy timeout, to avoid a
-// deadlock. Such an open is retried: once the file is in WAL mode, the switch
-// is a no-op.
-func openDB(path string) (*gorm.DB, error) {
-	deadline := time.Now().Add(openBusyWait)
+// openDB opens the SQLite file at path with connections that wait up to
+// busyTimeout for a lock another process holds. Processes that open a new file
+// at the same time each switch it to WAL mode, and SQLite fails all but one of
+// them with SQLITE_BUSY at once, without waiting out the busy timeout, to avoid
+// a deadlock. Such an open is retried for up to busyTimeout: once the file is in
+// WAL mode, the switch is a no-op.
+func openDB(path string, busyTimeout time.Duration) (*gorm.DB, error) {
+	deadline := time.Now().Add(busyTimeout)
 	for {
 		db, err := gormdb.Open(gormdb.Cfg{
 			Driver: gormdb.DriverSqlite,
-			Sqlite: gormdb.SqliteCfg{Path: path},
+			Sqlite: gormdb.SqliteCfg{Path: path, BusyTimeout: busyTimeout},
 			Logger: logger.Discard,
 		}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
 		if err == nil || !isBusy(err) || time.Now().After(deadline) {

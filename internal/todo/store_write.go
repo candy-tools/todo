@@ -59,6 +59,7 @@ type Changes struct {
 // newer todo has upgraded is refused with ErrNewerSchema before fn runs, and one
 // whose file was removed or replaced with ErrFileReplaced. Closure-tree's
 // missing-node errors become ErrNotFound, and its placement errors ErrConflict.
+// A write that times out waiting for another process's writer lock is ErrBusy.
 func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretree.Tree) error) error {
 	if err := s.CheckFile(); err != nil {
 		return err
@@ -71,6 +72,9 @@ func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretre
 	}
 	if errors.Is(err, closuretree.ErrInvalidAfterNode) || errors.Is(err, closuretree.ErrInvalidMove) {
 		return ErrConflict
+	}
+	if isBusy(err) {
+		return ErrBusy
 	}
 	return err
 }

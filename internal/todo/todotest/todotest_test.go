@@ -1,7 +1,10 @@
 package todotest_test
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
@@ -31,5 +34,25 @@ func TestSeedDumpRoundTrip(t *testing.T) {
 	md := "# A\n\n- [/] one\n  note\n  - [ ] sub\n\n## B\n\n- [>] two\n"
 	if got := todotest.Dump(t, todotest.Seed(t, md)); got != md {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, md)
+	}
+}
+
+// HoldWriteLock keeps every other writer out until the test that took it ends.
+func TestHoldWriteLock(t *testing.T) {
+	path := todotest.Seed(t, "# A\n")
+	s, err := todo.OpenStore(path, todo.WithBusyTimeout(50*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	t.Run("held", func(t *testing.T) {
+		todotest.HoldWriteLock(t, path)
+		if _, err := s.AddCategory(ctx, "B", 0, 0); !errors.Is(err, todo.ErrBusy) {
+			t.Errorf("write while held: err = %v, want ErrBusy", err)
+		}
+	})
+	if _, err := s.AddCategory(ctx, "B", 0, 0); err != nil {
+		t.Errorf("write after the holding test ended: %v", err)
 	}
 }

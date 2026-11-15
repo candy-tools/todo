@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/candy-tools/todo/app/metainfo"
@@ -131,9 +132,16 @@ type model struct {
 	pollErr error
 }
 
+// BusyTimeout is how long a TUI write waits for another process to release the
+// store's writer lock before it fails with todo.ErrBusy. Writes run on the UI
+// thread, so the wait is kept well below the CLI's: the caller opens the store
+// it passes to Run with todo.WithBusyTimeout(BusyTimeout).
+const BusyTimeout = 750 * time.Millisecond
+
 // Run loads the list from st and starts the interactive TUI. notice (e.g. the
 // automatic TODO.md import summary) is shown in the footer at start; it may be
-// empty. The caller owns st and closes it after Run returns.
+// empty. The caller owns st, opened with BusyTimeout, and closes it after Run
+// returns.
 func Run(st *todo.Store, notice string) error {
 	m, err := newModel(st, notice)
 	if err != nil {

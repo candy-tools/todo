@@ -8,13 +8,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// newTestModel seeds a store from the markdown src, opens it into a model (closed
-// when the test ends), and sizes the view. It returns the model and the store
-// path so tests can assert on what was persisted.
+// newTestModel seeds a store from the markdown src, opens it with the TUI's
+// BusyTimeout into a model (closed when the test ends), and sizes the view. It
+// returns the model and the store path so tests can assert on what was
+// persisted.
 func newTestModel(t *testing.T, src string) (model, string) {
 	t.Helper()
 	path := todotest.Seed(t, src)
-	st, err := todo.OpenStore(path)
+	st, err := todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
