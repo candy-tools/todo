@@ -320,8 +320,12 @@ func itemRows(tx *gorm.DB, ids ...uint) *gorm.DB {
 // Edit sets the fields of item id that c names: its title and, for a task, its
 // description and plan; a category ignores c.Description and c.Plan. Fields c
 // leaves nil, and kind, status and placement, are kept. A title CleanTitle
-// refuses fails the edit with ErrInvalidTitle.
+// refuses fails the edit with ErrInvalidTitle. A c naming no field is a no-op:
+// nothing is written and the revision is kept.
 func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
+	if c == (Changes{}) {
+		return nil
+	}
 	var title string
 	if c.Title != nil {
 		t, err := CleanTitle(*c.Title)

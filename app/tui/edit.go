@@ -146,20 +146,23 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // new task/subtask/category at the right spot. The insert is first made in
 // memory, which works out its parent (and a category's placement), and then
 // stored there; the store appends a task after its parent's last task. An empty title
-// is ignored (the dialog stays open). Any structural or content change clears
-// the undo snapshots — the accidental-complete window is meant to be immediate.
+// is ignored (the dialog stays open), and an edit that changed nothing closes it
+// without a write. Any structural or content change clears the undo snapshots —
+// the accidental-complete window is meant to be immediate.
 func (m model) submitForm() (tea.Model, tea.Cmd) {
 	title, desc, plan := m.form.values()
 	if title == "" {
 		return m, nil
 	}
-	m.snapshots = map[uint]todo.DoneStates{}
 	m.mode = modeMain
-
 	if m.target == targetEdit {
 		// Only the fields the user changed are written: the reload is deferred
 		// while the form is open, so another field may have changed in the store.
 		ch := m.form.changes()
+		if ch == (todo.Changes{}) {
+			return m, nil
+		}
+		m.snapshots = map[uint]todo.DoneStates{}
 		applyChanges(m.editing, ch)
 		id := m.editing.ID
 		m.commit(id, func(ctx context.Context) error {
@@ -168,6 +171,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	m.snapshots = map[uint]todo.DoneStates{}
 	sel := m.focused().selected()
 	if m.target != targetAddCategory {
 		sel = m.taskAnchor()

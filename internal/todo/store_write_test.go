@@ -451,6 +451,25 @@ func TestEditKeepsFieldsItDoesNotName(t *testing.T) {
 	}
 }
 
+// An Edit naming no field is a no-op: it opens no write, so the revision
+// stays put and pollers see no change.
+func TestEmptyEditKeepsRevision(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Open, c, 0))
+	before, err := s.Revision(ctx)
+	mustOK(t, err)
+
+	mustOK(t, s.Edit(ctx, id, Changes{}))
+
+	after, err := s.Revision(ctx)
+	mustOK(t, err)
+	if after != before {
+		t.Fatalf("an empty Edit moved the revision from %d to %d", before, after)
+	}
+}
+
 func TestEditCategoryIgnoresPlan(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

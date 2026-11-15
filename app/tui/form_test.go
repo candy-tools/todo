@@ -147,3 +147,34 @@ func TestEditTitleKeepsLongDescriptionAndPlan(t *testing.T) {
 		t.Errorf("a title edit changed the plan (%d chars, want %d)", len(it.Plan), len(plan))
 	}
 }
+
+// Saving the edit form unchanged writes nothing: the store's revision stays
+// put and the undo snapshots survive.
+func TestEditSavedUnchangedWritesNothing(t *testing.T) {
+	m, _ := newTestModel(t, "# B\n- [ ] a\n  desc\n")
+	a := find(m.doc, "a")
+	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
+	before, err := m.store.Revision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = selectTitle(t, m, "a")
+	m = press(m, "e")
+	if m.mode != modeForm {
+		t.Fatalf("e should open the edit form, status %q", m.status)
+	}
+	m = press(m, "enter")
+	if m.mode != modeMain {
+		t.Fatalf("enter should close the form, mode %v", m.mode)
+	}
+	after, err := m.store.Revision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Errorf("an unchanged save moved the revision from %d to %d", before, after)
+	}
+	if len(m.snapshots) != 1 {
+		t.Errorf("an unchanged save must keep the undo snapshots, got %d", len(m.snapshots))
+	}
+}
