@@ -162,6 +162,49 @@ func TestWriteRefusesReplacedFile(t *testing.T) {
 	}
 }
 
+// TestCloseAfterReplaceKeepsBothFiles writes to a store, moves its file away
+// and renames another store in at its path, then closes the first. Its write
+// must be in the file moved away, and the file now at the path must open with
+// its own content, not the closed store's WAL frames left next to it.
+func TestCloseAfterReplaceKeepsBothFiles(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if _, err := s.AppendCategory(ctx, "A", 0); err != nil {
+		t.Fatal(err)
+	}
+	other := newStore(t)
+	if _, err := other.AppendCategory(ctx, "B", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := s.Path()
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(other.Path(), path); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]string{path: "B", path + ".old": "A"} {
+		r, err := OpenStore(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc, _, err := r.Load(ctx)
+		_ = r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(doc.Roots) != 1 || doc.Roots[0].Title != want {
+			t.Errorf("%s holds %d roots, want only %s", filepath.Base(p), len(doc.Roots), want)
+		}
+	}
+}
+
 // TestOpenStoreFileReplacedWhileOpening renames another store, holding a
 // category B, over the path after OpenStore's final open and before it records
 // the file's identity. The store must not take the new file's identity for the

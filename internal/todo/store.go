@@ -242,8 +242,18 @@ func StoreExists(path string) (bool, error) {
 	return true, nil
 }
 
-// Close releases the database.
-func (s *Store) Close() error { return gormdb.Close(s.db) }
+// Close releases the database. When the file was removed or replaced since
+// the store opened it, SQLite skips the checkpoint it runs on close, so the
+// latest writes would stay in the -wal file at the path: lost to the file the
+// store holds, and read by the next open of the file now at the path as its
+// own pages. Close first checkpoints them into the file the store holds and
+// empties the WAL.
+func (s *Store) Close() error {
+	if errors.Is(s.CheckFile(), ErrFileReplaced) {
+		_ = s.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error
+	}
+	return gormdb.Close(s.db)
+}
 
 // Path returns the path of the store file.
 func (s *Store) Path() string { return s.path }
