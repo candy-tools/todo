@@ -201,7 +201,7 @@ func parseMarkdown(src string) (*Document, []string) {
 		}
 		if m := cm; m != nil {
 			flushDesc()
-			indent := len(m[1])
+			indent := leadingWhitespace(m[1])
 			task := &Item{
 				Kind:   Task,
 				Title:  title(lineNo, m[3]),
@@ -263,13 +263,39 @@ func description(lines []string) string {
 	return dedent(lines)
 }
 
-// leadingWhitespace counts the leading space/tab characters of s (each as one).
+// tabStop is the column multiple a tab advances to (the CommonMark tab stop).
+const tabStop = 4
+
+// leadingWhitespace measures the indentation of s in columns: a space is one,
+// a tab advances to the next multiple of tabStop.
 func leadingWhitespace(s string) int {
-	return len(s) - len(strings.TrimLeft(s, " \t"))
+	col := 0
+	for _, c := range s {
+		switch c {
+		case ' ':
+			col++
+		case '\t':
+			col += tabStop - col%tabStop
+		default:
+			return col
+		}
+	}
+	return col
 }
 
-// dedent strips the smallest common leading-whitespace prefix from the buffered
-// description lines (blank lines ignored for the measurement, emitted empty)
+// stripIndent removes n columns of indentation from s, which must be indented
+// at least that far. Indentation holding a tab is rewritten as spaces, so what
+// remains keeps its width wherever a tab straddled column n.
+func stripIndent(s string, n int) string {
+	ws := len(s) - len(strings.TrimLeft(s, " \t"))
+	if !strings.Contains(s[:ws], "\t") {
+		return s[n:]
+	}
+	return strings.Repeat(" ", leadingWhitespace(s)-n) + s[ws:]
+}
+
+// dedent strips the smallest common indentation (in columns, see
+// leadingWhitespace) from the buffered description lines (blank lines ignored for the measurement, emitted empty)
 // and joins them with newlines.
 func dedent(lines []string) string {
 	min := -1
@@ -289,7 +315,7 @@ func dedent(lines []string) string {
 		if strings.TrimSpace(l) == "" {
 			out[i] = ""
 		} else {
-			out[i] = l[min:]
+			out[i] = stripIndent(l, min)
 		}
 	}
 	return strings.Join(out, "\n")

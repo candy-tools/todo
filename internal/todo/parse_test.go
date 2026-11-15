@@ -252,3 +252,18 @@ func TestParseFencedDescriptionRoundTrips(t *testing.T) {
 		t.Errorf("description = %q", desc)
 	}
 }
+
+func TestParseTabIndentIsFourColumns(t *testing.T) {
+	// A tab advances to the next multiple of 4 columns (the CommonMark tab
+	// stop): a two-space task after a tab-indented one is its sibling, not its
+	// child, and tab- and space-indented description lines dedent together.
+	src := "# Work\n\n\t- [ ] a\n  - [ ] b\n- [ ] c\n\tfirst\n    second\n  \tthird\n"
+	d, warnings := todo.ParseMarkdown(src)
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %q", warnings)
+	}
+	want := "H1 Work\n  [ ] a\n  [ ] b\n  [ ] c desc=\"first\\nsecond\\nthird\"\n"
+	if got := treeString(d); got != want {
+		t.Errorf("tree mismatch:\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
