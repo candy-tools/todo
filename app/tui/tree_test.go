@@ -184,3 +184,27 @@ func TestTreeDescriptionMarker(t *testing.T) {
 		t.Errorf("a task without a description must not carry the marker, got %q", got)
 	}
 }
+
+// TestTaskRowTrailer pins the exact text after a task's title (state, subtask
+// progress, the no-plan warning and the ≡ marker) on selected and unselected
+// rows, and its absence on a subtask row.
+func TestTaskRowTrailer(t *testing.T) {
+	d := parseDoc(t, "# Work\n\n- [ ] a\n  notes here\n  - [x] s1\n  - [ ] s2\n")
+	find(d, "a").Status = todo.Ready
+	tr := newTree(d, newViewState())
+	cases := []struct {
+		row      treeRow
+		selected bool
+		want     string
+	}{
+		{treeRow{item: find(d, "a")}, false, "    ◉ a ready (1/2) ⚠ no plan ≡"},
+		{treeRow{item: find(d, "a")}, true, "❯   ◉ a ready (1/2) ⚠ no plan ≡"},
+		{treeRow{item: find(d, "s1"), depth: 1}, false, "      ● s1"},
+		{treeRow{item: find(d, "s2"), depth: 1}, true, "❯     ○ s2"},
+	}
+	for _, c := range cases {
+		if got := tr.rowString(c.row, c.selected); got != c.want {
+			t.Errorf("rowString(%q, selected %v) = %q, want %q", c.row.item.Title, c.selected, got, c.want)
+		}
+	}
+}
