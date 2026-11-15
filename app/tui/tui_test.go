@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -634,9 +633,10 @@ func TestAddTaskAfterExternallyMovedSibling(t *testing.T) {
 	}
 }
 
-// A write whose placement another process made stale shows the store's
-// conflict in the footer.
-func TestStalePlacementShowsConflict(t *testing.T) {
+// A category added after another process deleted the last top-level category
+// still lands last: the store works the placement out when it writes, not from
+// the view's stale copy of the tree.
+func TestAddCategoryAfterExternallyDeletedSibling(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n# Home\n")
 	other := openSecond(t, path)
 	doc, _, err := other.Load(context.Background())
@@ -652,7 +652,13 @@ func TestStalePlacementShowsConflict(t *testing.T) {
 	m = press(m, "c")
 	m = typeText(m, "Later")
 	m = press(m, "enter")
-	if !errors.Is(m.err, todo.ErrConflict) || !strings.Contains(m.footer(200), "save failed: "+todo.ErrConflict.Error()) {
-		t.Errorf("err = %v, footer = %q; want the store's conflict", m.err, m.footer(200))
+	if m.err != nil {
+		t.Fatalf("add after an external delete failed: %v (footer %q)", m.err, m.footer(200))
+	}
+	if got, want := todotest.Dump(t, path), "# Work\n\n# Later\n"; got != want {
+		t.Errorf("store:\n%s\nwant:\n%s", got, want)
+	}
+	if got := m.tree.selected(); got == nil || got.Title != "Later" || got.Kind != todo.Category {
+		t.Errorf("selected = %v, want the new category Later", got)
 	}
 }

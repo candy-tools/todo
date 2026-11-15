@@ -210,14 +210,15 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		added.Status = m.view.newTaskState()
 	}
 
-	// A task goes after its parent's last task as the store finds it when it
-	// writes, so a sibling another process moved or deleted does not matter.
-	parentID, afterID := m.doc.Placement(added)
+	// A task goes after its parent's last task, a category after its parent's
+	// last child, as the store finds them when it writes, so a sibling another
+	// process moved or deleted does not matter.
+	parentID, _ := m.doc.Placement(added)
 	var newID uint
 	m.commit(0, func(ctx context.Context) error {
 		var err error
 		if added.Kind == todo.Category {
-			newID, err = m.store.AddCategory(ctx, title, parentID, afterID)
+			newID, err = m.store.AppendCategory(ctx, title, parentID)
 		} else {
 			newID, err = m.store.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, added.Status, parentID)
 		}

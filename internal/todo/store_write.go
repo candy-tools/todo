@@ -202,6 +202,42 @@ func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID
 	return s.add(ctx, &dbItem{Kind: int(Category), Title: title}, parentID, afterID)
 }
 
+// AppendCategory adds a category like AddCategory, placed after the last child
+// of parentID (0 for the root) — after its tasks and subcategories — as the
+// tree is at write time: a sibling another process moved or deleted since the
+// caller read the tree cannot make the add fail.
+func (s *Store) AppendCategory(ctx context.Context, title string, parentID uint) (uint, error) {
+	title, err := CleanTitle(title)
+	if err != nil {
+		return 0, err
+	}
+	row := &dbItem{Kind: int(Category), Title: title}
+	err = s.write(ctx, func(_ *gorm.DB, tree *closuretree.Tree) error {
+		afterID, err := lastChild(ctx, tree, parentID)
+		if err != nil {
+			return err
+		}
+		return addRow(ctx, tree, row, parentID, afterID)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return row.NodeId, nil
+}
+
+// lastChild returns the ID of parentID's last child (0 when it has none),
+// reading the tree through tree (bound to the write's transaction).
+func lastChild(ctx context.Context, tree *closuretree.Tree, parentID uint) (uint, error) {
+	var children []dbItem
+	if err := tree.Descendants(ctx, parentID, 1, storeScope, &children); err != nil {
+		return 0, err
+	}
+	if len(children) == 0 {
+		return 0, nil
+	}
+	return children[len(children)-1].NodeId, nil
+}
+
 // AddTask adds a task with fields f and status st under parentID (0 for a
 // root), after the sibling afterID (0 places it first), and returns its ID.
 // At the root it fails with ErrWrongParent; under a subtask it fails with ErrTooDeep; under a task (making a subtask)

@@ -87,12 +87,15 @@ func addCategoryCmd() *cobra.Command {
 				} else {
 					doc.AppendRoot(cat)
 				}
-				parentID, afterID := doc.Placement(cat)
+				// The store places the category last under its parent as it
+				// finds the tree when it writes, so a concurrent change cannot
+				// make the add fail.
+				parentID, _ := doc.Placement(cat)
 				s, err := open()
 				if err != nil {
 					return err
 				}
-				if _, err := s.AddCategory(ctx, title, parentID, afterID); err != nil {
+				if _, err := s.AppendCategory(ctx, title, parentID); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add-category: %s %s\n", strings.Repeat("#", depthOf(cat)+1), title)

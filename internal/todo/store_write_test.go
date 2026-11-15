@@ -307,6 +307,7 @@ func TestEveryWriteBumpsRevision(t *testing.T) {
 	}{
 		{"AddCategory", func() (err error) { c, err = s.AddCategory(ctx, "C", 0, 0); return err }},
 		{"AddTask", func() (err error) { task, err = s.AddTask(ctx, Fields{Title: "t"}, Open, c, 0); return err }},
+		{"AppendCategory", func() error { _, err := s.AppendCategory(ctx, "D", c); return err }},
 		{"Edit", func() error { return s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("d")}) }},
 		{"SetStatuses", func() error { return s.SetStatuses(ctx, map[uint]Status{task: Done}) }},
 		{"CascadeStatus", func() error { return s.CascadeStatus(ctx, task, Done) }},
@@ -702,6 +703,55 @@ func TestAppendTaskRules(t *testing.T) {
 	})
 	rejects(t, s, ErrInvalidTitle, func() error {
 		_, err := s.AppendTask(ctx, Fields{Title: " "}, Open, tt.C)
+		return err
+	})
+}
+
+// AppendCategory places the category after the last child of its parent — after
+// its tasks and subcategories — as the tree is at write time: a last sibling
+// another process deleted since the caller read the tree does not matter.
+func TestAppendCategoryPlacesLast(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addSample(t, s)
+	gone := mustID(t)(s.AddCategory(ctx, "Gone", 0, ids.A))
+	mustOK(t, s.Delete(ctx, gone)) // another process deletes the last root
+
+	x := mustID(t)(s.AppendCategory(ctx, " X ", 0))
+	c := mustID(t)(s.AppendCategory(ctx, "C", ids.A))
+	only := mustID(t)(s.AppendCategory(ctx, "Only", x))
+	doc := load(t, s)
+	if got, want := titles(doc.Roots), []string{"A", "X"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("roots = %v, want %v", got, want)
+	}
+	if got, want := titles(item(t, doc, ids.A).Children), []string{"t1", "t2", "B", "C"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("A's children = %v, want %v", got, want)
+	}
+	if got, want := titles(item(t, doc, x).Children), []string{"Only"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("X's children = %v, want %v", got, want)
+	}
+	for _, id := range []uint{x, c, only} {
+		if got := item(t, doc, id); got.Kind != Category {
+			t.Fatalf("%q kind = %v, want a category", got.Title, got.Kind)
+		}
+	}
+}
+
+// AppendCategory keeps the store's tree rules.
+func TestAppendCategoryRules(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	tt := addTaskTree(t, s, Open)
+	rejects(t, s, ErrWrongParent, func() error {
+		_, err := s.AppendCategory(ctx, "x", tt.task)
+		return err
+	})
+	rejects(t, s, ErrNotFound, func() error {
+		_, err := s.AppendCategory(ctx, "x", 999)
+		return err
+	})
+	rejects(t, s, ErrInvalidTitle, func() error {
+		_, err := s.AppendCategory(ctx, " ", tt.C)
 		return err
 	})
 }
