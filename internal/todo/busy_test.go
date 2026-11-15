@@ -197,3 +197,37 @@ func TestOpenStoreWhileLockedIsBusy(t *testing.T) {
 		})
 	}
 }
+
+// A store already on the current schema opens and loads while another process
+// holds the writer lock: opening writes nothing, so reading needs no lock.
+func TestOpenStoreWhileLockedReadsCurrentStore(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts []todo.Option
+	}{
+		{"default timeout", nil},
+		{"short timeout", []todo.Option{todo.WithBusyTimeout(100 * time.Millisecond)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := todotest.Seed(t, "# Work\n- [ ] a\n")
+			todotest.HoldWriteLock(t, path)
+
+			start := time.Now()
+			s, err := todo.OpenStore(path, tc.opts...)
+			if err != nil {
+				t.Fatalf("OpenStore: %v", err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			doc, _, err := s.Load(context.Background())
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if elapsed := time.Since(start); elapsed > 2*time.Second {
+				t.Errorf("open and load took %v, want no wait for the lock", elapsed)
+			}
+			if len(doc.Roots) != 1 || len(doc.Roots[0].Children) != 1 || doc.Roots[0].Children[0].Title != "a" {
+				t.Errorf("loaded %s, want Work holding a", todotest.Render(doc))
+			}
+		})
+	}
+}

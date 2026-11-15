@@ -209,6 +209,20 @@ func TestOpenBusyIsConflict(t *testing.T) {
 	}
 }
 
+// Reading commands work while another process holds the writer lock on a store
+// already on the current schema: opening it writes nothing.
+func TestListWhileAnotherProcessWrites(t *testing.T) {
+	db := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	todotest.HoldWriteLock(t, db)
+	out, err := runCmd(t, "list", "-f", db)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !contains(out, "a") || !contains(out, "Work") {
+		t.Errorf("list output misses the items:\n%s", out)
+	}
+}
+
 // Each write command opens the database once and writes through the handle it
 // loaded from, rather than reopening it for the write.
 func TestWriteCommandsOpenTheStoreOnce(t *testing.T) {

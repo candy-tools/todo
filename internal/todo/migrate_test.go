@@ -451,3 +451,31 @@ func TestNewStoreIsV2(t *testing.T) {
 		t.Errorf("new store has a backup (stat err=%v), want none", err)
 	}
 }
+
+// A store on schema 2 whose tables lag the models (here without the plan
+// column) is not taken as current: the read-only check writes nothing, and the
+// open adds the column in its write transaction.
+func TestMigrateExtendsLaggingTablesOfCurrentVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".todo.db")
+	s := openStore(t, path)
+	if err := s.db.Migrator().DropColumn(&dbItem{}, "plan"); err != nil {
+		t.Fatalf("drop plan: %v", err)
+	}
+	if s.schemaCurrent(context.Background()) {
+		t.Error("schemaCurrent = true for a store without the plan column, want false")
+	}
+	if s.db.Migrator().HasColumn(&dbItem{}, "plan") {
+		t.Fatal("schemaCurrent added the plan column, want it to write nothing")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s = openStore(t, path)
+	if !s.db.Migrator().HasColumn(&dbItem{}, "plan") {
+		t.Error("opening a store without the plan column did not add it")
+	}
+	if !s.schemaCurrent(context.Background()) {
+		t.Error("schemaCurrent = false after the open migrated the store, want true")
+	}
+}

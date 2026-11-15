@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	closuretree "github.com/go-bumbu/closure-tree"
+	"github.com/go-bumbu/db/gormdb"
 	"gorm.io/gorm"
 )
 
@@ -39,13 +40,15 @@ func (s *Store) migrate() error {
 	return err
 }
 
-// migrateOnce is one migration attempt. The backup runs first, outside any
-// transaction, because VACUUM INTO cannot run inside one. Everything after it
-// runs in a single transaction, which takes the write lock as it begins: when
-// several processes open the file at once, they migrate one after the other,
-// and each decides from the version as the one before it left it. A new store
-// is created once and a v1 store upgraded once; a failed upgrade rolls the
-// schema changes back with the data.
+// migrateOnce is one migration attempt. A store that needs no migration is
+// left alone without taking the write lock (see schemaCurrent), so opening it
+// works while another process writes. Otherwise the backup runs first, outside
+// any transaction, because VACUUM INTO cannot run inside one. Everything after
+// it runs in a single transaction, which takes the write lock as it begins:
+// when several processes open the file at once, they migrate one after the
+// other, and each decides from the version as the one before it left it. A
+// new store is created once and a v1 store upgraded once; a failed upgrade
+// rolls the schema changes back with the data.
 func (s *Store) migrateOnce() error {
 	ctx := context.Background()
 	version, err := storedSchemaVersion(s.db)
@@ -54,6 +57,9 @@ func (s *Store) migrateOnce() error {
 	}
 	if version > schemaVersion {
 		return newerSchemaError(version)
+	}
+	if version == schemaVersion && s.schemaCurrent(ctx) {
+		return nil
 	}
 	backedUp := false
 	if version == 1 {
@@ -73,14 +79,7 @@ func (s *Store) migrateOnce() error {
 		if version == 1 && !backedUp {
 			return errNotBackedUp
 		}
-		tree, err := closuretree.New(tx, dbItem{})
-		if err != nil {
-			return err
-		}
-		if err := tree.Migrate(); err != nil {
-			return err
-		}
-		if err := tx.AutoMigrate(&dbMeta{}); err != nil {
+		if err := migrateTables(tx); err != nil {
 			return err
 		}
 		switch version {
@@ -95,6 +94,42 @@ func (s *Store) migrateOnce() error {
 		}
 		return nil
 	})
+}
+
+// migrateTables creates the store's tables through db, which may be a
+// transaction handle, or extends them to match the models. On tables that
+// already match, it only reads.
+func migrateTables(db *gorm.DB) error {
+	tree, err := closuretree.New(db, dbItem{})
+	if err != nil {
+		return err
+	}
+	if err := tree.Migrate(); err != nil {
+		return err
+	}
+	return db.AutoMigrate(&dbMeta{})
+}
+
+// schemaCurrent reports whether the store needs no migration: its meta row
+// records schemaVersion and its tables already match the models. It checks in
+// one transaction on the read-only pool, which takes no write lock, so it
+// works while another process writes. A table change migrateTables would make
+// fails there, as the connection cannot write, and any failure reports false:
+// migrateOnce's write transaction then does the work, or reports the error.
+func (s *Store) schemaCurrent(ctx context.Context) bool {
+	current := false
+	err := s.db.WithContext(ctx).Clauses(gormdb.Read).Transaction(func(tx *gorm.DB) error {
+		version, err := storedSchemaVersion(tx)
+		if err != nil || version != schemaVersion {
+			return err
+		}
+		if err := migrateTables(tx); err != nil {
+			return err
+		}
+		current = true
+		return nil
+	})
+	return err == nil && current
 }
 
 // storedSchemaVersion reads the schema version from the meta row through db,
