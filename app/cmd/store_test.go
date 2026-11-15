@@ -162,6 +162,18 @@ func TestStoreConflictIsConflict(t *testing.T) {
 	}
 }
 
+// A store invalid move (an item placed into its own subtree) surfaces as the
+// CLI's usage error with the store's message, not a conflict: re-running the
+// command would fail the same way.
+func TestStoreInvalidMoveIsUsage(t *testing.T) {
+	t.Chdir(t.TempDir())
+	c := newRootCommand()
+	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrInvalidMove })
+	if codeOf(t, err) != exitUsage || err.Error() != todo.ErrInvalidMove.Error() {
+		t.Errorf("withStore with ErrInvalidMove = %v, want a usage error with its message", err)
+	}
+}
+
 // A busy store (another process held the writer lock past the busy timeout)
 // surfaces as the CLI's conflict error with the store's message: re-running
 // the command is the fix for both.

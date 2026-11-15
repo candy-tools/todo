@@ -674,12 +674,16 @@ func TestAddAfterMovedSiblingIsConflict(t *testing.T) {
 	rejects(t, s, ErrConflict, func() error { return s.Move(ctx, ids.t1, ids.A, ids.t2) })
 }
 
-// Moving a category under its own descendant is a conflict.
-func TestMoveUnderOwnDescendantIsConflict(t *testing.T) {
+// Moving a category under its own descendant is an invalid move, not a
+// conflict: reloading and retrying would fail the same way.
+func TestMoveUnderOwnDescendantIsInvalidMove(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	ids := addSample(t, s)
-	rejects(t, s, ErrConflict, func() error { return s.Move(ctx, ids.A, ids.B, 0) })
+	rejects(t, s, ErrInvalidMove, func() error { return s.Move(ctx, ids.A, ids.B, 0) })
+	if err := s.Move(ctx, ids.A, ids.B, 0); errors.Is(err, ErrConflict) {
+		t.Fatalf("Move under own descendant = %v, want no ErrConflict", err)
+	}
 }
 
 // AppendTask places the task after the last task child of its parent, before

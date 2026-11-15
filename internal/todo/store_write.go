@@ -34,9 +34,15 @@ var ErrNotTask = errors.New("only a task has a status")
 
 // ErrConflict is returned by a write whose placement no longer fits the tree
 // it finds: the sibling it names to place an item after is no longer under that
-// parent, or a move would put an item under itself. It usually means another
-// process changed the list since the caller read it.
+// parent. It usually means another process changed the list since the caller
+// read it.
 var ErrConflict = errors.New("the list changed since it was read; reload and try again")
+
+// ErrInvalidMove is returned by a move that would put an item under itself or
+// one of its descendants. It is usually a bad request, but can also follow a
+// stale read (another process made the target a descendant of the item since
+// the caller read the list); either way, retrying the same move fails again.
+var ErrInvalidMove = errors.New("cannot move an item into its own subtree")
 
 // Fields are the editable text fields of an item. A category uses Title only.
 type Fields struct {
@@ -61,7 +67,8 @@ type Changes struct {
 // s.db: the SQLite writer is one connection, already held by tx. A store a
 // newer todo has upgraded is refused with ErrNewerSchema before fn runs, and one
 // whose file was removed or replaced with ErrFileReplaced. Closure-tree's
-// missing-node errors become ErrNotFound, and its placement errors ErrConflict.
+// missing-node errors become ErrNotFound, its stale-sibling error ErrConflict
+// and its move-into-own-subtree error ErrInvalidMove.
 // A write that times out waiting for another process's writer lock is ErrBusy.
 func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretree.Tree) error) error {
 	if err := s.CheckFile(); err != nil {
@@ -73,8 +80,11 @@ func (s *Store) write(ctx context.Context, fn func(tx *gorm.DB, tree *closuretre
 	if errors.Is(err, closuretree.ErrNodeNotFound) || errors.Is(err, closuretree.ErrParentNotFound) {
 		return ErrNotFound
 	}
-	if errors.Is(err, closuretree.ErrInvalidAfterNode) || errors.Is(err, closuretree.ErrInvalidMove) {
+	if errors.Is(err, closuretree.ErrInvalidAfterNode) {
 		return ErrConflict
+	}
+	if errors.Is(err, closuretree.ErrInvalidMove) {
+		return ErrInvalidMove
 	}
 	if isBusy(err) {
 		return ErrBusy
