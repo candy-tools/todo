@@ -320,10 +320,6 @@ func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
 // fails the whole write with ErrSubtaskStatus, and naming a category with
 // ErrNotTask.
 func (s *Store) SetStatuses(ctx context.Context, states map[uint]Status) error {
-	byStatus := map[Status][]uint{}
-	for id, st := range states {
-		byStatus[st] = append(byStatus[st], id)
-	}
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
 		if err := noCategories(tx, states); err != nil {
 			return err
@@ -347,13 +343,24 @@ func (s *Store) SetStatuses(ctx context.Context, states map[uint]Status) error {
 				return ErrSubtaskStatus
 			}
 		}
-		for st, ids := range byStatus {
-			if err := itemRows(tx, ids...).Update("status", int(st)).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeStatuses(tx, states)
 	})
+}
+
+// writeStatuses stores every status in states through tx, one update per status
+// value, without checking the IDs: callers validate first. An ID the store does
+// not hold is skipped.
+func writeStatuses(tx *gorm.DB, states map[uint]Status) error {
+	byStatus := map[Status][]uint{}
+	for id, st := range states {
+		byStatus[st] = append(byStatus[st], id)
+	}
+	for st, ids := range byStatus {
+		if err := itemRows(tx, ids...).Update("status", int(st)).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // noCategories reports ErrNotTask when any ID in states is a category.

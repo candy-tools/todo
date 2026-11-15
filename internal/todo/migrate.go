@@ -185,20 +185,15 @@ func upgradeToV2(ctx context.Context, tx *gorm.DB) error {
 	})
 }
 
-// writeSubtaskStatuses stores the status every subtask of doc holds in memory,
-// one update per status value. FlattenSubtasks normalizes subtasks it did not
-// move as well, so all of them are written, not only the moved ones.
+// writeSubtaskStatuses stores the status every subtask of doc holds in memory.
+// FlattenSubtasks normalizes subtasks it did not move as well, so all of them
+// are written, not only the moved ones.
 func writeSubtaskStatuses(tx *gorm.DB, doc *Document) error {
-	byStatus := map[Status][]uint{}
+	states := map[uint]Status{}
 	for _, it := range doc.Enumerate() {
 		if it.IsSubtask() {
-			byStatus[it.Status] = append(byStatus[it.Status], it.ID)
+			states[it.ID] = it.Status
 		}
 	}
-	for st, ids := range byStatus {
-		if err := itemRows(tx, ids...).Update("status", int(st)).Error; err != nil {
-			return err
-		}
-	}
-	return nil
+	return writeStatuses(tx, states)
 }
