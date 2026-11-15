@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // viewKey identifies one view of the list for the per-view fold and selection
@@ -265,4 +266,25 @@ func (m *model) adoptAll(doc *todo.Document, focusID uint, onPH bool) {
 	}
 	m.tree.scope = m.side.selectedID()
 	m.tree.adopt(doc, mainID, mainPH)
+}
+
+// updateStateFilter handles keys in the "f" dialog: the arrows move, space or x
+// ticks a state, enter applies the ticked states to the tab (none ticked turns
+// the state filter off for it), esc or q cancels.
+func (m model) updateStateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "w":
+		m.pick.move(-1)
+	case "down", "s":
+		m.pick.move(1)
+	case " ", "x":
+		m.pick.toggle()
+	case "esc", "q":
+		m.mode = modeMain
+	case "enter":
+		m.mode = modeMain
+		m.clearStates()
+		m.setStates(m.pick.checked)
+	}
+	return m, nil
 }

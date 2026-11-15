@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -134,4 +135,25 @@ func helpModal(termWidth, termHeight, offset int) string {
 
 	width := min(lipgloss.Width(body)+2+helpPad, termWidth-4)
 	return titledBox("Shortcuts", body, width, lipgloss.Height(body)+2, true)
+}
+
+// updateHelp handles keys while the shortcuts dialog is open: ?, esc, q or
+// enter close it (q does not quit from here), the arrows and PgUp/PgDn scroll it
+// when it is taller than the terminal; everything else is ignored.
+func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	maxOff := helpMaxOffset(m.width, m.height)
+	switch msg.String() {
+	case "?", "esc", "q", "enter":
+		m.mode = modeMain
+	case "up", "w":
+		m.helpOffset--
+	case "down", "s":
+		m.helpOffset++
+	case "pgup":
+		m.helpOffset -= 10
+	case "pgdown":
+		m.helpOffset += 10
+	}
+	m.helpOffset = max(min(m.helpOffset, maxOff), 0)
+	return m, nil
 }

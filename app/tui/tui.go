@@ -275,27 +275,6 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateHelp handles keys while the shortcuts dialog is open: ?, esc, q or
-// enter close it (q does not quit from here), the arrows and PgUp/PgDn scroll it
-// when it is taller than the terminal; everything else is ignored.
-func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	maxOff := helpMaxOffset(m.width, m.height)
-	switch msg.String() {
-	case "?", "esc", "q", "enter":
-		m.mode = modeMain
-	case "up", "w":
-		m.helpOffset--
-	case "down", "s":
-		m.helpOffset++
-	case "pgup":
-		m.helpOffset -= 10
-	case "pgdown":
-		m.helpOffset += 10
-	}
-	m.helpOffset = max(min(m.helpOffset, maxOff), 0)
-	return m, nil
-}
-
 // msgCategoriesInBacklog is the footer hint for a category key pressed outside
 // the Backlog tab: a category made or kept elsewhere would show only while it
 // holds that tab's tasks, so categories are managed in Backlog alone.
@@ -320,27 +299,6 @@ func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, tea.Quit
-}
-
-// updateStateFilter handles keys in the "f" dialog: the arrows move, space or x
-// ticks a state, enter applies the ticked states to the tab (none ticked turns
-// the state filter off for it), esc or q cancels.
-func (m model) updateStateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "up", "w":
-		m.pick.move(-1)
-	case "down", "s":
-		m.pick.move(1)
-	case " ", "x":
-		m.pick.toggle()
-	case "esc", "q":
-		m.mode = modeMain
-	case "enter":
-		m.mode = modeMain
-		m.clearStates()
-		m.setStates(m.pick.checked)
-	}
-	return m, nil
 }
 
 // updateMainItemKey handles the item-scoped main-view keys (add/edit/delete/
