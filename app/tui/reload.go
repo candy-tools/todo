@@ -66,11 +66,18 @@ func (m model) reloadCheckCmd() tea.Cmd {
 	}
 }
 
+// listReader is the read side of the store the poll uses (todo.Store).
+type listReader interface {
+	Changed(ctx context.Context, since todo.Fingerprint) (bool, todo.Fingerprint, error)
+	Load(ctx context.Context) (*todo.Document, todo.Fingerprint, error)
+}
+
 // reloadCheck asks the store whether the file changed since last and, when it
 // did, loads the list and returns it as a storeReloadedMsg. It returns nil
 // when nothing changed, and a reloadFailedMsg on any error, or when the file
-// is gone (errListRemoved), which never wipes the current view.
-func reloadCheck(st *todo.Store, last todo.Fingerprint) tea.Msg {
+// is gone (errListRemoved) — also when it vanished between the check and the
+// load, which reads as an empty list — so the current view is never wiped.
+func reloadCheck(st listReader, last todo.Fingerprint) tea.Msg {
 	ctx := context.Background()
 	changed, now, err := st.Changed(ctx, last)
 	if err != nil {
@@ -85,6 +92,9 @@ func reloadCheck(st *todo.Store, last todo.Fingerprint) tea.Msg {
 	doc, fp, err := st.Load(ctx)
 	if err != nil {
 		return reloadFailedMsg{err: err}
+	}
+	if fp == todo.Missing {
+		return reloadFailedMsg{err: errListRemoved}
 	}
 	return storeReloadedMsg{doc: doc, fp: fp}
 }
@@ -121,8 +131,11 @@ func (m *model) clearPollErr() {
 }
 
 // handleReload applies an external change. A message at the fingerprint the
-// model already has is ignored: it is the app's own write, or a probe that
-// raced one. While a modal is open or an item is grabbed for moving the
+// model already has is ignored: nothing changed since the model took the list.
+// A probe that raced one of the app's own writes is not caught: one started
+// before a commit carries the list as it was before that write, and applying
+// it rolls the view back (as an external change) until the next poll, a second
+// later, finds the file at the write's fingerprint and loads it again. While a modal is open or an item is grabbed for moving the
 // reload is deferred, so an edit is never yanked out from under the user; the
 // next tick re-detects it once they return to plain navigation. The search
 // bar is not a modal: a reload applies while it is open.

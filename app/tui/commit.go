@@ -87,7 +87,13 @@ func (m *model) commit(focusID string, write func(ctx context.Context) error) (s
 		return true
 	}
 	external := r.Read != m.lastFP
+	// m.doc aliases r.Doc, the store's LastWrite().Doc, and the handlers
+	// change m.doc in place; that is safe only while nothing else reads
+	// LastWrite().Doc (commit compares it by pointer only).
 	m.doc, m.saved, m.lastFP = r.Doc, r.Doc.Clone(), r.Wrote
+	// The write read and validated the file, so earlier poll failures are
+	// over: a later one counts from zero.
+	m.clearPollErr()
 	m.adoptAll(m.doc, focusID, onPH)
 	if external {
 		m.noteExternal()

@@ -883,3 +883,86 @@ func TestReplacedFileIsReloaded(t *testing.T) {
 		t.Errorf("b = %v in the file at the path, want the status change written there", got)
 	}
 }
+
+// vanishingList is a list whose file is there when the probe asks whether it
+// changed and gone by the time the probe loads it.
+type vanishingList struct{ fp todo.Fingerprint }
+
+func (v vanishingList) Changed(context.Context, todo.Fingerprint) (bool, todo.Fingerprint, error) {
+	return true, v.fp, nil
+}
+
+func (vanishingList) Load(context.Context) (*todo.Document, todo.Fingerprint, error) {
+	return &todo.Document{}, todo.Missing, nil
+}
+
+// TestFileRemovedMidPollKeepsView has the file vanish between the probe's
+// change check and its load: the empty list a missing file reads as must not
+// replace the view; the poll reports the file removed.
+func TestFileRemovedMidPollKeepsView(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	rows := rowTitles(m.tree)
+	msg := reloadCheck(vanishingList{fp: todo.Fingerprint{1}}, m.lastFP)
+	if f, ok := msg.(reloadFailedMsg); !ok || !errors.Is(f.err, errListRemoved) {
+		t.Fatalf("a file gone by the load must be reported as errListRemoved, got %#v", msg)
+	}
+	m = send(m, msg)
+	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
+		t.Errorf("rows = %v, want %v", got, rows)
+	}
+}
+
+// TestCommitWithoutStoreWriteReloads commits a change made in memory through a
+// write that succeeds without a store write, before any write and after one:
+// there is no write result to adopt, so the view shows the stored list.
+func TestCommitWithoutStoreWriteReloads(t *testing.T) {
+	for _, afterWrite := range []bool{false, true} {
+		m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+		if afterWrite {
+			m = press(selectTitle(t, m, "a"), "p")
+			if m.err != nil || m.store.LastWrite().Doc == nil {
+				t.Fatalf("precondition: the write failed: %v", m.err)
+			}
+		}
+		b := find(m.doc, "b")
+		m.doc.Remove(b)
+		if !m.commit(b.ID, func(context.Context) error { return nil }) {
+			t.Fatalf("afterWrite=%v: the commit must report success", afterWrite)
+		}
+		if find(m.doc, "b") == nil || !hasRow(m, "b") {
+			t.Errorf("afterWrite=%v: the in-memory change must give way to the stored list, rows %v",
+				afterWrite, rowTitles(m.tree))
+		}
+		if m.err != nil {
+			t.Errorf("afterWrite=%v: m.err = %v", afterWrite, m.err)
+		}
+	}
+}
+
+// TestSavedWriteResetsPollFails has two polls fail and the file then come
+// back before the next poll: a save that succeeds proves the file readable,
+// so a later transient failure counts from zero again and is not shown after
+// a single tick.
+func TestSavedWriteResetsPollFails(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	good := readList(t, path)
+	writeList(t, path, []byte(halfWritten))
+	m = pollCmdOnce(pollCmdOnce(m))
+	if m.pollFails != 2 || m.err != nil {
+		t.Fatalf("precondition: pollFails %d, err %v", m.pollFails, m.err)
+	}
+	writeList(t, path, good)
+
+	m = press(selectTitle(t, m, "a"), "p")
+	if m.err != nil {
+		t.Fatalf("the save failed: %v", m.err)
+	}
+	if m.pollFails != 0 {
+		t.Errorf("a successful save must reset the poll failures, got %d", m.pollFails)
+	}
+	writeList(t, path, []byte(halfWritten))
+	m = pollCmdOnce(m)
+	if m.err != nil {
+		t.Errorf("one failed poll after the save must not show yet, got %v", m.err)
+	}
+}
