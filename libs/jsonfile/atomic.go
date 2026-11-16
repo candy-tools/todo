@@ -8,14 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"time"
-)
-
-// renameAttempts and renameDelay bound the rename retry: on Windows, replacing
-// a file another process has open for a read can fail for a moment.
-const (
-	renameAttempts = 5
-	renameDelay    = 20 * time.Millisecond
 )
 
 // tempAttempts bounds the search for an unused temp file name.
@@ -77,13 +69,7 @@ func atomicWrite(path string, data []byte) (err error) {
 		return err
 	}
 
-	for attempt := 1; ; attempt++ {
-		if err = os.Rename(tmpName, path); err == nil || attempt == renameAttempts {
-			break
-		}
-		time.Sleep(renameDelay)
-	}
-	if err != nil {
+	if err = renameWithRetry(runtime.GOOS, tmpName, path); err != nil {
 		return err
 	}
 
