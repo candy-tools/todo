@@ -5,6 +5,12 @@
 // file. Reads (Load) and change polling (Changed) take no lock. The package is
 // generic over the stored type and knows nothing about what it stores: the
 // path, the lock timeout and the validation hook all come from Config.
+//
+// The lock file is left in place after a write and must not be deleted while
+// the data file is in use: a writer that locked a deleted lock file does not
+// exclude one that creates a new lock file. Update notices when the lock file
+// it locked was replaced and locks again, but a writer already holding the
+// lock when the file is deleted cannot be protected.
 package jsonfile
 
 import (
@@ -28,6 +34,11 @@ const DefaultLockTimeout = 5 * time.Second
 
 // lockRetry is how often Update retries a busy lock while it waits.
 const lockRetry = 10 * time.Millisecond
+
+// afterLock, when not nil, is called each time lock has taken the file lock,
+// before it checks the lock file is still the one at the lock path. It is a
+// test seam, nil outside tests.
+var afterLock func()
 
 // Fingerprint is the SHA-256 of a file's bytes. It identifies one version of
 // the file's content.
@@ -183,22 +194,65 @@ func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err 
 // lock takes the exclusive lock on the lock file at path and returns its
 // release. A new lock file gets mode 0o666 less the umask, as the data file
 // does.
+//
+// The lock only excludes writers that lock the same file. When the lock file
+// was deleted (or replaced) between another writer's open and its lock, the
+// file this one locked is no longer the one at path, and a writer arriving now
+// would create and lock a new one. So once locked, lock checks the file it
+// holds is still the one at path, and otherwise lets go and tries again.
 func (s *Store[T]) lock(ctx context.Context, path string) (func(), error) {
 	lockCtx, cancel := context.WithTimeout(ctx, s.lockTimeout)
 	defer cancel()
 
-	fl := flock.New(path, flock.SetPermissions(0o666))
-	ok, err := fl.TryLockContext(lockCtx, lockRetry)
-	if ok {
-		return func() { _ = fl.Unlock() }, nil
+	for {
+		fl := flock.New(path, flock.SetPermissions(0o666))
+		ok, err := fl.TryLockContext(lockCtx, lockRetry)
+		if !ok {
+			return nil, lockErr(ctx, path, err)
+		}
+		if afterLock != nil {
+			afterLock()
+		}
+		current, err := holdsFileAt(fl, path)
+		if err != nil {
+			_ = fl.Unlock()
+			return nil, fmt.Errorf("jsonfile: lock %s: %w", path, err)
+		}
+		if current {
+			return func() { _ = fl.Unlock() }, nil
+		}
+		_ = fl.Unlock()
 	}
+}
+
+// lockErr turns a failed TryLockContext into lock's error: ctx's own error
+// when the caller cancelled, ErrBusy when the lock timeout ran out, and err
+// wrapped with the lock path otherwise.
+func lockErr(ctx context.Context, path string, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil && !errors.Is(ctxErr, context.DeadlineExceeded) {
-		return nil, ctxErr
+		return ctxErr
 	}
 	if err == nil || errors.Is(err, context.DeadlineExceeded) {
-		return nil, ErrBusy
+		return ErrBusy
 	}
-	return nil, fmt.Errorf("jsonfile: lock %s: %w", fl.Path(), err)
+	return fmt.Errorf("jsonfile: lock %s: %w", path, err)
+}
+
+// holdsFileAt reports whether the file fl has locked is the file at path now.
+// A path with no file is not.
+func holdsFileAt(fl *flock.Flock, path string) (bool, error) {
+	held, err := fl.Stat() // the open handle's file, not the path's
+	if err != nil {
+		return false, err
+	}
+	now, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(held, now), nil
 }
 
 // read reads, fingerprints, decodes and validates the file at path (the
