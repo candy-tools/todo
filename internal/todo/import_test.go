@@ -82,23 +82,32 @@ func TestImportEmptyFile(t *testing.T) {
 	}
 }
 
+// importFile writes md to a markdown file and imports it into the list at
+// path with todo.ImportFile.
+func importFile(t *testing.T, path, md string, replace bool) (*todo.Store, error) {
+	t.Helper()
+	mdPath := filepath.Join(t.TempDir(), "TODO.md")
+	if err := os.WriteFile(mdPath, []byte(md), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, _, err := todo.ImportFile(path, mdPath, replace)
+	return s, err
+}
+
 func TestImportRefusesNonEmpty(t *testing.T) {
 	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
-	s := todo.NewStore(path)
-	doc, _, _ := todo.ImportMarkdown([]byte("# B\n"))
-	if _, err := s.Import(context.Background(), doc, false); !errors.Is(err, todo.ErrNotEmpty) {
-		t.Fatalf("Import = %v; want ErrNotEmpty", err)
+	if _, err := importFile(t, path, "# B\n", false); !errors.Is(err, todo.ErrNotEmpty) {
+		t.Fatalf("ImportFile = %v; want ErrNotEmpty", err)
 	}
-	if got := todotest.Render(mustLoad(t, s)); !strings.Contains(got, "# A") || strings.Contains(got, "# B") {
+	if got := todotest.Dump(t, path); !strings.Contains(got, "# A") || strings.Contains(got, "# B") {
 		t.Fatalf("store changed on refused import:\n%s", got)
 	}
 }
 
 func TestImportReplace(t *testing.T) {
 	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
-	s := todo.NewStore(path)
-	doc, _, _ := todo.ImportMarkdown([]byte("# B\n\n- [x] two\n  desc\n"))
-	if _, err := s.Import(context.Background(), doc, true); err != nil {
+	s, err := importFile(t, path, "# B\n\n- [x] two\n  desc\n", true)
+	if err != nil {
 		t.Fatal(err)
 	}
 	want := "# B\n\n- [x] two\n  desc\n"
@@ -162,12 +171,8 @@ func TestImportFileCreatesList(t *testing.T) {
 }
 
 func TestImportFlattensDeepMarkdown(t *testing.T) {
-	doc, _, err := todo.ImportMarkdown([]byte("- [ ] T\n  - [/] a\n    - [ ] a1\n"))
+	s, err := importFile(t, filepath.Join(t.TempDir(), ".todo.json"), "- [ ] T\n  - [/] a\n    - [ ] a1\n", false)
 	if err != nil {
-		t.Fatal(err)
-	}
-	s := todo.NewStore(filepath.Join(t.TempDir(), ".todo.json"))
-	if _, err := s.Import(context.Background(), doc, false); err != nil {
 		t.Fatal(err)
 	}
 	got := mustLoad(t, s)

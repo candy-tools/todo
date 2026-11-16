@@ -170,7 +170,7 @@ func TestImportCleansTitlesAndAssignsIDs(t *testing.T) {
 	cat := &Item{Kind: Category, Level: 1, Title: "  A  "}
 	doc.AppendRoot(cat)
 	cat.AppendChild(NewTask(" t ", "", false))
-	if _, err := s.Import(context.Background(), doc, false); err != nil {
+	if _, err := importInto(context.Background(), s, doc, false); err != nil {
 		t.Fatal(err)
 	}
 	got := load(t, s)
@@ -185,5 +185,5 @@ func TestImportCleansTitlesAndAssignsIDs(t *testing.T) {
 
 	bad := &Document{}
 	bad.AppendRoot(&Item{Kind: Category, Level: 1, Title: " "})
-	rejects(t, s, ErrInvalidTitle, func() error { return errOf(s.Import(context.Background(), bad, true)) })
+	rejects(t, s, ErrInvalidTitle, func() error { return errOf(importInto(context.Background(), s, bad, true)) })
 }

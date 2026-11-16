@@ -71,20 +71,16 @@ func count(it *Item, rep *ImportReport) {
 	}
 }
 
-// Import replaces the list with doc in one write. It returns ErrNotEmpty when
-// the list holds items and replace is false, writing nothing. doc is prepared
-// in place first: flattened (see Document.FlattenSubtasks), since the list
-// keeps subtasks one level deep, its titles cleaned, and every item without an
-// ID given one. A title CleanTitle refuses fails the import with
+// importDoc replaces the list with doc in one write. It returns ErrNotEmpty
+// when the list holds items and replace is false, writing nothing. doc is
+// prepared in place first: flattened (see Document.FlattenSubtasks), since the
+// list keeps subtasks one level deep, its titles cleaned, and every item
+// without an ID given one. A title CleanTitle refuses fails the import with
 // ErrInvalidTitle; ImportMarkdown never yields one.
-func (s *Store) Import(ctx context.Context, doc *Document, replace bool) (WriteResult, error) {
-	res, _, err := s.importDoc(ctx, doc, replace, false)
-	return res, err
-}
-
-// importDoc is Import that, when backUp is set and it replaces a list that
-// holds items, first copies the file to the first free BackupPath beside it,
-// inside the write and so under the lock, and returns that path. The copy is
+//
+// When backUp is set and it replaces a list that holds items, importDoc first
+// copies the file to the first free BackupPath beside it, inside the write and
+// so under the lock, and returns that path. The copy is
 // of the bytes the write read, from the file it read: for a symlinked list,
 // the file the link points at, with the backup beside that file. When the
 // write then fails, the list is unchanged and the backup is removed again.
@@ -136,8 +132,8 @@ func prepareImport(doc *Document) error {
 }
 
 // ImportFile imports the markdown file mdPath into the list at path, creating
-// the file when needed, in one write (see Import), and returns a store on path
-// made with opts. It never writes mdPath. A list that holds items is
+// the file when needed, in one write (see importDoc), and returns a store on
+// path made with opts. It never writes mdPath. A list that holds items is
 // ErrNotEmpty without replace, with nothing written. With replace, the list
 // file is first copied to the first free BackupPath beside it (beside the file
 // a symlinked path points at), named in the report's Backup; when the import

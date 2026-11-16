@@ -2,7 +2,6 @@ package todo
 
 import (
 	"crypto/rand"
-	"fmt"
 	"strings"
 )
 
@@ -16,9 +15,7 @@ const (
 func newID(taken func(string) bool) string {
 	for {
 		var raw [idLen]byte
-		if _, err := rand.Read(raw[:]); err != nil {
-			panic(fmt.Sprintf("todo: reading random bytes: %v", err))
-		}
+		_, _ = rand.Read(raw[:]) // never fails: since Go 1.24 it crashes the program instead
 		var b strings.Builder
 		for _, r := range raw {
 			b.WriteByte(idAlphabet[r&31])

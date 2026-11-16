@@ -35,6 +35,13 @@ func mustOK(t *testing.T) func(WriteResult, error) WriteResult {
 	}
 }
 
+// importInto runs importDoc without a backup, as the CLI's import does
+// without --force.
+func importInto(ctx context.Context, s *Store, doc *Document, replace bool) (WriteResult, error) {
+	res, _, err := s.importDoc(ctx, doc, replace, false)
+	return res, err
+}
+
 // errOf returns the error of a write, for a check that wants it alone.
 func errOf(_ WriteResult, err error) error { return err }
 

@@ -226,7 +226,7 @@ func TestStoreRefusedValueIsNotAnInvalidFile(t *testing.T) {
 	s := newStore(t)
 	doc := &Document{}
 	doc.AppendRoot(&Item{ID: "not-an-id", Kind: Category, Title: "New"})
-	_, err := s.Import(context.Background(), doc, false)
+	_, err := importInto(context.Background(), s, doc, false)
 	if err == nil {
 		t.Fatal("Import of a list with a malformed ID returned nil error")
 	}
@@ -289,7 +289,7 @@ func everyWrite(s *Store, cat, task string) map[string]func() error {
 		"Move":           func() error { return errOf(s.Move(ctx, task, cat, "")) },
 		"Delete":         func() error { return errOf(s.Delete(ctx, task)) },
 		"Prune":          func() error { _, _, err := s.Prune(ctx); return err },
-		"Import":         func() error { return errOf(s.Import(ctx, &Document{}, true)) },
+		"Import":         func() error { return errOf(importInto(ctx, s, &Document{}, true)) },
 	}
 }
 

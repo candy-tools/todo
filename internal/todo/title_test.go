@@ -85,7 +85,7 @@ func TestImportRejectsInvalidTitles(t *testing.T) {
 	doc.AppendRoot(cat)
 	cat.AppendChild(&Item{Kind: Task, Title: "a\x1b]0;x\x07"})
 	rejects(t, s, ErrInvalidTitle, func() error {
-		return errOf(s.Import(context.Background(), doc, false))
+		return errOf(importInto(context.Background(), s, doc, false))
 	})
 }
 
@@ -142,7 +142,7 @@ func TestImportMarkdownSanitizesTitles(t *testing.T) {
 		t.Errorf("warnings = %q\nwant %q", rep.Warnings, wantWarn)
 	}
 	// The sanitized document imports.
-	if _, err := newStore(t).Import(context.Background(), doc, false); err != nil {
+	if _, err := importInto(context.Background(), newStore(t), doc, false); err != nil {
 		t.Fatalf("Import of a sanitized document: %v", err)
 	}
 }
