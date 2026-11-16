@@ -28,11 +28,9 @@ func newerSchemaError(version int) error {
 }
 
 // Fingerprint identifies one version of the list file's content (see
-// jsonfile.Fingerprint).
+// jsonfile.Fingerprint). The zero Fingerprint, for which IsMissing is true,
+// stands for a list file that does not exist.
 type Fingerprint = jsonfile.Fingerprint
-
-// Missing is the fingerprint of a list file that does not exist.
-var Missing = jsonfile.Missing
 
 // DefaultBusyTimeout is how long a store's writes wait, by default, for
 // another process to release the write lock before failing with ErrBusy.
@@ -121,7 +119,7 @@ func StoreExists(path string) (bool, error) {
 }
 
 // Load reads the whole list and the fingerprint of the bytes it came from,
-// without taking the lock. A missing file is an empty Document and Missing. A
+// without taking the lock. A missing file is an empty Document and the zero (missing) fingerprint. A
 // file that is not a valid list fails with ErrInvalidList (or ErrNewerSchema)
 // naming the path, and still returns the fingerprint of the bytes read.
 func (s *Store) Load(_ context.Context) (*Document, Fingerprint, error) {

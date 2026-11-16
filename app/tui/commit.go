@@ -88,7 +88,7 @@ func (m *model) commit(focusID string, write func(ctx context.Context) error) (s
 		m.adoptAll(m.doc, focusID, onPH)
 		return true
 	}
-	if r.Read == todo.Missing && r.Wrote == todo.Missing && m.lastFP != todo.Missing {
+	if r.Read.IsMissing() && r.Wrote.IsMissing() && !m.lastFP.IsMissing() {
 		// The file is gone and the write, finding nothing to change in the
 		// empty list that reads as, wrote nothing: adopting that empty list
 		// would wipe the view the removed-file error keeps. Fail as removed.
@@ -120,7 +120,7 @@ func (m *model) commit(focusID string, write func(ctx context.Context) error) (s
 // goes back to a copy of the list as last loaded.
 func (m *model) reload(ctx context.Context) {
 	doc, fp, err := m.store.Load(ctx)
-	if err != nil || (fp == todo.Missing && m.lastFP != todo.Missing) {
+	if err != nil || (fp.IsMissing() && !m.lastFP.IsMissing()) {
 		m.doc = m.saved.Clone()
 		return
 	}

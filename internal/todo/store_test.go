@@ -52,8 +52,8 @@ func TestLoadMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if doc == nil || len(doc.Roots) != 0 || fp != Missing {
-		t.Fatalf("Load = %v, %x; want an empty document and Missing", doc, fp)
+	if doc == nil || len(doc.Roots) != 0 || !fp.IsMissing() {
+		t.Fatalf("Load = %v, %x; want an empty document and a missing fingerprint", doc, fp)
 	}
 	for _, p := range []string{s.Path(), s.Path() + ".lock"} {
 		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
@@ -297,11 +297,11 @@ func TestStoreNewerVersion(t *testing.T) {
 func TestStoreChanged(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	if changed, fp, err := s.Changed(ctx, Missing); err != nil || changed || fp != Missing {
-		t.Fatalf("Changed(Missing) on a missing file = %v, %x, %v; want false, Missing", changed, fp, err)
+	if changed, fp, err := s.Changed(ctx, Fingerprint{}); err != nil || changed || !fp.IsMissing() {
+		t.Fatalf("Changed(missing) on a missing file = %v, %x, %v; want false, missing", changed, fp, err)
 	}
 	mustID(t)(s.AppendCategory(ctx, "A", ""))
-	changed, fp, err := s.Changed(ctx, Missing)
+	changed, fp, err := s.Changed(ctx, Fingerprint{})
 	if err != nil || !changed || fp != s.LastWrite().Wrote {
 		t.Fatalf("Changed after a write = %v, %x, %v; want true and the written fingerprint", changed, fp, err)
 	}

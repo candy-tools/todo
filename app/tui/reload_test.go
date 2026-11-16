@@ -985,7 +985,7 @@ func (v vanishingList) Changed(context.Context, todo.Fingerprint) (bool, todo.Fi
 }
 
 func (vanishingList) Load(context.Context) (*todo.Document, todo.Fingerprint, error) {
-	return &todo.Document{}, todo.Missing, nil
+	return &todo.Document{}, todo.Fingerprint{}, nil
 }
 
 // TestFileRemovedMidPollKeepsView has the file vanish between the probe's

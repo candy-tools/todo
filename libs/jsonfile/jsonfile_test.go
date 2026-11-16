@@ -61,8 +61,8 @@ func TestLoadMissing(t *testing.T) {
 	if v.N != 0 || v.Tags != nil {
 		t.Errorf("value = %+v, want zero", v)
 	}
-	if fp != jsonfile.Missing {
-		t.Errorf("fingerprint = %x, want Missing", fp)
+	if !fp.IsMissing() {
+		t.Errorf("fingerprint = %x, want missing", fp)
 	}
 }
 
@@ -76,11 +76,11 @@ func TestUpdateCreatesAndLoads(t *testing.T) {
 	if !res.Written {
 		t.Error("Written = false, want true")
 	}
-	if res.Read != jsonfile.Missing {
-		t.Errorf("Read = %x, want Missing", res.Read)
+	if !res.Read.IsMissing() {
+		t.Errorf("Read = %x, want missing", res.Read)
 	}
-	if res.Wrote == jsonfile.Missing {
-		t.Error("Wrote = Missing, want a fingerprint")
+	if res.Wrote.IsMissing() {
+		t.Error("Wrote is missing, want a fingerprint")
 	}
 	if res.Value.N != 1 {
 		t.Errorf("Value.N = %d, want 1", res.Value.N)

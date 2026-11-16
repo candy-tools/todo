@@ -28,8 +28,8 @@ func TestNewModelShowsNoticeAndStoreName(t *testing.T) {
 	if got := m.header(80); !strings.Contains(got, ".todo.json") {
 		t.Errorf("header should show the store's base name, got %q", got)
 	}
-	if m.lastFP != todo.Missing {
-		t.Errorf("lastFP = %x, want Missing for a store with no file yet", m.lastFP)
+	if !m.lastFP.IsMissing() {
+		t.Errorf("lastFP = %x, want missing for a store with no file yet", m.lastFP)
 	}
 	if !m.tree.onPlaceholder() {
 		t.Errorf("an empty store should start on the placeholder row")

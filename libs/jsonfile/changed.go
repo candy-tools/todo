@@ -20,9 +20,9 @@ const racyWindow = 2 * time.Second
 // (file identity, modification time or size moved), or when the cached mtime
 // was within racyWindow of the time it was cached, since a write in the same
 // mtime tick would not show in the stat. A touch that leaves the bytes alone
-// is not a change. A missing file has the fingerprint Missing, so a deleted
-// file is a change unless since is Missing too. Changed takes no lock
-// and does not decode or validate the file.
+// is not a change. A missing file has the zero fingerprint (see IsMissing),
+// so a deleted file is a change unless since is missing too. Changed takes no
+// lock and does not decode or validate the file.
 //
 // The cache can still miss a change, and report the old fingerprint, when
 // the stat matches although the bytes differ: a file rewritten with the same
@@ -32,7 +32,7 @@ const racyWindow = 2 * time.Second
 func (s *Store[T]) Changed(since Fingerprint) (changed bool, now Fingerprint, err error) {
 	info, err := os.Stat(s.path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return since != Missing, Missing, nil
+		return !since.IsMissing(), Fingerprint{}, nil
 	}
 	if err != nil {
 		return false, since, err
@@ -55,7 +55,7 @@ func (s *Store[T]) Changed(since Fingerprint) (changed bool, now Fingerprint, er
 	statAt := time.Now()
 	data, err := os.ReadFile(s.path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return since != Missing, Missing, nil
+		return !since.IsMissing(), Fingerprint{}, nil
 	}
 	if err != nil {
 		return false, since, err

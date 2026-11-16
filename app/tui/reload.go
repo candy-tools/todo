@@ -88,14 +88,14 @@ func reloadCheck(st listReader, last todo.Fingerprint) tea.Msg {
 	if !changed {
 		return nil
 	}
-	if now == todo.Missing {
+	if now.IsMissing() {
 		return reloadFailedMsg{err: errListRemoved}
 	}
 	doc, fp, err := st.Load(ctx)
 	if err != nil {
 		return reloadFailedMsg{err: err}
 	}
-	if fp == todo.Missing {
+	if fp.IsMissing() {
 		return reloadFailedMsg{err: errListRemoved}
 	}
 	return storeReloadedMsg{doc: doc, fp: fp, since: last}

@@ -43,11 +43,13 @@ const lockRetry = 10 * time.Millisecond
 var afterLock func()
 
 // Fingerprint is the SHA-256 of a file's bytes. It identifies one version of
-// the file's content.
+// the file's content. The zero Fingerprint stands for a file that does not
+// exist (see IsMissing).
 type Fingerprint [32]byte
 
-// Missing is the fingerprint of a file that does not exist (the zero value).
-var Missing Fingerprint
+// IsMissing reports whether f is the fingerprint of a file that does not
+// exist: the zero value.
+func (f Fingerprint) IsMissing() bool { return f == Fingerprint{} }
 
 // ErrBusy is returned by Update when it gave up waiting for another writer to
 // release the lock.
@@ -134,7 +136,7 @@ type Result[T any] struct {
 	// nothing was written.
 	Value T
 	// Read is the fingerprint of the file as Update found it under the lock
-	// (Missing when there was no file). Comparing it with the fingerprint of
+	// (the zero, missing fingerprint when there was no file). Comparing it with the fingerprint of
 	// the caller's last Load tells whether someone else wrote in between.
 	Read Fingerprint
 	// Wrote is the fingerprint of the bytes Update wrote, or Read when it
@@ -158,9 +160,9 @@ func New[T any](cfg Config[T]) *Store[T] {
 func (s *Store[T]) Path() string { return s.path }
 
 // Load reads the file without taking the lock, decodes it and runs the
-// Validate hook. A missing file gives the zero T, Missing and a nil error. A
-// file that fails to decode or validate gives an *InvalidError, along with the
-// fingerprint of the bytes read.
+// Validate hook. A missing file gives the zero T, the zero (missing)
+// fingerprint and a nil error. A file that fails to decode or validate gives
+// an *InvalidError, along with the fingerprint of the bytes read.
 func (s *Store[T]) Load() (T, Fingerprint, error) {
 	return s.read(s.path)
 }
@@ -287,10 +289,10 @@ func (s *Store[T]) read(path string) (T, Fingerprint, error) {
 	var zero T
 	data, err := os.ReadFile(path) //nolint:gosec // path is the Store's own file (Config.Path or the file it links to)
 	if errors.Is(err, fs.ErrNotExist) {
-		return zero, Missing, nil
+		return zero, Fingerprint{}, nil
 	}
 	if err != nil {
-		return zero, Missing, err
+		return zero, Fingerprint{}, err
 	}
 	fp := Fingerprint(sha256.Sum256(data))
 

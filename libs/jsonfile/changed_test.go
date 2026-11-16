@@ -104,15 +104,15 @@ func TestChangedDeleted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Changed: %v", err)
 	}
-	if !changed || now != jsonfile.Missing {
-		t.Errorf("Changed(f) = (%v, %x), want (true, Missing)", changed, now)
+	if !changed || !now.IsMissing() {
+		t.Errorf("Changed(f) = (%v, %x), want (true, missing)", changed, now)
 	}
 
-	changed, now, err = s.Changed(jsonfile.Missing)
+	changed, now, err = s.Changed(jsonfile.Fingerprint{})
 	if err != nil {
 		t.Fatalf("Changed: %v", err)
 	}
-	if changed || now != jsonfile.Missing {
-		t.Errorf("Changed(Missing) = (%v, %x), want (false, Missing)", changed, now)
+	if changed || !now.IsMissing() {
+		t.Errorf("Changed(missing) = (%v, %x), want (false, missing)", changed, now)
 	}
 }

@@ -339,7 +339,7 @@ func TestEveryWriteChangesFile(t *testing.T) {
 		{"Prune", func() error { _, err := s.Prune(ctx); return err }},
 		{"Delete", func() error { return s.Delete(ctx, c) }},
 	}
-	prev := Missing
+	var prev Fingerprint // missing
 	for _, w := range writes {
 		if err := w.fn(); err != nil {
 			t.Fatalf("%s: %v", w.name, err)
