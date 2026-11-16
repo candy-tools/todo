@@ -18,10 +18,15 @@ func importCmd() *cobra.Command {
 		Short: "import a markdown TODO file into the JSON list",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			db, _, err := resolvePath(cmd, nil)
+			db, isDefault, err := resolvePath(cmd, nil)
 			if err != nil {
 				return err
 			}
+			notice, err := legacyDBNotice(db, isDefault)
+			if err != nil {
+				return err
+			}
+			printNotice(cmd, notice)
 			force, _ := cmd.Flags().GetBool("force")
 			s, rep, err := importFile(db, args[0], force)
 			if errors.Is(err, todo.ErrNotEmpty) {

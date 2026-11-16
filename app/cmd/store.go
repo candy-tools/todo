@@ -15,6 +15,9 @@ const (
 	defaultFile = ".todo.json"
 	// legacyFile is the markdown file imported automatically on first run.
 	legacyFile = "TODO.md"
+	// legacyDBFile is the SQLite list file older versions used by default. It
+	// is never read, converted or removed; its presence only earns a notice.
+	legacyDBFile = ".todo.db"
 )
 
 // openDB opens an existing store or creates it; tests replace it to observe
@@ -60,9 +63,40 @@ func legacyImportable(path string, isDefault bool) (bool, error) {
 	return todo.StoreExists(legacyFile)
 }
 
-// openStore opens the store at path with opts, creating it when missing. When
-// isDefault and the store does not exist but TODO.md does, it imports TODO.md
-// instead and returns the import notice; otherwise the notice is "". When
+// legacyDBNotice returns the notice that a .todo.db an older todo left is not
+// read, when isDefault, the list file at path does not exist yet and a
+// .todo.db does; otherwise "". The .todo.db is only stat'ed.
+func legacyDBNotice(path string, isDefault bool) (string, error) {
+	if !isDefault {
+		return "", nil
+	}
+	exists, err := todo.StoreExists(path)
+	if err != nil || exists {
+		return "", err
+	}
+	old, err := todo.StoreExists(legacyDBFile)
+	if err != nil || !old {
+		return "", err
+	}
+	return fmt.Sprintf("found %s from an older todo; it is no longer read (lists are now stored in %s)", legacyDBFile, defaultFile), nil
+}
+
+// joinNotices joins the non-empty notices, one per line.
+func joinNotices(notices ...string) string {
+	var lines []string
+	for _, n := range notices {
+		if n != "" {
+			lines = append(lines, n)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// openStore opens the store at path with opts (opening does no I/O; the first
+// write creates the file). When isDefault and the store does not exist but
+// TODO.md does, it imports TODO.md instead and returns the import notice,
+// after the .todo.db notice (see legacyDBNotice) when that applies; otherwise
+// the notice is that one or "". When
 // another process creates the store first (it ran the same first-run import),
 // that store is opened as is, without a notice. A store too busy to open
 // (another process holds the writer lock) is the CLI's conflict error, as a
@@ -77,6 +111,10 @@ func openStore(_ *cobra.Command, path string, isDefault bool, opts ...todo.Optio
 
 // openOrImport is openStore before its busy store becomes the conflict error.
 func openOrImport(path string, isDefault bool, opts ...todo.Option) (*todo.Store, string, error) {
+	dbNote, err := legacyDBNotice(path, isDefault)
+	if err != nil {
+		return nil, "", err
+	}
 	imp, err := legacyImportable(path, isDefault)
 	if err != nil {
 		return nil, "", err
@@ -91,15 +129,15 @@ func openOrImport(path string, isDefault bool, opts ...todo.Option) (*todo.Store
 		if err != nil {
 			return nil, "", err
 		}
-		return s, importNotice(rep, legacyFile), nil
+		return s, joinNotices(dbNote, importNotice(rep, legacyFile)), nil
 	}
 	s, err := openDB(path, opts...)
-	return s, "", err
+	return s, dbNote, err
 }
 
 // openForRead loads the document without creating anything: with no store and
-// nothing to import it returns an empty document. An automatic import notice is
-// written to stderr.
+// nothing to import it returns an empty document. An automatic import notice,
+// and the .todo.db notice, are written to stderr.
 func openForRead(cmd *cobra.Command, path string, isDefault bool) (*todo.Document, error) {
 	s, doc, err := loadStore(cmd, path, isDefault)
 	if s != nil {
@@ -117,8 +155,17 @@ func loadStore(cmd *cobra.Command, path string, isDefault bool) (*todo.Store, *t
 		return nil, nil, err
 	}
 	if !exists {
-		if imp, err := legacyImportable(path, isDefault); err != nil || !imp {
-			return nil, &todo.Document{}, err
+		imp, err := legacyImportable(path, isDefault)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !imp {
+			notice, err := legacyDBNotice(path, isDefault)
+			if err != nil {
+				return nil, nil, err
+			}
+			printNotice(cmd, notice)
+			return nil, &todo.Document{}, nil
 		}
 	}
 	s, notice, err := openStore(cmd, path, isDefault)
