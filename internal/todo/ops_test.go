@@ -630,6 +630,19 @@ func TestOpSetStatePlain(t *testing.T) {
 	wantDoc(t, d, "# A\n\n- [/] x\n  - [x] s\n- [ready] y\n  - [ ] t\n")
 }
 
+// Cascade applies to every change, not only into or out of Done: a plain
+// change of a task that is not done opens its subtasks, which `todo reopen
+// --cascade` on a task that is not done relies on.
+func TestOpSetStateCascadeOnPlainChangeOpensSubtasks(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [/] x\n  - [x] s\n  - [x] t\n")
+	wantNoErr(t, setState(t, d, idOf(t, d, "x"), todo.Deferred, todo.StateOptions{Cascade: true}))
+	wantDoc(t, d, "# A\n\n- [>] x\n  - [ ] s\n  - [ ] t\n")
+	changed, err := d.SetState(idOf(t, d, "x"), todo.Deferred, todo.StateOptions{Cascade: true})
+	if err != nil || changed {
+		t.Errorf("the same cascade again = %v, %v; want no change", changed, err)
+	}
+}
+
 func TestOpSetStateSubtask(t *testing.T) {
 	d := opDoc(t, "# A\n\n- [/] x\n  - [ ] s\n")
 	s := idOf(t, d, "s")
