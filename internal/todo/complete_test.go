@@ -237,3 +237,60 @@ func TestStoreSetStateDecidesAtWriteTime(t *testing.T) {
 	})
 	rejects(t, s, ErrNotFound, func() error { return errOf(s.SetState(ctx, "zzzzzzz", Done, StateOptions{})) })
 }
+
+// completeForUndo builds task (Working) with open subtask sub under C,
+// snapshots it and completes it with cascade, as the TUI does. It returns the
+// snapshot and the fingerprint the complete left.
+func completeForUndo(t *testing.T, s *Store) (ids taskTree, snapshot DoneStates, after Fingerprint) {
+	t.Helper()
+	ids = addTaskTree(t, s, Working)
+	snapshot = SnapshotDone(item(t, load(t, s), ids.task))
+	res := mustOK(t)(s.SetState(context.Background(), ids.task, Done, StateOptions{Cascade: true}))
+	return ids, snapshot, res.Wrote
+}
+
+// With RestoreSince the undo restores only when the list is still the one the
+// complete left: here it is, so sub goes back to open.
+func TestStoreSetStateRestoreSinceUnchangedRestores(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	ids, snapshot, after := completeForUndo(t, s)
+	mustOK(t)(s.SetState(ctx, ids.task, Working, StateOptions{Restore: snapshot, RestoreSince: after}))
+	if got, want := statuses(t, s, ids.task, ids.sub), []Status{Working, Open}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("task, sub = %v, want %v", got, want)
+	}
+}
+
+// Another writer reopens sub, edits it and completes it again: sub is Done as
+// the complete left it, but the list changed since, so with RestoreSince the
+// undo is a plain reopen and sub keeps the other writer's Done.
+func TestStoreSetStateRestoreSinceSkipsChangedList(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	ids, snapshot, after := completeForUndo(t, s)
+	other := NewStore(s.Path())
+	mustOK(t)(other.SetState(ctx, ids.sub, Open, StateOptions{}))
+	mustOK(t)(other.Edit(ctx, ids.sub, Changes{Description: new("checked again")}))
+	mustOK(t)(other.SetState(ctx, ids.sub, Done, StateOptions{}))
+
+	mustOK(t)(s.SetState(ctx, ids.task, Working, StateOptions{Restore: snapshot, RestoreSince: after}))
+	if got, want := statuses(t, s, ids.task, ids.sub), []Status{Working, Done}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("task, sub = %v, want %v (sub as the other writer left it)", got, want)
+	}
+}
+
+// A done subtask another writer moved under another task since the complete is
+// no longer below the task, so the undo leaves it alone.
+func TestStoreSetStateRestoresOnlyDescendants(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	ids, snapshot, _ := completeForUndo(t, s)
+	other := NewStore(s.Path())
+	u := mustID(t)(other.AddTask(ctx, Fields{Title: "u"}, Working, ids.C, ids.task))
+	mustOK(t)(other.Move(ctx, ids.sub, u, ""))
+
+	mustOK(t)(s.SetState(ctx, ids.task, Working, StateOptions{Restore: snapshot}))
+	if got, want := statuses(t, s, ids.task, ids.sub), []Status{Working, Done}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("task, moved sub = %v, want %v", got, want)
+	}
+}

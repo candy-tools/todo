@@ -351,10 +351,11 @@ func (d *Document) Complete(id string, cascade bool) error {
 // them all (see CascadeStatus), o.Restore gives them their snapshot states back
 // (see ReopenStates), and with neither they keep theirs. o.Restore undoes a
 // complete, so it gives back only what that complete left: an entry is
-// applied only to an item that is still Done, and skipped for one d no longer
-// holds or whose state changed since (say, another writer reopened it).
-// Setting both fails with ErrRestoreAndCascade before anything else is
-// checked; otherwise it fails as SetStatuses or CascadeStatus does.
+// applied only to an item that is still below task id and still Done, and
+// skipped for one d no longer holds, that moved elsewhere or whose state
+// changed since (say, another writer reopened it). Setting both fails with
+// ErrRestoreAndCascade before anything else is checked; otherwise it fails as
+// SetStatuses or CascadeStatus does.
 func (d *Document) Reopen(id string, st Status, o ReopenOptions) error {
 	if o.Restore != nil && o.Cascade {
 		return ErrRestoreAndCascade
@@ -363,9 +364,15 @@ func (d *Document) Reopen(id string, st Status, o ReopenOptions) error {
 		return d.CascadeStatus(id, st)
 	}
 	ix := d.index()
+	below := map[*Item]bool{}
+	if it, ok := ix[id]; ok {
+		for _, c := range it.Descendants() {
+			below[c] = true
+		}
+	}
 	restore := make(DoneStates, len(o.Restore))
 	for rid, rst := range o.Restore {
-		if it, ok := ix[rid]; ok && it.Status == Done {
+		if it, ok := ix[rid]; ok && below[it] && it.Status == Done {
 			restore[rid] = rst
 		}
 	}
