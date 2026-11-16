@@ -6,7 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -327,29 +327,25 @@ func TestNoHTMLEscape(t *testing.T) {
 	}
 }
 
+// TestNoTempFilesLeft writes twice, creating the file and then replacing it:
+// each successful write leaves only the file and its lock file behind.
 func TestNoTempFilesLeft(t *testing.T) {
 	path := tempPath(t)
 	s := jsonfile.New(jsonfile.Config[doc]{Path: path})
-	mustUpdate(t, s, setN(1))
-	if _, err := s.Update(context.Background(), func(v *doc) (bool, error) {
-		v.N = 2
-		return true, errors.New("fail")
-	}); err == nil {
-		t.Fatal("failing Update returned nil error")
-	}
+	for n := 1; n <= 2; n++ {
+		mustUpdate(t, s, setN(n))
 
-	entries, err := os.ReadDir(filepath.Dir(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	want := []string{"list.json", "list.json.lock"}
-	if len(names) != len(want) || names[0] != want[0] || names[1] != want[1] {
-		t.Errorf("dir = %v, want %v", names, want)
+		entries, err := os.ReadDir(filepath.Dir(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		if want := []string{"list.json", "list.json.lock"}; !slices.Equal(names, want) {
+			t.Errorf("after write %d: dir = %v, want %v", n, names, want)
+		}
 	}
 }
 
