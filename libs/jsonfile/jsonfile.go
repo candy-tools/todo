@@ -83,10 +83,12 @@ type Store[T any] struct {
 	lockTimeout time.Duration
 	validate    func(*T) error
 
-	// mu guards the stat cache used by Changed.
+	// mu guards the stat cache used by Changed: the last stat, the fingerprint
+	// of the bytes read after it and when they were read.
 	mu       sync.Mutex
 	statInfo fs.FileInfo
 	statFP   Fingerprint
+	statAt   time.Time
 }
 
 // Result is the outcome of an Update.
