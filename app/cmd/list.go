@@ -115,12 +115,7 @@ func toJSONItem(it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]b
 	if it.IsTask() {
 		ji.Kind = "task"
 		ji.Status = it.Status.String()
-		// A subtask sits in its parent's column.
-		col := it.Status.Column()
-		if it.IsSubtask() {
-			col = it.Parent.Status.Column()
-		}
-		ji.Column = col.String()
+		ji.Column = it.Column().String() // a subtask sits in its parent's column
 		ji.Description = it.Description
 		ji.Plan = it.Plan
 	} else {
