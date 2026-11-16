@@ -25,6 +25,10 @@ const tempAttempts = 10000
 // instead of spinning.
 const maxLinks = 255
 
+// afterTempWrite, when not nil, is called with the temp file's name once the
+// data is in it. It is a test seam, nil outside tests.
+var afterTempWrite func(name string)
+
 // atomicWrite replaces path with data so that a reader sees either the old or
 // the new content, never a mix: it writes and fsyncs a temp file in the same
 // directory, renames it over path and, on Unix, fsyncs the directory. A new
@@ -52,20 +56,25 @@ func atomicWrite(path string, data []byte) (err error) {
 			_ = os.Remove(tmpName)
 		}
 	}()
+	// Give the temp file the existing file's mode before any data is in it, so
+	// the new content is never readable more widely than the old was.
+	if statErr == nil {
+		if err = os.Chmod(tmpName, info.Mode().Perm()); err != nil {
+			return err
+		}
+	}
 
 	if _, err = tmp.Write(data); err != nil {
 		return err
+	}
+	if afterTempWrite != nil {
+		afterTempWrite(tmpName)
 	}
 	if err = tmp.Sync(); err != nil {
 		return err
 	}
 	if err = tmp.Close(); err != nil {
 		return err
-	}
-	if statErr == nil {
-		if err = os.Chmod(tmpName, info.Mode().Perm()); err != nil {
-			return err
-		}
 	}
 
 	for attempt := 1; ; attempt++ {
