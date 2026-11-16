@@ -52,9 +52,11 @@ func (l *diskList) validateIDs() error {
 		ids = append(ids, c.ID)
 	}
 	for i, t := range l.Tasks {
-		task := titled("task", t.Title, fmt.Sprintf("tasks[%d]", i))
+		// The name is built only for a malformed ID: this runs on every load
+		// and write.
+		task := func() string { return titled("task", t.Title, fmt.Sprintf("tasks[%d]", i)) }
 		if !validID(t.ID) {
-			return malformed(task, t.ID)
+			return malformed(task(), t.ID)
 		}
 		ids = append(ids, t.ID)
 		for j, s := range t.Subtasks {
@@ -62,7 +64,7 @@ func (l *diskList) validateIDs() error {
 				if s.Title == "" {
 					return malformed(fmt.Sprintf("tasks[%d].subtasks[%d]", i, j), s.ID)
 				}
-				return malformed(fmt.Sprintf("subtask %q of %s", s.Title, task), s.ID)
+				return malformed(fmt.Sprintf("subtask %q of %s", s.Title, task()), s.ID)
 			}
 			ids = append(ids, s.ID)
 		}
