@@ -68,7 +68,7 @@ func TestChangedRacyStat(t *testing.T) {
 	path := tempPath(t)
 	s := jsonfile.New(jsonfile.Config[doc]{Path: path})
 	f := mustUpdate(t, s, setN(1)).Wrote
-	tick := time.Now().Truncate(time.Second)
+	tick := time.Now()
 	if err := os.Chtimes(path, tick, tick); err != nil {
 		t.Fatal(err)
 	}
