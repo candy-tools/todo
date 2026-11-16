@@ -79,6 +79,12 @@ func parseDoc(t testing.TB, src string) *todo.Document {
 	return d
 }
 
+// newTask returns a task titled title, with description desc, in state st,
+// not yet placed in a tree.
+func newTask(title, desc string, st todo.Status) *todo.Item {
+	return &todo.Item{Kind: todo.Task, Title: title, Description: desc, Status: st}
+}
+
 // send applies msg and returns the updated model.
 func send(m model, msg tea.Msg) model {
 	nm, _ := m.Update(msg)

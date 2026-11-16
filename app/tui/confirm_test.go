@@ -8,13 +8,13 @@ import (
 )
 
 func TestDeletionQuestion(t *testing.T) {
-	leaf := todo.NewTask("solo", "", false)
+	leaf := newTask("solo", "", todo.Open)
 	if got := deletionQuestion(leaf); strings.Contains(got, "nested") {
 		t.Errorf("a leaf task should not mention nested items: %q", got)
 	}
-	parent := todo.NewTask("p", "", false)
-	parent.AppendChild(todo.NewTask("c1", "", false))
-	parent.AppendChild(todo.NewTask("c2", "", false))
+	parent := newTask("p", "", todo.Open)
+	parent.AppendChild(newTask("c1", "", todo.Open))
+	parent.AppendChild(newTask("c2", "", todo.Open))
 	if got := deletionQuestion(parent); !strings.Contains(got, "2 nested") {
 		t.Errorf("parent question should count 2 nested items: %q", got)
 	}

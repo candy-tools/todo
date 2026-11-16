@@ -169,7 +169,7 @@ func TestImportCleansTitlesAndAssignsIDs(t *testing.T) {
 	doc := &Document{}
 	cat := &Item{Kind: Category, Level: 1, Title: "  A  "}
 	doc.AppendRoot(cat)
-	cat.AppendChild(NewTask(" t ", "", false))
+	cat.AppendChild(&Item{Kind: Task, Title: " t "})
 	if _, err := importInto(context.Background(), s, doc, false); err != nil {
 		t.Fatal(err)
 	}

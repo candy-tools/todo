@@ -269,48 +269,10 @@ func (it *Item) EnclosingCategory() *Item {
 	return nil
 }
 
-// NewTask builds a task item (with no children or parent set yet). The done
-// flag maps to Done or Open; a caller wanting another state (Working, Deferred,
-// …) sets Status afterwards.
-func NewTask(title, description string, done bool) *Item {
-	st := Open
-	if done {
-		st = Done
-	}
-	return &Item{Kind: Task, Title: title, Description: description, Status: st}
-}
-
 // AppendChild appends c as the last child of it, setting c.Parent.
 func (it *Item) AppendChild(c *Item) {
 	c.Parent = it
 	it.Children = append(it.Children, c)
-}
-
-// AppendTask adds task as the last *task* child of it — before any
-// subcategory children — and sets task.Parent. This preserves the invariant
-// that a category's direct tasks precede its subcategories, which the move
-// rules (crossUp/crossDown) and the displayed tree depend on. For a task
-// parent (a subtask) there are no category children, so it simply appends.
-func (it *Item) AppendTask(task *Item) {
-	insertBeforeCategories(it, task)
-}
-
-// insertBeforeCategories inserts c among parent's children just before the
-// first category child — after every direct task, or at the end when there is
-// no category child — and sets c.Parent. For a task c that is its last task;
-// for a category c it is its first subcategory.
-func insertBeforeCategories(parent, c *Item) {
-	c.Parent = parent
-	pos := len(parent.Children)
-	for i, ch := range parent.Children {
-		if ch.Kind == Category {
-			pos = i
-			break
-		}
-	}
-	parent.Children = append(parent.Children, nil)
-	copy(parent.Children[pos+1:], parent.Children[pos:])
-	parent.Children[pos] = c
 }
 
 // Clone returns a deep copy of the document: every item is copied, with its
@@ -355,25 +317,6 @@ func (d *Document) siblings(it *Item) (list []*Item, idx int, found bool) {
 		}
 	}
 	return list, -1, false
-}
-
-// InsertAfter inserts sib immediately after ref among ref's peers, giving sib
-// the same parent as ref. It is a no-op (returning false) if ref is not found.
-func (d *Document) InsertAfter(ref, sib *Item) bool {
-	list, idx, ok := d.siblings(ref)
-	if !ok {
-		return false
-	}
-	sib.Parent = ref.Parent
-	list = append(list, nil)
-	copy(list[idx+2:], list[idx+1:])
-	list[idx+1] = sib
-	if ref.Parent != nil {
-		ref.Parent.Children = list
-	} else {
-		d.Roots = list
-	}
-	return true
 }
 
 // Remove detaches it from the tree. It is a no-op (returning false) if it is
@@ -426,7 +369,7 @@ func (it *Item) TaskCounts() (done, total int) {
 // cascade-complete can be reverted to the exact prior state — including the
 // task's own board state, such as Working or Review. It is the in-memory snapshot behind the "I
 // marked the parent done by accident" undo; keyed by ID, it outlives a reload of
-// the document, and it is what Store.SetStatuses writes back.
+// the document, and it is what StateOptions.Restore writes back.
 type DoneStates map[string]Status
 
 // SnapshotDone captures the Status of it and all its descendant tasks, by ID.
@@ -436,30 +379,6 @@ func SnapshotDone(it *Item) DoneStates {
 		s[d.ID] = d.Status
 	}
 	return s
-}
-
-// ApplyStatuses sets the in-memory Status of every item of d whose ID s
-// records. IDs d does not hold (an item deleted since the snapshot) are skipped.
-func (d *Document) ApplyStatuses(s DoneStates) {
-	for _, it := range d.Enumerate() {
-		if st, ok := s[it.ID]; ok {
-			it.Status = st
-		}
-	}
-}
-
-// CascadeSetDone sets it and every descendant task to Done (done=true) or Open
-// (done=false) — the behaviour where completing a parent completes all its
-// children.
-func CascadeSetDone(it *Item, done bool) {
-	st := Open
-	if done {
-		st = Done
-	}
-	it.Status = st
-	for _, d := range it.Descendants() {
-		d.Status = st
-	}
 }
 
 // fullyDone reports whether it is a task that is done and whose every nested

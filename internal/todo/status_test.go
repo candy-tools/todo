@@ -119,7 +119,7 @@ func TestNeedsPlan(t *testing.T) {
 		{todo.Ready, "docs/p.md", false}, {todo.New, "", false},
 	}
 	for _, c := range cases {
-		it := todo.NewTask("t", "", false)
+		it := newTask("t", "", todo.Open)
 		it.Status, it.Plan = c.st, c.plan
 		if got := it.NeedsPlan(); got != c.want {
 			t.Errorf("NeedsPlan(%v,%q) = %v, want %v", c.st, c.plan, got, c.want)
@@ -133,9 +133,9 @@ func TestNeedsPlan(t *testing.T) {
 
 func TestIsSubtask(t *testing.T) {
 	cat := &todo.Item{Kind: todo.Category, Title: "c", Level: 1}
-	parent := todo.NewTask("p", "", false)
-	child := todo.NewTask("c", "", false)
-	cat.AppendTask(parent)
+	parent := newTask("p", "", todo.Open)
+	child := newTask("c", "", todo.Open)
+	cat.AppendChild(parent)
 	parent.AppendChild(child)
 	if cat.IsSubtask() || parent.IsSubtask() {
 		t.Error("category and task under a category are not subtasks")

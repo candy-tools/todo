@@ -104,9 +104,13 @@ func fromDisk(l diskList) *Document {
 		}
 		it.Status, _ = statusFromDisk(t.Status)
 		for _, s := range t.Subtasks {
-			sub := NewTask(s.Title, s.Description, s.Done)
-			sub.ID, sub.Plan = s.ID, s.Plan
-			it.AppendChild(sub)
+			st := Open
+			if s.Done {
+				st = Done
+			}
+			it.AppendChild(&Item{
+				ID: s.ID, Kind: Task, Title: s.Title, Status: st, Description: s.Description, Plan: s.Plan,
+			})
 		}
 		cats[t.Category].AppendChild(it)
 	}

@@ -8,8 +8,8 @@ import (
 
 func TestReopenTarget(t *testing.T) {
 	cat := &Item{Kind: Category, Title: "C"}
-	task := NewTask("task", "", true)
-	sub := NewTask("sub", "", true)
+	task := &Item{Kind: Task, Title: "task", Status: Done}
+	sub := &Item{Kind: Task, Title: "sub", Status: Done}
 	cat.AppendChild(task)
 	task.AppendChild(sub)
 
