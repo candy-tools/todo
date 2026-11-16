@@ -185,7 +185,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case reloadTickMsg:
 		// Probe the store and re-arm the next tick; the probe runs off-goroutine.
-		return m, tea.Batch(m.startProbe(), pollCmd())
+		// startProbe marks the probe in flight on m, so it runs before m is
+		// returned.
+		probe := m.startProbe()
+		return m, tea.Batch(probe, pollCmd())
 	case probeMsg:
 		return m.handleProbe(msg)
 	case tea.KeyMsg:
