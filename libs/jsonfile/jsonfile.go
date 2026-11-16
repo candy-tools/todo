@@ -63,7 +63,8 @@ func (e *InvalidError) Is(target error) bool { return target == ErrInvalid }
 
 // Config configures a Store.
 type Config[T any] struct {
-	// Path is the JSON file. The lock file is Path + ".lock".
+	// Path is the JSON file. The lock file is Path + ".lock" (or, when Path
+	// is a symlink, the linked file's path + ".lock").
 	Path string
 	// LockTimeout is how long Update waits for the lock before failing with
 	// ErrBusy. Zero or negative means DefaultLockTimeout.
@@ -122,12 +123,15 @@ func (s *Store[T]) Path() string { return s.path }
 // file that fails to decode or validate gives an *InvalidError, along with the
 // fingerprint of the bytes read.
 func (s *Store[T]) Load() (T, Fingerprint, error) {
-	return s.read()
+	return s.read(s.path)
 }
 
 // Update runs a locked read-modify-write. It waits up to the lock timeout for
 // the lock on Path + ".lock" (ErrBusy when it gives up, or ctx's error when
-// ctx is cancelled), then reads the file as Load does. An unreadable or
+// ctx is cancelled), then reads the file as Load does. When Path is a symlink,
+// Update works on the file it points at: the lock is that file's + ".lock",
+// so Stores on different links to one file share one lock, and the write
+// replaces that file, leaving the link in place. An unreadable or
 // invalid file is returned as an error and never overwritten. Otherwise fn
 // gets the fresh value (the zero T for a missing file) and may change it. When
 // fn returns an error, or changed == false, nothing is written. Otherwise the
@@ -135,13 +139,17 @@ func (s *Store[T]) Load() (T, Fingerprint, error) {
 // nothing), encoded as indented JSON, and atomically replaces the file. On
 // error the Result is the zero value.
 func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err error)) (Result[T], error) {
-	unlock, err := s.lock(ctx)
+	path, err := resolveLinks(s.path)
+	if err != nil {
+		return Result[T]{}, err
+	}
+	unlock, err := s.lock(ctx, path+".lock")
 	if err != nil {
 		return Result[T]{}, err
 	}
 	defer unlock()
 
-	v, read, err := s.read()
+	v, read, err := s.read(path)
 	if err != nil {
 		return Result[T]{}, err
 	}
@@ -164,18 +172,20 @@ func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err 
 	if err != nil {
 		return Result[T]{}, err
 	}
-	if err := atomicWrite(s.path, data); err != nil {
+	if err := atomicWrite(path, data); err != nil {
 		return Result[T]{}, err
 	}
 	return Result[T]{Value: v, Read: read, Wrote: sha256.Sum256(data), Written: true}, nil
 }
 
-// lock takes the exclusive lock on the lock file and returns its release.
-func (s *Store[T]) lock(ctx context.Context) (func(), error) {
+// lock takes the exclusive lock on the lock file at path and returns its
+// release. A new lock file gets mode 0o666 less the umask, as the data file
+// does.
+func (s *Store[T]) lock(ctx context.Context, path string) (func(), error) {
 	lockCtx, cancel := context.WithTimeout(ctx, s.lockTimeout)
 	defer cancel()
 
-	fl := flock.New(s.path + ".lock")
+	fl := flock.New(path, flock.SetPermissions(0o666))
 	ok, err := fl.TryLockContext(lockCtx, lockRetry)
 	if ok {
 		return func() { _ = fl.Unlock() }, nil
@@ -189,10 +199,11 @@ func (s *Store[T]) lock(ctx context.Context) (func(), error) {
 	return nil, fmt.Errorf("jsonfile: lock %s: %w", fl.Path(), err)
 }
 
-// read reads, fingerprints, decodes and validates the file.
-func (s *Store[T]) read() (T, Fingerprint, error) {
+// read reads, fingerprints, decodes and validates the file at path (the
+// Store's path, or the file it links to).
+func (s *Store[T]) read(path string) (T, Fingerprint, error) {
 	var zero T
-	data, err := os.ReadFile(s.path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is the Store's own file (Config.Path or the file it links to)
 	if errors.Is(err, fs.ErrNotExist) {
 		return zero, Missing, nil
 	}
