@@ -53,10 +53,13 @@ type model struct {
 	// poll loop asks the store whether the file changed since, to tell an
 	// external write (reload) from the app's own (ignore).
 	lastFP todo.Fingerprint
-	// ownRead is the fingerprint the app's last own write found the file at
-	// (its WriteResult.Read). A probe that raced that write can still deliver
-	// the file at ownRead afterwards; handleReload ignores it (see there).
-	ownRead todo.Fingerprint
+	// docGen counts the lists the model took (see take); a probe carries the
+	// count it started at, so a late one is told from a current one even when
+	// the file went back to the same bytes in between.
+	docGen uint64
+	// probing is true while a probe of the file is in flight; no other starts
+	// until its message arrives (see startProbe).
+	probing bool
 	err     error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
 	// pollErr is the poll failure last put in err, kept to show each distinct
 	// poll failure once and to clear it when a later poll succeeds.
@@ -109,7 +112,8 @@ type model struct {
 	// snapshots holds, per task ID completed in this session, the states of the
 	// task and its subtasks captured at completion time, so un-completing it can
 	// restore them (the accidental-complete undo). Keyed by ID, it survives the
-	// reload after the app's own write; an external reload clears it.
+	// app's own writes; an external change clears it as soon as a write or a
+	// poll finds it, even when the poll defers the reload.
 	snapshots map[string]todo.DoneStates
 	status    string // transient one-line footer message
 	version   string // the app version shown in the header
@@ -181,14 +185,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case reloadTickMsg:
 		// Probe the store and re-arm the next tick; the probe runs off-goroutine.
-		return m, tea.Batch(m.reloadCheckCmd(), pollCmd())
-	case storeReloadedMsg:
-		return m.handleReload(msg)
-	case reloadFailedMsg:
-		return m.handleReloadFailed(msg)
-	case reloadRecoveredMsg:
-		m.clearPollErr()
-		return m, nil
+		return m, tea.Batch(m.startProbe(), pollCmd())
+	case probeMsg:
+		return m.handleProbe(msg)
 	case tea.KeyMsg:
 		nm, cmd := m.updateKey(msg)
 		// In the split view the task list follows the sidebar's category,

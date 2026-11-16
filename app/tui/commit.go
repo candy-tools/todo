@@ -100,8 +100,7 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 		return false
 	}
 	external := r.Read != m.lastFP
-	m.ownRead = r.Read
-	m.doc, m.lastFP = r.Doc, r.Wrote
+	m.take(r.Doc, r.Wrote)
 	// The write read and validated the file, so earlier poll failures are
 	// over: a later one counts from zero.
 	m.clearPollErr()
@@ -110,6 +109,15 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 		m.noteExternal()
 	}
 	return true
+}
+
+// take makes doc, read from the file at fingerprint fp, the list the model
+// shows, and starts a new generation of it: a probe started before reports on
+// a list the model no longer shows (see handleProbe), even when fp is the
+// fingerprint it started from (a change and its undo leave the same bytes).
+func (m *model) take(doc *todo.Document, fp todo.Fingerprint) {
+	m.doc, m.lastFP = doc, fp
+	m.docGen++
 }
 
 // reload loads the list for commit after a failed write, which left no
@@ -122,7 +130,7 @@ func (m *model) reload(ctx context.Context) {
 		return
 	}
 	external := fp != m.lastFP
-	m.doc, m.lastFP = doc, fp
+	m.take(doc, fp)
 	if external {
 		m.noteExternal()
 	}

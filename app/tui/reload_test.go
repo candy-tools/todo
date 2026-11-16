@@ -14,6 +14,7 @@ import (
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // halfWritten is a list file cut off mid-write, as another tool writing in
@@ -31,24 +32,27 @@ func externalAddTask(t *testing.T, path, title string, parentID, afterID string)
 	return id
 }
 
-// pollOnce runs one change probe and feeds its message, which must not be
-// nil, to the model.
+// pollOnce runs one change probe, which must report a change or a failure,
+// and feeds its message to the model.
 func pollOnce(t *testing.T, m model) model {
 	t.Helper()
-	msg := reloadCheck(m.store, m.lastFP)
-	if msg == nil {
+	p := m.reloadCheckCmd()().(probeMsg)
+	if p.msg == nil {
 		t.Fatal("expected the poll to report a change")
 	}
-	return send(m, msg)
+	return send(m, p)
 }
 
-// pollCmdOnce runs one poll the way the tick does and feeds its message, if
-// any, to the model.
+// pollCmdOnce runs one poll the way the tick does and feeds its message to
+// the model.
 func pollCmdOnce(m model) model {
-	if msg := m.reloadCheckCmd()(); msg != nil {
-		return send(m, msg)
-	}
-	return m
+	return send(m, m.reloadCheckCmd()())
+}
+
+// deliver feeds msg to m as the report of a probe started from the list m
+// shows now.
+func deliver(m model, msg tea.Msg) model {
+	return send(m, probeMsg{gen: m.docGen, msg: msg})
 }
 
 // readList returns the bytes of the list file at path.
@@ -655,7 +659,7 @@ func TestReloadDeferredWhileGrabbed(t *testing.T) {
 
 func TestReloadIgnoresOwnFingerprint(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = send(m, storeReloadedMsg{doc: parseDoc(t, "# Work\n\n- [ ] zzz\n"), fp: m.lastFP})
+	m = deliver(m, storeReloadedMsg{doc: parseDoc(t, "# Work\n\n- [ ] zzz\n"), fp: m.lastFP})
 	if find(m.doc, "zzz") != nil {
 		t.Errorf("a reload at the fingerprint the model already has must be ignored")
 	}
@@ -671,8 +675,8 @@ func TestProbeRacingOwnWriteIsIgnored(t *testing.T) {
 	if _, err := openSecond(t, path).Edit(context.Background(), find(m.doc, "b").ID, todo.Changes{Title: &title}); err != nil {
 		t.Fatalf("external edit: %v", err)
 	}
-	late := reloadCheck(m.store, m.lastFP) // the probe started before the commit
-	if _, ok := late.(storeReloadedMsg); !ok {
+	late := m.reloadCheckCmd()() // the probe started before the commit
+	if _, ok := late.(probeMsg).msg.(storeReloadedMsg); !ok {
 		t.Fatalf("precondition: the probe must load the outside write, got %#v", late)
 	}
 
@@ -693,6 +697,103 @@ func TestProbeRacingOwnWriteIsIgnored(t *testing.T) {
 	}
 	if msg := reloadCheck(m.store, m.lastFP); msg != nil {
 		t.Errorf("the view must match the file, got %#v", msg)
+	}
+}
+
+// TestProbeOutOfOrderIsIgnored has a probe load one outside write, a second
+// outside write land, and the app write before the probe's message arrives:
+// the write found and adopted the second outside write, so the late message,
+// which holds neither of the two later lists, must not roll the view back.
+func TestProbeOutOfOrderIsIgnored(t *testing.T) {
+	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n- [/] b\n", todo.ColInProgress)
+	work := find(m.doc, "Work").ID
+	externalAddTask(t, path, "x", work, "")
+	late := m.reloadCheckCmd()() // the probe loads x, then its message waits
+	externalAddTask(t, path, "y", work, "")
+
+	m = pickState(t, selectTitle(t, m, "a"), todo.Done)
+	if m.err != nil || find(m.doc, "y") == nil {
+		t.Fatalf("precondition: the write must adopt the outside writes: err %v, rows %v", m.err, rowTitles(m.tree))
+	}
+	m = send(m, late)
+	if a := find(m.doc, "a"); a == nil || a.Status != todo.Done || find(m.doc, "y") == nil {
+		t.Errorf("the late probe rolled the view back: a = %v, rows %v", a, rowTitles(m.tree))
+	}
+	if msg := reloadCheck(m.store, m.lastFP); msg != nil {
+		t.Errorf("the view must match the file, got %#v", msg)
+	}
+}
+
+// TestProbeAcrossOwnABAIsIgnored starts a probe, then has the app change a
+// task's state and change it back, which leaves the file's bytes, and so its
+// fingerprint, as the probe started from. The probe read the file in between:
+// its message must not put that in-between list on screen.
+func TestProbeAcrossOwnABAIsIgnored(t *testing.T) {
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
+	start := m.lastFP
+	probe := m.reloadCheckCmd() // started now, run below
+	m = pickState(t, selectTitle(t, m, "a"), todo.Review)
+	late := probe() // reads the file with a in review
+	m = pickState(t, selectTitle(t, m, "a"), todo.Working)
+	if m.err != nil || m.lastFP != start {
+		t.Fatalf("precondition: the two writes must restore the file's bytes: err %v", m.err)
+	}
+
+	m = send(m, late)
+	if a := find(m.doc, "a"); a == nil || a.Status != todo.Working {
+		t.Errorf("the stale probe put the in-between list on screen: a = %v", a)
+	}
+}
+
+// TestNoProbeWhileOneIsInFlight sends ticks: the first starts a probe, and no
+// other starts until its message has arrived.
+func TestNoProbeWhileOneIsInFlight(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = send(m, reloadTickMsg{})
+	if !m.probing {
+		t.Fatal("a tick must start a probe")
+	}
+	if cmd := m.startProbe(); cmd != nil {
+		t.Error("a second probe must not start while one is in flight")
+	}
+	m = send(m, m.reloadCheckCmd()()) // the probe's message
+	if m.probing {
+		t.Error("the probe's message must end it")
+	}
+	if cmd := m.startProbe(); cmd == nil {
+		t.Error("the next tick must start a probe again")
+	}
+}
+
+// TestDeferredReloadDropsUndo completes a task and opens the state picker to
+// undo it. Meanwhile another writer reopens a subtask, which a poll finds but
+// defers (the picker is open), and completes it again, which puts the file
+// back to the bytes the complete left. The undo must still not write the
+// snapshot over that writer's change: a detected reload drops the snapshots
+// even when it is deferred.
+func TestDeferredReloadDropsUndo(t *testing.T) {
+	m, path := completedWithSnapshot(t)
+	other, c1 := openSecond(t, path), find(m.doc, "c1").ID
+	m = press(m, "t")
+	if _, err := other.SetState(context.Background(), c1, todo.Open, todo.StateOptions{}); err != nil {
+		t.Fatalf("other writer: %v", err)
+	}
+	m = pollCmdOnce(m)
+	if m.mode != modeStatePick || find(m.doc, "c1").Status != todo.Done {
+		t.Fatalf("precondition: the reload must be deferred while the picker is open")
+	}
+	if _, err := other.SetState(context.Background(), c1, todo.Done, todo.StateOptions{}); err != nil {
+		t.Fatalf("other writer: %v", err)
+	}
+
+	m = press(m, "enter") // the picker started on the state before the complete
+	if m.err != nil {
+		t.Fatalf("the undo failed: %v", m.err)
+	}
+	for title, want := range map[string]todo.Status{"parent": todo.Working, "c1": todo.Done, "c2": todo.Done} {
+		if got := statusIn(t, path, title); got != want {
+			t.Errorf("%s = %v after the undo, want %v", title, got, want)
+		}
 	}
 }
 
@@ -1153,7 +1254,7 @@ func TestFileRemovedMidPollKeepsView(t *testing.T) {
 	if f, ok := msg.(reloadFailedMsg); !ok || !errors.Is(f.err, errListRemoved) {
 		t.Fatalf("a file gone by the load must be reported as errListRemoved, got %#v", msg)
 	}
-	m = send(m, msg)
+	m = deliver(m, msg)
 	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
 		t.Errorf("rows = %v, want %v", got, rows)
 	}

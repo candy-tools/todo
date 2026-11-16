@@ -28,14 +28,21 @@ var errListRemoved = errors.New("list file was removed")
 // check and re-arms the next tick.
 type reloadTickMsg struct{}
 
+// probeMsg is what one probe of the list file reports: msg is nil when the
+// file is unchanged, else a storeReloadedMsg or a reloadFailedMsg. gen is the
+// generation of the model's list when the probe started (see model.docGen):
+// a probe that started before the model took another list reports on a file
+// the model no longer shows, so it is ignored.
+type probeMsg struct {
+	gen uint64
+	msg tea.Msg
+}
+
 // storeReloadedMsg carries a document freshly loaded from the store after its
-// file changed, together with the fingerprint of the bytes it came from (used
-// to tell the app's own writes apart from external ones) and the fingerprint
-// the probe compared against (the model's lastFP when the probe started).
+// file changed, together with the fingerprint of the bytes it came from.
 type storeReloadedMsg struct {
-	doc   *todo.Document
-	fp    todo.Fingerprint
-	since todo.Fingerprint
+	doc *todo.Document
+	fp  todo.Fingerprint
 }
 
 // reloadFailedMsg reports that the poll could not read the list: the file was
@@ -44,28 +51,47 @@ type storeReloadedMsg struct {
 // footer once enough polls in a row failed (see handleReloadFailed).
 type reloadFailedMsg struct{ err error }
 
-// reloadRecoveredMsg reports that a poll found the file unchanged after polls
-// that failed — it was put back as the model last loaded it — so the failure
-// count is reset and the failure taken out of the footer.
-type reloadRecoveredMsg struct{}
-
 // pollCmd schedules the next reload tick.
 func pollCmd() tea.Cmd {
 	return tea.Tick(pollInterval, func(time.Time) tea.Msg { return reloadTickMsg{} })
 }
 
-// reloadCheckCmd probes the store off the UI goroutine. The probe only reads
-// (Changed and Load); every write runs on the UI goroutine. While polls are
-// failing, a probe that finds the file unchanged reports the recovery.
-func (m model) reloadCheckCmd() tea.Cmd {
-	st, last, failing := m.store, m.lastFP, m.pollFails > 0
-	return func() tea.Msg {
-		msg := reloadCheck(st, last)
-		if msg == nil && failing {
-			return reloadRecoveredMsg{}
-		}
-		return msg
+// startProbe starts a probe of the list file, unless one is in flight: then
+// it returns nil, and the tick after its message starts the next one.
+func (m *model) startProbe() tea.Cmd {
+	if m.probing {
+		return nil
 	}
+	m.probing = true
+	return m.reloadCheckCmd()
+}
+
+// reloadCheckCmd probes the store off the UI goroutine and reports what it
+// found as a probeMsg. The probe only reads (Changed and Load); every write
+// runs on the UI goroutine.
+func (m model) reloadCheckCmd() tea.Cmd {
+	st, last, gen := m.store, m.lastFP, m.docGen
+	return func() tea.Msg { return probeMsg{gen: gen, msg: reloadCheck(st, last)} }
+}
+
+// handleProbe takes a probe's report. A stale one, from a probe that started
+// before the model took its current list, is ignored: the next tick probes
+// again from that list and finds anything newer. Otherwise an unchanged file
+// ends a run of failed polls (it was put back as the model last loaded it),
+// and a reload or a failure is handled as such.
+func (m model) handleProbe(p probeMsg) (tea.Model, tea.Cmd) {
+	m.probing = false
+	if p.gen != m.docGen {
+		return m, nil
+	}
+	switch msg := p.msg.(type) {
+	case storeReloadedMsg:
+		return m.handleReload(msg)
+	case reloadFailedMsg:
+		return m.handleReloadFailed(msg)
+	}
+	m.clearPollErr()
+	return m, nil
 }
 
 // listReader is the read side of the store the poll uses (todo.Store).
@@ -98,7 +124,7 @@ func reloadCheck(st listReader, last todo.Fingerprint) tea.Msg {
 	if fp.IsMissing() {
 		return reloadFailedMsg{err: errListRemoved}
 	}
-	return storeReloadedMsg{doc: doc, fp: fp, since: last}
+	return storeReloadedMsg{doc: doc, fp: fp}
 }
 
 // handleReloadFailed counts a failed poll. Once pollFailsShown polls in a row
@@ -132,27 +158,22 @@ func (m *model) clearPollErr() {
 	m.pollErr = nil
 }
 
-// handleReload applies an external change. A message at the fingerprint the
-// model already has is ignored: nothing changed since the model took the list.
-// So is one from a probe that raced one of the app's own writes: started
-// before the commit (its since is no longer lastFP), it carries the file as
-// that write found it (ownRead), which the write's result already includes;
-// applying it would roll the view back until the next poll. A probe started
-// after the write is applied even at ownRead, as the file was put back to
-// those bytes since (a git checkout, say). While a modal is open or an item is
-// grabbed for moving the reload is deferred, so an edit is never yanked out
-// from under the user; the next tick re-detects it once they return to plain
-// navigation. The search bar is not a modal: a reload applies while it is
-// open.
+// handleReload applies an external change, found by a probe that started
+// from the list the model shows (see handleProbe). A message at the
+// fingerprint the model already has is ignored: nothing changed since the
+// model took the list. While a modal is open or an item is grabbed for moving
+// the reload is deferred, so an edit is never yanked out from under the user;
+// the next tick re-detects it once they return to plain navigation. The undo
+// snapshots are dropped at once all the same: the list changed under them,
+// even if someone changes it back before the reload applies. The search bar
+// is not a modal: a reload applies while it is open.
 func (m model) handleReload(msg storeReloadedMsg) (tea.Model, tea.Cmd) {
 	m.clearPollErr()
 	if msg.fp == m.lastFP {
 		return m, nil
 	}
-	if msg.fp == m.ownRead && msg.since != m.lastFP {
-		return m, nil
-	}
 	if !m.canApplyReload() {
+		m.snapshots = map[string]todo.DoneStates{}
 		return m, nil
 	}
 	m.applyReload(msg)
@@ -174,7 +195,7 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 	if sel := m.focused().selected(); sel != nil && !onPH {
 		focus = sel.ID
 	}
-	m.doc, m.lastFP = msg.doc, msg.fp
+	m.take(msg.doc, msg.fp)
 	m.adoptAll(msg.doc, focus, onPH)
 	m.noteExternal()
 }
