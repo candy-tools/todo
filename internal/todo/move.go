@@ -11,6 +11,181 @@ package todo
 // a category never nests under a task — refusing (returning false) any move
 // with nowhere valid to go rather than corrupting the tree.
 
+// MoveStep is one step of the TUI's move mode (see StepPlacement).
+type MoveStep int
+
+const (
+	// StepUp moves an item one place earlier in document order: a swap with
+	// the same-kind sibling before it or, first in its run, a crossing into
+	// the category before (see crossingUp).
+	StepUp MoveStep = iota
+	// StepDown moves an item one place later in document order: a swap with
+	// the same-kind sibling after it or, last in its run, a crossing into the
+	// category after (see crossingDown).
+	StepDown
+	// StepIn nests an item under the same-kind sibling before it, as that
+	// sibling's last child.
+	StepIn
+	// StepOut lifts an item out of its parent to sit right after it. A task
+	// lifts only out of a task: a task directly under a category stays there.
+	StepOut
+)
+
+// StepPlacement returns where step s takes item id, as the parentID and
+// afterID Move takes, without changing d. ok is false when the step has
+// nowhere to go, or Move refuses it: the step is made with Move on a copy of
+// d, so the op stays the one judge of what is valid.
+//
+// For StepUp and StepDown, shown, when not nil, says which items a view shows:
+// the step repeats until the item has passed one more shown item in document
+// order, or has entered another parent (one category per step, as when
+// nothing is hidden). When it runs out of room first, it only passed hidden
+// items, and ok is false. StepIn and StepOut ignore shown.
+func (d *Document) StepPlacement(id string, s MoveStep, shown func(id string) bool) (parentID, afterID string, ok bool) {
+	c := d.Clone()
+	it, found := c.ByID(id)
+	if !found {
+		return "", "", false
+	}
+	parent, before := it.Parent, c.shownBefore(it, shown)
+	for {
+		p, a, can := c.nextPlacement(it, s)
+		if !can || c.Move(id, p, a) != nil {
+			return "", "", false
+		}
+		if shown == nil || s == StepIn || s == StepOut || it.Parent != parent || c.shownBefore(it, shown) != before {
+			p, a = c.Placement(it)
+			return p, a, true
+		}
+	}
+}
+
+// shownBefore counts the items before it in document order that shown
+// reports true for; 0 when shown is nil.
+func (d *Document) shownBefore(it *Item, shown func(id string) bool) int {
+	n := 0
+	if shown == nil {
+		return n
+	}
+	for _, x := range d.Enumerate() {
+		if x == it {
+			break
+		}
+		if shown(x.ID) {
+			n++
+		}
+	}
+	return n
+}
+
+// nextPlacement returns where one step s takes it, as Move's parentID and
+// afterID, reading d only; ok is false when the step has nowhere to go.
+func (d *Document) nextPlacement(it *Item, s MoveStep) (parentID, afterID string, ok bool) {
+	list, idx, found := d.siblings(it)
+	if !found {
+		return "", "", false
+	}
+	if it.Parent != nil {
+		parentID = it.Parent.ID
+	}
+	sameKind := func(j int) bool { return j >= 0 && j < len(list) && list[j].Kind == it.Kind }
+	switch s {
+	case StepUp:
+		switch {
+		case sameKind(idx-1) && idx > 1:
+			return parentID, list[idx-2].ID, true
+		case sameKind(idx - 1):
+			return parentID, "", true
+		}
+		return d.crossingUp(it)
+	case StepDown:
+		if sameKind(idx + 1) {
+			return parentID, list[idx+1].ID, true
+		}
+		return d.crossingDown(it)
+	case StepIn:
+		if sameKind(idx - 1) {
+			prev := list[idx-1]
+			return prev.ID, lastChildID(prev.Children, len(prev.Children)), true
+		}
+	case StepOut:
+		p := it.Parent
+		if p != nil && (it.Kind == Category || p.Kind == Task) {
+			gp := ""
+			if p.Parent != nil {
+				gp = p.Parent.ID
+			}
+			return gp, p.ID, true
+		}
+	}
+	return "", "", false
+}
+
+// crossingDown is where a StepDown takes it when no same-kind sibling follows
+// it. A task, last in its category, goes in as the first task of that
+// category's first subcategory or, failing that, of the next category in
+// document order. A category, last in its run, becomes the first subcategory
+// of the next category. A subtask never crosses (its nesting changes with
+// StepOut), and ok is false when there is nowhere further to go.
+func (d *Document) crossingDown(it *Item) (parentID, afterID string, ok bool) {
+	p := it.Parent
+	if it.Kind == Task {
+		if p == nil || p.Kind != Category {
+			return "", "", false
+		}
+		if sc := firstSubcategory(p); sc != nil {
+			return sc.ID, "", true
+		}
+		if nc := d.nextSiblingCategory(p); nc != nil {
+			return nc.ID, "", true
+		}
+		return "", "", false
+	}
+	if nc := d.nextSiblingCategory(it); nc != nil {
+		return nc.ID, "", true // "" places a category first among the subcategories
+	}
+	return "", "", false
+}
+
+// crossingUp is the mirror of crossingDown. A task, first in its category,
+// goes to the end of the previous category's subtree, as the last task of
+// its deepest trailing category (so a StepUp retraces a StepDown one visible
+// row at a time), or, heading its parent's first subcategory, up into that
+// parent as its last task. A category, first in its run, becomes the last
+// subcategory of the category before its parent.
+func (d *Document) crossingUp(it *Item) (parentID, afterID string, ok bool) {
+	p := it.Parent
+	if p == nil {
+		return "", "", false // a first root category has nowhere above it
+	}
+	if it.Kind == Task {
+		if p.Kind != Category {
+			return "", "", false
+		}
+		if pc := d.prevSiblingCategory(p); pc != nil {
+			to := deepestTrailingCategory(pc)
+			return to.ID, lastChildID(to.Children, firstCategory(to.Children)), true
+		}
+		if pp := p.Parent; pp != nil && pp.Kind == Category {
+			return pp.ID, lastChildID(pp.Children, firstCategory(pp.Children)), true
+		}
+		return "", "", false
+	}
+	if pc := d.prevSiblingCategory(p); pc != nil {
+		return pc.ID, lastChildID(pc.Children, len(pc.Children)), true
+	}
+	return "", "", false
+}
+
+// lastChildID returns the ID of children[n-1], the last of the first n
+// children, or "" when n is 0.
+func lastChildID(children []*Item, n int) string {
+	if n == 0 {
+		return ""
+	}
+	return children[n-1].ID
+}
+
 // MoveUp moves it one step earlier in document order. Among same-kind siblings
 // that is a plain swap; at the start of its run it instead crosses into the
 // previous category (see crossUp), so pressing ↑ repeatedly walks a task or
