@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/candy-tools/todo/libs/jsonfile"
 )
 
 // newStore returns a store on a missing .todo.json in a temporary directory.
@@ -286,6 +290,23 @@ func TestStoreExistingRefusesMissingDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the directory was created: stat err = %v", err)
+	}
+}
+
+// TestStoreExistingKeepsOtherNotExistErrors has a write through Existing fail
+// with a not-exist error of its own while the list is there: that error is
+// returned as it is, not taken for a missing list.
+func TestStoreExistingKeepsOtherNotExistErrors(t *testing.T) {
+	s := newStore(t)
+	if _, _, err := s.AppendCategory(context.Background(), "A", ""); err != nil {
+		t.Fatal(err)
+	}
+	cause := fmt.Errorf("open backup dir: %w", fs.ErrNotExist)
+	_, err := s.Existing().update(context.Background(), func(*Document, jsonfile.Snapshot) (bool, error) {
+		return false, cause
+	})
+	if errors.Is(err, ErrListMissing) || !errors.Is(err, cause) {
+		t.Errorf("err = %v, want the write's own error, not ErrListMissing", err)
 	}
 }
 

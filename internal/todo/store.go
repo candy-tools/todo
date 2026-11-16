@@ -140,10 +140,8 @@ func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, e
 // update is write with fn also given the Snapshot of the file as the write
 // read it under the lock.
 func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Snapshot) (changed bool, err error)) (WriteResult, error) {
-	if s.mustExist {
-		if _, err := os.Stat(s.Path()); errors.Is(err, fs.ErrNotExist) {
-			return WriteResult{}, ErrListMissing // not even the lock is taken
-		}
+	if s.mustExist && s.gone() {
+		return WriteResult{}, ErrListMissing // not even the lock is taken
 	}
 	res, err := s.file.Update(ctx, func(l *diskList, cur jsonfile.Snapshot) (bool, error) {
 		if s.mustExist && !cur.Exists {
@@ -157,7 +155,7 @@ func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Sn
 		*l = toDisk(d)
 		return true, nil
 	})
-	if s.mustExist && errors.Is(err, fs.ErrNotExist) {
+	if s.mustExist && errors.Is(err, fs.ErrNotExist) && s.gone() {
 		return WriteResult{}, ErrListMissing // the directory went before the lock
 	}
 	if err != nil {
@@ -166,6 +164,12 @@ func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Sn
 	// The Document is rebuilt from what was written, so it matches what a
 	// Load of the file returns.
 	return WriteResult{Doc: fromDisk(res.Value), Read: res.Read, Wrote: res.Wrote, Written: res.Written}, nil
+}
+
+// gone reports whether the list file, or its directory, does not exist.
+func (s *Store) gone() bool {
+	_, err := os.Stat(s.Path())
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 // mapErr turns jsonfile's errors into the package's: a lock timeout is
