@@ -451,7 +451,7 @@ func TestReloadFailureDistinctShown(t *testing.T) {
 	m = failPolls(t, m, path, good, 4, 3)
 	m.err = errors.New("save failed: boom")
 	m = failPolls(t, m, path, good, 5, 1)
-	if got := m.footer(200); !strings.Contains(got, "schema 5") {
+	if got := m.footer(200); !strings.Contains(got, "format version 5") {
 		t.Errorf("a distinct reload failure must be shown, got %q", got)
 	}
 }

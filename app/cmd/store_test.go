@@ -214,7 +214,7 @@ func TestOpenBusyIsConflict(t *testing.T) {
 }
 
 // Reading commands work while another process holds the writer lock on a store
-// already on the current schema: opening it writes nothing.
+// already in the current format: opening it writes nothing.
 func TestListWhileAnotherProcessWrites(t *testing.T) {
 	db := todotest.Seed(t, "# Work\n\n- [ ] a\n")
 	todotest.HoldWriteLock(t, db)

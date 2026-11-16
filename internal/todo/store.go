@@ -13,7 +13,7 @@ import (
 // newerSchemaError returns ErrNewerSchema wrapped with the format version
 // found in the file.
 func newerSchemaError(version int) error {
-	return fmt.Errorf("%w (schema %d); upgrade todo", ErrNewerSchema, version)
+	return fmt.Errorf("%w (format version %d); upgrade todo", ErrNewerSchema, version)
 }
 
 // Fingerprint identifies one version of the list file's content (see
@@ -82,6 +82,7 @@ func NewStore(path string, opts ...Option) *Store {
 	file := jsonfile.New(jsonfile.Config[diskList]{
 		Path:        path,
 		LockTimeout: cfg.busyTimeout, // jsonfile turns a non-positive one into the default
+		Decode:      decodeList,
 		Validate:    func(l *diskList) error { return l.validate() },
 	})
 	return &Store{file: file}

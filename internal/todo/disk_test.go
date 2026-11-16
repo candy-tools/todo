@@ -2,9 +2,11 @@ package todo_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -168,5 +170,70 @@ func TestUnmarshalUnknownField(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(`{"version":3,"categories":[],"tasks":[{"id":"aaaaaaa","bogus":1}]}`), &l); err == nil {
 		t.Error("want an error for a nested unknown field")
+	}
+}
+
+// A hand-edited list file that does not load fails with a message a person
+// can act on: where the problem is (line and column, or the item), in JSON
+// terms rather than Go's, and with the "invalid list file" prefix once.
+func TestListFileErrorMessages(t *testing.T) {
+	const good = `{"version": 3, "categories": [{"id": "aaaaaaa", "title": "C"}], "tasks": [` +
+		`{"id": "bbbbbbb", "category": "aaaaaaa", "title": "T", "status": "open", "subtasks": [{"id": "ccccccc", "title": "S"}]}]}`
+	cases := []struct{ name, content, want string }{
+		{"syntax error", "{\"version\": 3,\n  \"categories\": [,\n",
+			"invalid list file: line 2, column 18: invalid character ',' looking for beginning of value"},
+		{"truncated", `{"version": 3, "categories": [`,
+			"invalid list file: line 1, column 31: unexpected end of JSON input"},
+		{"wrong type", `{"version": 3, "categories": [{"id": "aaaaaaa", "title": 5}], "tasks": []}`,
+			"invalid list file: line 1, column 58: categories[0].title must be a string, not a number"},
+		{"wrong type in a subtask", strings.Replace(good, `"title": "S"`, `"title": "S", "done": "yes"`, 1),
+			"invalid list file: line 1, column 205: tasks[0].subtasks[0].done must be true or false, not a string"},
+		{"wrong type on a later line", "{\n  \"version\": 3,\n  \"categories\": {},\n  \"tasks\": []\n}",
+			"invalid list file: line 3, column 17: categories must be an array, not an object"},
+		{"not an object", `[]`,
+			"invalid list file: line 1, column 1: the file must hold a JSON object, not an array"},
+		{"version a string", `{"version": "3", "categories": [], "tasks": []}`,
+			`invalid list file: "version" must be a whole number, not "3"`},
+		{"version a fraction", `{"version": 3.5, "categories": [], "tasks": []}`,
+			`invalid list file: "version" must be a whole number, not 3.5`},
+		{"version missing", `{"categories": [], "tasks": []}`,
+			`invalid list file: no "version" field; this todo reads format version 3`},
+		{"version null", `{"version": null, "categories": [], "tasks": []}`,
+			`invalid list file: no "version" field; this todo reads format version 3`},
+		{"older version", `{"version": 2, "categories": [], "tasks": []}`,
+			"invalid list file: unsupported format version 2"},
+		{"newer version", `{"version": 4, "categories": [], "tasks": [], "tags": []}`,
+			"list was written by a newer todo (format version 4); upgrade todo"},
+		{"unknown top-level field", strings.Replace(good, `{"version": 3,`, `{"version": 3, "tags": [],`, 1),
+			`invalid list file: unknown field "tags"`},
+		{"unknown category field", strings.Replace(good, `"title": "C"`, `"title": "C", "color": "red"`, 1),
+			`invalid list file: category aaaaaaa: unknown field "color"`},
+		{"unknown task field", strings.Replace(good, `"status": "open"`, `"status": "open", "due": "today"`, 1),
+			`invalid list file: task bbbbbbb: unknown field "due"`},
+		{"unknown subtask field", strings.Replace(good, `"title": "S"`, `"title": "S", "due": "today"`, 1),
+			`invalid list file: subtask ccccccc of task bbbbbbb: unknown field "due"`},
+		{"unknown field in a task without an id", `{"version": 3, "categories": [], "tasks": [{"due": 1}]}`,
+			`invalid list file: tasks[0]: unknown field "due"`},
+		{"malformed task id", strings.Replace(good, `"bbbbbbb", "category"`, `"BB-1", "category"`, 1),
+			`invalid list file: task "T": malformed id "BB-1": an id is 7 characters from 0-9 and a-z except i, l, o and u`},
+		{"malformed subtask id", strings.Replace(good, `"ccccccc"`, `"cccccccc"`, 1),
+			`invalid list file: subtask "S" of task "T": malformed id "cccccccc": an id is 7 characters from 0-9 and a-z except i, l, o and u`},
+		{"empty title", strings.Replace(good, `"title": "T"`, `"title": ""`, 1),
+			"invalid list file: task bbbbbbb: invalid title: it must not be empty"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), ".todo.json")
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err := todo.NewStore(path).Load(context.Background())
+			if !errors.Is(err, todo.ErrInvalidList) {
+				t.Fatalf("Load = %v, want an ErrInvalidList", err)
+			}
+			if want := path + ": " + tc.want; err.Error() != want {
+				t.Errorf("Load error\n got %q\nwant %q", err, want)
+			}
+		})
 	}
 }

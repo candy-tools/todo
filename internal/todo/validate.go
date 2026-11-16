@@ -11,8 +11,8 @@ func invalidf(format string, args ...any) error {
 // in this order: version, malformed IDs, duplicate IDs, missing category
 // parents, parent cycles, missing task categories, unknown statuses, titles.
 func (l *diskList) validate() error {
-	if l.Version <= 0 {
-		return invalidf("unsupported version %d", l.Version)
+	if l.Version != fileVersion {
+		return invalidf("unsupported format version %d", l.Version)
 	}
 	if err := l.validateIDs(); err != nil {
 		return err
@@ -34,21 +34,33 @@ func (l *diskList) validate() error {
 	return l.validateTitles()
 }
 
-// validateIDs checks every ID is well formed, then that none repeats.
+// idRule says what a valid ID looks like (see validID).
+var idRule = fmt.Sprintf("an id is %d characters from 0-9 and a-z except i, l, o and u", idLen)
+
+// validateIDs checks every ID is well formed, then that none repeats. A
+// malformed ID is reported with the item that holds it, named by title, since
+// its ID cannot name it.
 func (l *diskList) validateIDs() error {
+	malformed := func(owner, id string) error {
+		return invalidf("%s: malformed id %q: %s", owner, id, idRule)
+	}
 	var ids []string
 	for _, c := range l.Categories {
+		if !validID(c.ID) {
+			return malformed(fmt.Sprintf("category %q", c.Title), c.ID)
+		}
 		ids = append(ids, c.ID)
 	}
 	for _, t := range l.Tasks {
+		if !validID(t.ID) {
+			return malformed(fmt.Sprintf("task %q", t.Title), t.ID)
+		}
 		ids = append(ids, t.ID)
 		for _, s := range t.Subtasks {
+			if !validID(s.ID) {
+				return malformed(fmt.Sprintf("subtask %q of task %q", s.Title, t.Title), s.ID)
+			}
 			ids = append(ids, s.ID)
-		}
-	}
-	for _, id := range ids {
-		if !validID(id) {
-			return invalidf("malformed id %q", id)
 		}
 	}
 	seen := make(map[string]bool, len(ids))
@@ -109,7 +121,7 @@ func (l *diskList) validateTitles() error {
 func checkTitle(kind, id, title string) error {
 	clean, err := CleanTitle(title)
 	if err != nil {
-		return invalidf("%s %s: title: %v", kind, id, err)
+		return invalidf("%s %s: %v", kind, id, err)
 	}
 	if clean != title {
 		return invalidf("%s %s: title has leading or trailing whitespace", kind, id)
