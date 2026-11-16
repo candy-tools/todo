@@ -139,7 +139,11 @@ func statusFromDisk(name string) (Status, bool) {
 
 // UnmarshalJSON decodes strictly: unknown fields fail. A version newer than
 // fileVersion is reported as ErrNewerSchema before anything else, since a newer
-// file may hold fields this binary does not know.
+// file may hold fields this binary does not know. "Strict" stops at key case:
+// encoding/json matches keys to fields case-insensitively, so a hand-edited
+// "Version" or "TITLE" is accepted as the field it folds to. That is harmless:
+// the value lands in the right field, and the next write rewrites the
+// canonical lowercase keys.
 func (l *diskList) UnmarshalJSON(b []byte) error {
 	var peek struct {
 		Version int `json:"version"`

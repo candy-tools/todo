@@ -71,7 +71,9 @@ type WriteResult struct {
 // Store is a TODO list kept in one JSON file. Every write is one locked
 // read-modify-write of the file as it is now (see write), so several Stores, in
 // one process or many, may share a path. Reads take no lock. A Store is safe
-// for concurrent use.
+// for concurrent reads and writes, but LastWrite describes the caller's own
+// write only while a single goroutine writes through the Store: with several,
+// it may be another goroutine's later write.
 type Store struct {
 	file        *jsonfile.Store[diskList]
 	busyTimeout time.Duration
@@ -138,7 +140,8 @@ func (s *Store) Changed(_ context.Context, since Fingerprint) (bool, Fingerprint
 
 // LastWrite returns the result of this Store's last successful write,
 // including one that changed nothing (Read == Wrote). It is the zero
-// WriteResult before the first.
+// WriteResult before the first. It is "this write's" result only when one
+// goroutine writes through the Store (see Store).
 func (s *Store) LastWrite() WriteResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
