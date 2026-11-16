@@ -61,7 +61,9 @@ func (m *model) noteLeftTab(id string) bool {
 //
 // On failure the list is loaded again, and handled the same way when it moved;
 // when that fails too, a copy of the document as last loaded is put back, so
-// the change the caller made in memory does not stay on screen as if saved.
+// the change the caller made in memory does not stay on screen as if saved. A
+// write that found the file removed and wrote nothing (clearing the done
+// tasks of the empty list a missing file reads as) is such a failure too.
 //
 // commit reports whether the write succeeded, so a caller can keep the user's
 // input to retry a failed save. write must run on the UI goroutine: LastWrite
@@ -85,6 +87,15 @@ func (m *model) commit(focusID string, write func(ctx context.Context) error) (s
 		m.reload(ctx)
 		m.adoptAll(m.doc, focusID, onPH)
 		return true
+	}
+	if r.Read == todo.Missing && r.Wrote == todo.Missing && m.lastFP != todo.Missing {
+		// The file is gone and the write, finding nothing to change in the
+		// empty list that reads as, wrote nothing: adopting that empty list
+		// would wipe the view the removed-file error keeps. Fail as removed.
+		m.err = fmt.Errorf("save failed: %w", errListRemoved)
+		m.doc = m.saved.Clone()
+		m.adoptAll(m.doc, focusID, onPH)
+		return false
 	}
 	external := r.Read != m.lastFP
 	// m.doc aliases r.Doc, the store's LastWrite().Doc, and the handlers

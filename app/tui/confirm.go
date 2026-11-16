@@ -153,15 +153,14 @@ func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	}
 	m.snapshots = map[string]todo.DoneStates{}
 	var removed int
-	var pruneErr error
-	m.commit(focus, func(ctx context.Context) error {
-		removed, pruneErr = m.store.Prune(ctx)
-		return pruneErr
+	saved := m.commit(focus, func(ctx context.Context) (err error) {
+		removed, err = m.store.Prune(ctx)
+		return err
 	})
 	if sel := m.focused().selected(); focus != "" && (sel == nil || sel.ID != focus) {
 		m.focused().selectTop() // sel was removed
 	}
-	if pruneErr == nil {
+	if saved {
 		m.status = fmt.Sprintf("Removed %d completed task(s).", removed)
 	}
 	return m, nil

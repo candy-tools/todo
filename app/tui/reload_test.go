@@ -309,6 +309,41 @@ func TestRemovedFileKeepsView(t *testing.T) {
 	}
 }
 
+// TestNoOpWriteWhileFileRemovedKeepsView removes the file and clears the done
+// tasks: the write finds an empty list with nothing to remove and writes
+// nothing. It must not adopt that empty list or clear the removed-file error:
+// it fails as removed, and the view keeps the list.
+func TestNoOpWriteWhileFileRemovedKeepsView(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [x] a\n- [ ] b\n")
+	rows, fp := rowTitles(m.tree), m.lastFP
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		m = pollCmdOnce(m)
+	}
+	if !errors.Is(m.err, errListRemoved) {
+		t.Fatalf("precondition: m.err = %v, want the removed-file error", m.err)
+	}
+
+	m = press(m, "D", "y")
+	if !errors.Is(m.err, errListRemoved) {
+		t.Errorf("m.err = %v, want the write to fail as removed", m.err)
+	}
+	if got := m.footer(200); !strings.Contains(got, "list file was removed") || strings.Contains(got, "Removed 0") {
+		t.Errorf("footer = %q, want the removed-file error", got)
+	}
+	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
+		t.Errorf("rows = %v, want %v", got, rows)
+	}
+	if m.lastFP != fp {
+		t.Errorf("lastFP moved to %x, want the last loaded %x", m.lastFP, fp)
+	}
+	if ok, err := todo.StoreExists(path); err != nil || ok {
+		t.Fatalf("a list file exists at the path after the no-op write (%v, %v)", ok, err)
+	}
+}
+
 // TestSaveFailsOnInvalidFile breaks the file and completes a task: the write
 // is refused, the file is left alone, and the view shows the last good list.
 func TestSaveFailsOnInvalidFile(t *testing.T) {
