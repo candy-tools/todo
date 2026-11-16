@@ -95,12 +95,12 @@ func (s *Store) Path() string { return s.file.Path() }
 
 // Existing returns a store on the same file whose writes require the file to
 // exist: on a missing file, or a missing directory, each write, even one that
-// would change nothing, fails with ErrListMissing and creates nothing: no
-// list file, and no lock file unless the list goes in the instant between a
-// cheap check made before locking and the lock. The check that counts is made
-// under the write's lock, before the write looks at the list. A caller that has read the file
-// writes through Existing so that a file removed since is not silently
-// recreated as a new list.
+// would change nothing, fails with ErrListMissing and creates nothing: no list
+// file, and no lock file unless the list goes in the instant between a cheap
+// check made before locking and the lock. The check that counts is made under
+// the write's lock, before the write looks at the list. A caller that has
+// read the file writes through Existing so that a file removed since is not
+// silently recreated as a new list.
 func (s *Store) Existing() *Store {
 	c := *s
 	c.mustExist = true
