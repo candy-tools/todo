@@ -101,7 +101,7 @@ func (e *InvalidValueError) Is(target error) bool { return target == ErrInvalidV
 // Config configures a Store.
 type Config[T any] struct {
 	// Path is the JSON file. The lock file is Path + ".lock" (or, when Path
-	// is a symlink, the linked file's path + ".lock").
+	// is a symlink, the linked file's path + ".lock"): see LockPath.
 	Path string
 	// LockTimeout is how long Update waits for the lock before failing with
 	// ErrBusy. Zero or negative means DefaultLockTimeout.
@@ -146,6 +146,21 @@ type Result[T any] struct {
 	Written bool
 }
 
+// lockSuffix is appended to the data file's path to name its lock file.
+const lockSuffix = ".lock"
+
+// LockPath returns the lock file Update takes for a Store on path: path, with
+// symlinks to the file followed as Update follows them, plus ".lock". Another
+// program holding an exclusive flock on it excludes every Update on path. When
+// the links cannot be followed (a loop, an unreadable link), it is path plus
+// ".lock"; Update fails on such a path before it locks anything.
+func LockPath(path string) string {
+	if p, err := resolveLinks(path); err == nil {
+		path = p
+	}
+	return path + lockSuffix
+}
+
 // New returns a Store for cfg. It does no I/O: the file and the lock file are
 // only touched by Load, Update and Changed.
 func New[T any](cfg Config[T]) *Store[T] {
@@ -184,7 +199,7 @@ func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err 
 	if err != nil {
 		return Result[T]{}, err
 	}
-	unlock, err := s.lock(ctx, path+".lock")
+	unlock, err := s.lock(ctx, path+lockSuffix)
 	if err != nil {
 		return Result[T]{}, err
 	}

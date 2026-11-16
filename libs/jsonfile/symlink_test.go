@@ -206,3 +206,34 @@ func TestSymlinkLoopError(t *testing.T) {
 	}
 	assertUserError(t, err, a+": ")
 }
+
+func TestLockPath(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.json")
+	link := filepath.Join(dir, "link.json")
+	if got, want := jsonfile.LockPath(real), real+".lock"; got != want {
+		t.Errorf("LockPath(plain) = %q, want %q", got, want)
+	}
+	symlink(t, "real.json", link)
+
+	// Through a link, LockPath is the lock Update takes: holding it makes
+	// Update through the link busy.
+	got := jsonfile.LockPath(link)
+	if got == link+".lock" {
+		t.Errorf("LockPath(link) = %q, want the target's lock file", got)
+	}
+	lock := flock.New(got)
+	if err := lock.Lock(); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	defer func() { _ = lock.Unlock() }()
+	s := jsonfile.New(jsonfile.Config[doc]{Path: link, LockTimeout: 50 * time.Millisecond})
+	if _, err := s.Update(context.Background(), setN(1)); !errors.Is(err, jsonfile.ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy (LockPath's lock is held)", err)
+	}
+	a, errA := os.Stat(got)
+	b, errB := os.Stat(real + ".lock")
+	if errA != nil || errB != nil || !os.SameFile(a, b) {
+		t.Errorf("LockPath(link) = %q is not the target's lock file %q (%v, %v)", got, real+".lock", errA, errB)
+	}
+}
