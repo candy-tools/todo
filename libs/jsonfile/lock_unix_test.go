@@ -4,8 +4,10 @@ package jsonfile
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -89,5 +91,35 @@ func TestLockRetriesWhenLockFileReplaced(t *testing.T) {
 	}
 	if v.N != 2 {
 		t.Errorf("N = %d, want 2", v.N)
+	}
+}
+
+// TestLockGivesUpWhenLockFileKeepsBeingReplaced deletes the lock file every
+// time Update locks it: Update must wait between tries rather than spin, and
+// fail with ErrBusy, saying why, when the lock timeout runs out.
+func TestLockGivesUpWhenLockFileKeepsBeingReplaced(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "list.json")
+	var calls atomic.Int32
+	afterLock = func() {
+		calls.Add(1)
+		_ = os.Remove(path + ".lock")
+	}
+	t.Cleanup(func() { afterLock = nil })
+
+	const timeout = 200 * time.Millisecond
+	s := New(Config[counter]{Path: path, LockTimeout: timeout})
+	_, err := s.Update(context.Background(), func(*counter, Snapshot) (bool, error) {
+		t.Error("fn ran without a lock")
+		return false, nil
+	})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+	if !strings.Contains(err.Error(), "replaced") {
+		t.Errorf("err = %q, want it to say the lock file keeps being replaced", err)
+	}
+	// One try per lockRetry at most, with room for a slow machine.
+	if n, most := calls.Load(), int32(2*timeout/lockRetry+1); n > most {
+		t.Errorf("locked %d times in %v, want at most %d (no busy loop)", n, timeout, most)
 	}
 }

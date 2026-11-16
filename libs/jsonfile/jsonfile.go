@@ -262,16 +262,19 @@ func (s *Store[T]) Update(ctx context.Context, fn func(v *T, cur Snapshot) (chan
 // was deleted (or replaced) between another writer's open and its lock, the
 // file this one locked is no longer the one at path, and a writer arriving now
 // would create and lock a new one. So once locked, lock checks the file it
-// holds is still the one at path, and otherwise lets go and tries again.
+// holds is still the one at path, and otherwise lets go, waits lockRetry and
+// tries again. When the lock timeout runs out after such a retry, the error
+// (still ErrBusy) says the lock file keeps being replaced.
 func (s *Store[T]) lock(ctx context.Context, path string) (func(), error) {
 	lockCtx, cancel := context.WithTimeout(ctx, s.lockTimeout)
 	defer cancel()
 
+	replaced := false
 	for {
 		fl := flock.New(path, flock.SetPermissions(0o666))
 		ok, err := fl.TryLockContext(lockCtx, lockRetry)
 		if !ok {
-			return nil, lockErr(ctx, path, err)
+			return nil, lockErr(ctx, path, err, replaced)
 		}
 		if afterLock != nil {
 			afterLock()
@@ -285,17 +288,27 @@ func (s *Store[T]) lock(ctx context.Context, path string) (func(), error) {
 			return func() { _ = fl.Unlock() }, nil
 		}
 		_ = fl.Unlock()
+		replaced = true
+		select {
+		case <-lockCtx.Done():
+			return nil, lockErr(ctx, path, lockCtx.Err(), replaced)
+		case <-time.After(lockRetry):
+		}
 	}
 }
 
-// lockErr turns a failed TryLockContext into lock's error: ctx's own error
-// when the caller cancelled, ErrBusy when the lock timeout ran out, and err
-// wrapped with the lock path otherwise.
-func lockErr(ctx context.Context, path string, err error) error {
+// lockErr turns a failed wait for the lock into lock's error: ctx's own error
+// when the caller cancelled, ErrBusy when the lock timeout ran out (saying the
+// lock file keeps being replaced when replaced is set), and err wrapped with
+// the lock path otherwise.
+func lockErr(ctx context.Context, path string, err error, replaced bool) error {
 	if ctxErr := ctx.Err(); ctxErr != nil && !errors.Is(ctxErr, context.DeadlineExceeded) {
 		return ctxErr
 	}
 	if err == nil || errors.Is(err, context.DeadlineExceeded) {
+		if replaced {
+			return fmt.Errorf("lock %s: the file keeps being replaced (%w)", path, ErrBusy)
+		}
 		return ErrBusy
 	}
 	return fmt.Errorf("lock %s: %w", path, err)
