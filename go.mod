@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/go-bumbu/closure-tree v0.10.0
 	github.com/go-bumbu/db v0.1.0
+	github.com/gofrs/flock v0.13.2
 	github.com/spf13/cobra v1.10.2
 	gorm.io/gorm v1.31.2
 )
@@ -43,7 +44,7 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	gorm.io/plugin/dbresolver v1.6.2 // indirect
 	modernc.org/libc v1.61.13 // indirect
