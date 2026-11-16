@@ -940,6 +940,41 @@ func TestFailedWriteAndReloadRestoresTree(t *testing.T) {
 	}
 }
 
+// TestFailedMoveKeepsView moves a grabbed task while the file is invalid: the
+// write and the reload both fail, so the view still shows the list as last
+// loaded, the task in its old place.
+func TestFailedMoveKeepsView(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	m = press(selectTitle(t, m, "a"), "m")
+	writeList(t, path, []byte(halfWritten))
+	m = press(m, "down")
+	if m.err == nil || !strings.Contains(m.footer(200), "save failed:") {
+		t.Errorf("footer should report the failed save, got %q", m.footer(200))
+	}
+	if got, want := rowTitles(m.tree), []string{"Work", "a", "b"}; !slices.Equal(got, want) {
+		t.Errorf("rows = %v, want %v (the unsaved move undone)", got, want)
+	}
+	if got := titles(find(m.doc, "Work").Children); !slices.Equal(got, []string{"a", "b"}) {
+		t.Errorf("Work holds %v, want [a b]", got)
+	}
+}
+
+// TestFailedAddKeepsView adds a task while the file is invalid: the write and
+// the reload both fail, so the list shows no new task and the form opens
+// again with what was typed.
+func TestFailedAddKeepsView(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = typeText(press(selectTitle(t, m, "a"), "n"), "new")
+	writeList(t, path, []byte(halfWritten))
+	m = press(m, "enter")
+	if m.err == nil || m.mode != modeForm {
+		t.Errorf("the failed add must reopen the form with the error: err %v, mode %v", m.err, m.mode)
+	}
+	if find(m.doc, "new") != nil || hasRow(m, "new") {
+		t.Errorf("the unsaved task must not be shown, rows %v", rowTitles(m.tree))
+	}
+}
+
 // TestFailedWriteAndReloadRestoresEdit edits a task while the file is
 // invalid: the edited title must not stay on screen as if saved, and a second
 // failed write must still restore the same, last loaded document.

@@ -117,20 +117,15 @@ func (t *tree) useFolds(k viewKey) {
 // row.
 func (t *tree) filtering() bool { return t.vs.filtering() }
 
-// shownBefore counts the items the tab showed at the last rebuild that come
-// before it in document order. A move that changes the count has carried it
-// past a shown row.
-func (t *tree) shownBefore(it *todo.Item) int {
-	n := 0
-	for _, x := range t.doc.Enumerate() {
-		if x == it {
-			break
-		}
-		if t.shown[x] {
-			n++
-		}
+// shownID returns whether the tab showed the item with a given ID at the last
+// rebuild, for a move step to skip the items it hides (see
+// todo.Document.StepPlacement).
+func (t *tree) shownID() func(id string) bool {
+	ids := make(map[string]bool, len(t.shown))
+	for it := range t.shown {
+		ids[it.ID] = true
 	}
-	return n
+	return func(id string) bool { return ids[id] }
 }
 
 // visibleItems returns the items the current tab shows: the column's items
