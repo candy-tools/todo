@@ -35,7 +35,9 @@ const (
 // afterID Move takes, without changing d. The step is made with Move on a copy
 // of d, so the op stays the one judge of what is valid: a step Move refuses
 // fails with Move's error (ErrTooDeep for a nesting too deep, say), a step
-// with nowhere to go with ErrNowhere, and a missing id with ErrNotFound.
+// with nowhere to go with ErrNowhere, and a missing id with ErrNotFound. A
+// StepIn of a subtask, or of a task with subtasks, fails with ErrTooDeep even
+// with no sibling to nest under, as no sibling could take it.
 //
 // For StepUp and StepDown, shown, when not nil, says which items a view shows:
 // the step repeats until the item has passed one more shown item in document
@@ -54,7 +56,12 @@ func (d *Document) StepPlacement(id string, s MoveStep, shown func(id string) bo
 	parent, before := it.Parent, c.shownBefore(it, shown)
 	for {
 		p, a, can := c.nextPlacement(it, s)
-		if !can {
+		switch {
+		case !can && s == StepIn && it.Kind == Task && tooDeepUnder(it, it.IsSubtask()):
+			// No sibling task to nest under, but none could take it: the
+			// one it would go under sits at its own level.
+			return "", "", ErrTooDeep
+		case !can:
 			return "", "", ErrNowhere
 		}
 		if err := c.Move(id, p, a); err != nil {

@@ -135,6 +135,14 @@ func checkPlacement(k Kind, parent *Item) error {
 	return nil
 }
 
+// tooDeepUnder reports whether task it, put under a task (a subtask itself
+// when parentIsSubtask), would nest tasks more than one level deep: tasks
+// nest one level only, so the parent must not be a subtask and it must have
+// no subtasks of its own.
+func tooDeepUnder(it *Item, parentIsSubtask bool) bool {
+	return parentIsSubtask || len(it.Children) > 0
+}
+
 // categoryLevel is the Level of category it where it sits: one more than the
 // number of categories above it.
 func categoryLevel(it *Item) int {
@@ -432,7 +440,7 @@ func (d *Document) Move(id, parentID, afterID string) error {
 		return err
 	}
 	toSubtask := parent != nil && parent.Kind == Task
-	if it.Kind == Task && toSubtask && len(it.Children) > 0 {
+	if it.Kind == Task && toSubtask && tooDeepUnder(it, parent.IsSubtask()) {
 		return ErrTooDeep
 	}
 	for p := parent; p != nil; p = p.Parent {

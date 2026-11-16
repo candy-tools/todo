@@ -71,7 +71,8 @@ var ErrRestoreAndCascade = classed(ErrBadRequest, "a reopen cannot both restore 
 
 // ErrNowhere is returned by StepPlacement for a step with nowhere to go: the
 // item is already first or last that way, has no sibling of its kind before
-// it to nest under, or no parent it may leave. Its class is ErrBadRequest.
+// it to nest under (unless it is too deep to nest at all: ErrTooDeep), or no
+// parent it may leave. Its class is ErrBadRequest.
 var ErrNowhere = classed(ErrBadRequest, "nowhere to move the item that way")
 
 // ErrWrongParent is returned by a write that would place a task at the root or

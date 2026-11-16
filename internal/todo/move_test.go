@@ -149,8 +149,16 @@ func TestStepPlacementReportsMoveError(t *testing.T) {
 	if _, _, err := d.StepPlacement(find(d, "s2").ID, todo.StepIn, nil); !errors.Is(err, todo.ErrTooDeep) {
 		t.Errorf("s2 in under s1 = %v, want ErrTooDeep", err)
 	}
+	if _, _, err := d.StepPlacement(find(d, "s1").ID, todo.StepIn, nil); !errors.Is(err, todo.ErrTooDeep) {
+		t.Errorf("s1 in with no sibling before = %v, want ErrTooDeep", err)
+	}
+	if _, _, err := d.StepPlacement(find(d, "a").ID, todo.StepIn, nil); !errors.Is(err, todo.ErrTooDeep) {
+		t.Errorf("a (with subtasks) in with no sibling before = %v, want ErrTooDeep", err)
+	}
+	d = todotest.Parse(t, "# Work\n\n- [ ] a\n")
+	d.AssignIDs()
 	if _, _, err := d.StepPlacement(find(d, "a").ID, todo.StepIn, nil); !errors.Is(err, todo.ErrNowhere) {
-		t.Errorf("a in with no sibling before = %v, want ErrNowhere", err)
+		t.Errorf("a (no subtasks) in with no sibling before = %v, want ErrNowhere", err)
 	}
 	if _, _, err := d.StepPlacement(find(d, "a").ID, todo.StepOut, nil); !errors.Is(err, todo.ErrNowhere) {
 		t.Errorf("a out of its category = %v, want ErrNowhere", err)

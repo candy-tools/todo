@@ -306,7 +306,7 @@ func TestGrabMovePastOnlyHiddenRowsIsNoop(t *testing.T) {
 func TestIndentUnderSubtaskRefusedInTUI(t *testing.T) {
 	m, path := newTestModel(t, "# W\n- [ ] a\n  - [ ] s1\n  - [ ] s2\n- [ ] b\n  - [ ] t1\n")
 	before := storeFP(t, m)
-	for _, title := range []string{"s2", "b"} {
+	for _, title := range []string{"s1", "s2", "a", "b"} {
 		got := selectTitle(t, m, title)
 		got = press(got, "m", "right")
 		if got.status != "subtasks can't have subtasks" {

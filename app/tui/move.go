@@ -51,9 +51,10 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // applyIndent indents the grabbed item under the item just above it among its
 // siblings. When the list refuses it as too deep (a subtask, or a task with
-// subtasks: tasks nest one level only), or the new parent is hidden in the tab
-// (the item would vanish into it), nothing moves and the footer says why. Any
-// other refusal (nothing above to nest under) stays silent.
+// subtasks, whether or not anything sits above it: tasks nest one level only),
+// or the new parent is hidden in the tab (the item would vanish into it),
+// nothing moves and the footer says why. Any other refusal (a task or
+// category with nothing above to nest under) stays silent.
 func (m model) applyIndent() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	if it == nil {
