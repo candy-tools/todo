@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -62,6 +63,54 @@ func TestImportFileReplaceBacksUp(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(s.Path()), ".todo-backup-*")); len(left) > 0 {
 		t.Fatalf("temporary backup files left behind: %v", left)
+	}
+}
+
+// A replace through a symlinked list backs up the file the link points at,
+// next to it, with its bytes and mode, and leaves the link in place.
+func TestImportFileReplaceBacksUpLinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "real")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(realDir, "list.json")
+	mustID(t)(NewStore(target).AppendCategory(context.Background(), "Old", ""))
+	if err := os.Chmod(target, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	old := fileBytes(t, target)
+	link := filepath.Join(dir, "link.json")
+	if err := os.Symlink(filepath.Join("real", "list.json"), link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	rep, err := importMarkdown(t, link, "# New\n", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.Stat(target + ".bak")
+	if err != nil {
+		t.Fatalf("no backup beside the link target: %v", err)
+	}
+	got, err := os.Stat(rep.Backup)
+	if err != nil || !os.SameFile(got, want) {
+		t.Fatalf("Backup = %q (%v), want the backup beside the link target %s.bak", rep.Backup, err, target)
+	}
+	if b := fileBytes(t, rep.Backup); !bytes.Equal(b, old) {
+		t.Fatalf("backup holds:\n%s\nwant the old bytes:\n%s", b, old)
+	}
+	if runtime.GOOS != "windows" && got.Mode().Perm() != 0o640 {
+		t.Errorf("backup mode = %v, want the list's 0640", got.Mode().Perm())
+	}
+	if _, err := os.Lstat(link + ".bak"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a backup beside the link: stat err = %v, want none", err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the link was replaced: %v, %v", info, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(realDir, ".todo-backup-*")); len(left) > 0 {
+		t.Errorf("temporary backup files left behind: %v", left)
 	}
 }
 

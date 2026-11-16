@@ -131,12 +131,18 @@ func (s *Store) Changed(_ context.Context, since Fingerprint) (bool, Fingerprint
 // written. It returns the write's result, the zero one on error. Errors are
 // mapped as mapErr does.
 func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, err error)) (WriteResult, error) {
+	return s.update(ctx, func(d *Document, _ jsonfile.Snapshot) (bool, error) { return fn(d) })
+}
+
+// update is write with fn also given the Snapshot of the file as the write
+// read it under the lock.
+func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Snapshot) (changed bool, err error)) (WriteResult, error) {
 	res, err := s.file.Update(ctx, func(l *diskList, cur jsonfile.Snapshot) (bool, error) {
 		if s.mustExist && !cur.Exists {
 			return false, ErrListMissing
 		}
 		d := fromDisk(*l)
-		changed, err := fn(d)
+		changed, err := fn(d, cur)
 		if err != nil || !changed {
 			return false, err
 		}

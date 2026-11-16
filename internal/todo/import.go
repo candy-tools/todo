@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"unicode/utf8"
+
+	"github.com/candy-tools/todo/libs/jsonfile"
 )
 
 // uncategorizedTitle is the category that collects tasks found outside any
@@ -82,12 +83,14 @@ func (s *Store) Import(ctx context.Context, doc *Document, replace bool) (WriteR
 }
 
 // importDoc is Import that, when backUp is set and it replaces a list that
-// holds items, first copies the file to the first free BackupPath, inside the
-// write and so under the lock, and returns that path. When the write then
-// fails, the list is unchanged and the backup is removed again.
+// holds items, first copies the file to the first free BackupPath beside it,
+// inside the write and so under the lock, and returns that path. The copy is
+// of the bytes the write read, from the file it read: for a symlinked list,
+// the file the link points at, with the backup beside that file. When the
+// write then fails, the list is unchanged and the backup is removed again.
 func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bool) (WriteResult, string, error) {
 	backup := ""
-	res, err := s.write(ctx, func(d *Document) (bool, error) {
+	res, err := s.update(ctx, func(d *Document, cur jsonfile.Snapshot) (bool, error) {
 		holdsItems := len(d.Roots) > 0
 		if holdsItems && !replace {
 			return false, ErrNotEmpty
@@ -96,9 +99,9 @@ func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bo
 			return false, err
 		}
 		if holdsItems && backUp {
-			p, err := backupFile(s.Path())
+			p, err := backupFile(cur)
 			if err != nil {
-				return false, fmt.Errorf("back up %s: %w", s.Path(), err)
+				return false, fmt.Errorf("back up %s: %w", cur.Path, err)
 			}
 			backup = p
 		}
@@ -136,8 +139,9 @@ func prepareImport(doc *Document) error {
 // the file when needed, in one write (see Import), and returns a store on path
 // made with opts. It never writes mdPath. A list that holds items is
 // ErrNotEmpty without replace, with nothing written. With replace, the list
-// file is first copied to the first free BackupPath, named in the report's
-// Backup; when the import then fails, that copy is removed again.
+// file is first copied to the first free BackupPath beside it (beside the file
+// a symlinked path points at), named in the report's Backup; when the import
+// then fails, that copy is removed again.
 func ImportFile(path, mdPath string, replace bool, opts ...Option) (*Store, ImportReport, error) {
 	src, err := os.ReadFile(mdPath) //nolint:gosec // mdPath is a user-provided CLI argument; reading it is the point
 	if err != nil {
@@ -163,82 +167,45 @@ func BackupPath(path string, n int) string {
 	return fmt.Sprintf("%s.bak.%d", path, n)
 }
 
-// backupFile copies the file at path, byte for byte and with its mode, to the
-// first free BackupPath: .bak, or .bak.1, .bak.2, … when that is taken. An
-// existing backup is never replaced. The copy is written to a temporary file
-// next to path and only the finished file is put in place (see placeBackup).
-// It returns the backup path it used.
-func backupFile(path string) (string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is the list file the store was opened on
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", err
-	}
-	mode := info.Mode().Perm()
-	f, err := os.CreateTemp(filepath.Dir(path), ".todo-backup-*")
-	if err != nil {
-		return "", err
-	}
-	tmp := f.Name()
-	defer func() { _ = os.Remove(tmp) }()
-	_, err = f.Write(data)
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Chmod(tmp, mode)
-	}
+// backupFile writes cur's bytes, the list file as the write read it, to the
+// first free BackupPath beside cur.Path: .bak, or .bak.1, .bak.2, … when that
+// is taken. An existing backup is never replaced: each candidate is created
+// exclusively (O_EXCL), so no temporary file is needed. The backup gets the
+// list file's mode. It returns the backup path it used.
+func backupFile(cur jsonfile.Snapshot) (string, error) {
+	info, err := os.Stat(cur.Path)
 	if err != nil {
 		return "", err
 	}
 	for n := 0; ; n++ {
-		dst := BackupPath(path, n)
-		placed, err := placeBackup(tmp, dst, data, mode)
+		dst := BackupPath(cur.Path, n)
+		f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // dst is a backup path beside the list file
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
 		if err != nil {
 			return "", err
 		}
-		if placed {
-			return dst, nil
+		if err := writeBackup(f, cur.Bytes, info.Mode().Perm()); err != nil {
+			_ = os.Remove(dst)
+			return "", err
 		}
+		return dst, nil
 	}
 }
 
-// placeBackup puts the finished copy tmp at dst unless dst exists, reporting
-// placed = false then. It hard-links tmp to dst, which fails atomically on an
-// existing target. Where the link fails for another reason (a filesystem
-// without hard links), it creates dst exclusively (O_EXCL) and writes data
-// into it, removing it again if that fails.
-func placeBackup(tmp, dst string, data []byte, mode fs.FileMode) (placed bool, err error) {
-	linkErr := os.Link(tmp, dst)
-	if linkErr == nil {
-		return true, nil
+// writeBackup gives f, a new backup file, mode, then writes data to it,
+// syncs and closes it.
+func writeBackup(f *os.File, data []byte, mode fs.FileMode) error {
+	err := f.Chmod(mode) // after creating, so the umask does not narrow it
+	if err == nil {
+		_, err = f.Write(data)
 	}
-	if errors.Is(linkErr, fs.ErrExist) {
-		return false, nil
-	}
-	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode) //nolint:gosec // dst is a backup path next to the list file
-	if errors.Is(err, fs.ErrExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("create %s (link failed: %v): %w", dst, linkErr, err)
-	}
-	_, err = f.Write(data)
 	if err == nil {
 		err = f.Sync()
 	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
-	if err != nil {
-		_ = os.Remove(dst)
-		return false, err
-	}
-	return true, nil
+	return err
 }
