@@ -15,7 +15,7 @@ var importFile = todo.ImportFile
 func importCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "import <file.md>",
-		Short: "import a markdown TODO file into the database",
+		Short: "import a markdown TODO file into the JSON list",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, _, err := resolvePath(cmd, nil)
@@ -34,9 +34,6 @@ func importCmd() *cobra.Command {
 				return err
 			}
 			_ = s.Close()
-			if rep.Skipped {
-				return &cliError{exitGeneric, fmt.Sprintf("%s was created by another todo during the import; nothing was imported", db)}
-			}
 			if rep.Backup != "" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "backed up the replaced items to %s\n", rep.Backup)
 			}
@@ -44,6 +41,6 @@ func importCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().Bool("force", false, "replace the items already in the database")
+	c.Flags().Bool("force", false, "replace the items already in the list")
 	return c
 }

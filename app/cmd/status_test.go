@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -51,7 +52,7 @@ func TestDoneSelectorErrors(t *testing.T) {
 	if _, err := runCmd(t, "done", "--file", path); codeOf(t, err) != exitUsage {
 		t.Error("no selector should be a usage error")
 	}
-	if _, err := runCmd(t, "done", "--file", path, "--number", "2", "--id", "3"); codeOf(t, err) != exitUsage {
+	if _, err := runCmd(t, "done", "--file", path, "--number", "2", "--id", "abcdefg"); codeOf(t, err) != exitUsage {
 		t.Error("two selectors should be a usage error")
 	}
 	if _, err := runCmd(t, "done", "--file", path, "--title", "a"); codeOf(t, err) != exitAmbiguous {
@@ -111,7 +112,7 @@ func TestSelectByID(t *testing.T) {
 	if !strings.Contains(got, "- [x] b") || !strings.Contains(got, "- [ ] a") {
 		t.Errorf("only b should be done:\n%s", got)
 	}
-	if _, err := runCmd(t, "done", "--file", path, "--id", "999"); codeOf(t, err) != exitNotFound {
+	if _, err := runCmd(t, "done", "--file", path, "--id", "zzzzzzz"); codeOf(t, err) != exitNotFound {
 		t.Error("an unknown --id should be not-found")
 	}
 }
@@ -243,7 +244,7 @@ func TestReopenNotDoneTaskKeepsItsState(t *testing.T) {
 		{"a", "- [new] a", "reopen: [new] a  (Work)"},
 		{"child", "  - [ ] child", "reopen: [open] child  (Work)"},
 	} {
-		before := revOf(t, path)
+		before := bytesOf(t, path)
 		out, err := runCmd(t, "reopen", "--file", path, "--title", c.title)
 		if err != nil {
 			t.Fatalf("reopen %s: %v", c.title, err)
@@ -254,8 +255,8 @@ func TestReopenNotDoneTaskKeepsItsState(t *testing.T) {
 		if !strings.Contains(todotest.Dump(t, path), c.line) {
 			t.Errorf("reopen on %s, not done, must keep its state:\n%s", c.title, todotest.Dump(t, path))
 		}
-		if after := revOf(t, path); after != before {
-			t.Errorf("reopen on %s, not done, must write nothing: revision %d -> %d", c.title, before, after)
+		if after := bytesOf(t, path); !bytes.Equal(after, before) {
+			t.Errorf("reopen on %s, not done, must write nothing: the file changed", c.title)
 		}
 	}
 }

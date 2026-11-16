@@ -7,26 +7,28 @@ install and development instructions.
 ## Usage
 
 ```sh
-todo                 # opens .todo.db in the current directory
-todo path/to/my.db   # opens a specific database
-todo import file.md  # imports a markdown file into the database
+todo                 # opens .todo.json in the current directory
+todo path/to/my.json # opens a specific list file
+todo import file.md  # imports a markdown file into the list
 ```
 
-With no argument it defaults to `.todo.db`. If the database doesn't exist yet it
-is created empty.
+With no argument it defaults to `.todo.json`. If the file doesn't exist yet it
+is created on the first write.
 
 **First run with an existing `TODO.md`.** When no path is given (so todo uses
-the default `.todo.db`), `.todo.db` doesn't exist and a `TODO.md` is present in
+the default `.todo.json`), `.todo.json` doesn't exist and a `TODO.md` is present in
 the current directory, todo imports it automatically, once, and prints a summary
-(plus a warning for anything it couldn't keep). Naming a database with `-f` or a
+(plus a warning for anything it couldn't keep). Naming a file with `-f` or a
 positional path disables this automatic import. The markdown file is left
-untouched and can be deleted afterwards; from then on the database is the source
-of truth. Passing a `.md` path where a database is expected is a usage error
+untouched and can be deleted afterwards; from then on the JSON file is the source
+of truth. Passing a `.md` path where a list file is expected is a usage error
 that points you at `todo import`.
 
 **Importing a markdown file.** `todo import file.md` reads a markdown file into
-the database (`-f/--file` picks a database other than `.todo.db`). It refuses to
-run when the database already has items; pass `--force` to replace them. The
+the list (`-f/--file` picks a file other than `.todo.json`). It refuses to
+run when the list already has items; pass `--force` to replace them. With
+`--force` it first copies the old list to `<file>.bak` (or the first free
+`<file>.bak.1`, `<file>.bak.2`, …) and names it. The
 import understands headers as categories, `- [ ]` / `- [/]` / `- [>]` / `- [x]`
 checkbox lines as tasks (indentation nests subtasks) and indented text under a
 task as its description. Tasks outside any header are gathered under an
@@ -145,7 +147,7 @@ back to the single tree, on the item that had focus.
 
 Every interactive action is also a non-interactive subcommand, so an agent (or a
 script) can edit the list without opening the TUI. All commands take
-`-f/--file` (default `.todo.db`).
+`-f/--file` (default `.todo.json`).
 
 Read the list — with numbers, ids, and JSON for the read-then-act loop:
 
@@ -168,7 +170,7 @@ Address an existing item three ways — exactly one, mutually exclusive:
 
 ```sh
 --number N   # the # column from `todo list`
---id     N   # the item's database id (the id column from `todo list`)
+--id     K   # the item's 7-character id (the id column from `todo list`)
 --title  T   # the item's exact title (errors if more than one matches)
 ```
 
@@ -180,7 +182,7 @@ todo add-category --title "Backend" [--parent-title "Work"]
 todo status   --number 4 --to ready
 todo done     --title "Cut the tag" [--cascade]
 todo progress --number 4   # shortcut: status --to working
-todo defer    --id 33      # shortcut: status --to deferred
+todo defer    --id k3f9qw2 # shortcut: status --to deferred
 todo reopen   --title "Cut the tag" [--cascade]
 todo edit     --number 4 --set-title "…" --set-desc "…" --set-plan "docs/plan.md"
 todo rm       --number 4
@@ -205,7 +207,7 @@ after any add/remove; `--title` is stable as long as it stays unique. Re-run
 
 Exit codes: `0` ok, `2` usage, `3` not found, `4` ambiguous title, `5` wrong
 kind, `6` conflict (the list changed while the command ran, or another todo
-kept it locked for writing for more than 5 seconds; re-run it), `1` other.
+kept it locked for writing for more than 5 seconds; re-run it), `1` other (including an invalid list file).
 Errors go to stderr.
 
 ## Keys
@@ -273,7 +275,7 @@ Setting a parent task to `done` (with `t`, or `p` into Done) completes it and
 **all** of its subtasks at once. If you did it by accident, press `t` again: the
 dialog opens on the task's previous state, so `enter` restores it and its
 subtasks' states exactly — that undo memory is kept in RAM for the session, so
-the database only ever records the current states. Without undo history the
+the file only ever records the current states. Without undo history the
 dialog opens on `done`, and the subtasks keep their states when you reopen it.
 The CLI's `todo done` completes only the task unless you pass `--cascade`, and
 it has no undo. When subtasks are left open it says so on stderr (`2 subtasks
@@ -281,7 +283,7 @@ still open; --cascade completes them`); stdout is unchanged.
 
 ## Live reload
 
-The open TUI notices changes made to the database by another process — most
+The open TUI notices changes made to the list file by another process — most
 commonly `todo` CLI commands run by a script or an agent — and applies them
 within about a second, so you can watch the list update live. Your selection and
 which items are folded are kept across a reload. Changes made inside todo are
@@ -290,35 +292,62 @@ never fight each other.
 
 ## Storage
 
-The list lives in a single SQLite file, `.todo.db` by default, in the directory
-you run todo from. While todo has it open, SQLite also keeps two side files next
-to it, `.todo.db-wal` and `.todo.db-shm` (the write-ahead log and its shared
-memory); they are managed by SQLite and normally disappear when the last
-connection closes. The format is plain SQLite, so any SQLite tool can read it.
+The list lives in a single JSON file, `.todo.json` by default, in the directory
+you run todo from. It is plain text, so it diffs and merges in git. Every write
+changes only the lines that changed.
 
-Whether to commit the list to version control or ignore `.todo.db*` is up to
-you. If you commit it, commit `.todo.db` only — never `.todo.db-wal` or
-`.todo.db-shm`. While todo is running, recent changes may still sit in the WAL
-rather than in `.todo.db` itself, so commit after quitting todo. Keep in mind
-that it is a binary file, so git can't merge concurrent changes to it.
+```json
+{
+  "version": 3,
+  "categories": [
+    { "id": "c7x2pqa", "title": "Main" },
+    { "id": "q9m4kz1", "title": "Backend", "parent": "c7x2pqa" }
+  ],
+  "tasks": [
+    {
+      "id": "k3f9qw2",
+      "category": "q9m4kz1",
+      "title": "Hot reload",
+      "status": "ready",
+      "plan": "docs/plans/hot-reload.md",
+      "description": "Poll the file and reload on change.",
+      "subtasks": [
+        { "id": "k3fa1m8", "title": "flock wrapper", "done": true }
+      ]
+    }
+  ]
+}
+```
 
-## Upgrading
+- `version` is the format version (now `3`). A file with a higher version is
+  refused: `list was written by a newer todo`.
+- `categories` have an `id`, a `title` and, for a nested one, the `parent`
+  category's id. Array order is the order among siblings.
+- `tasks` have an `id`, the `category` they sit under, a `title` and a `status`
+  (`open`, `working`, `deferred`, `done`, `new`, `ready`, `review`, `followup`
+  or `wontdo`). `plan`, `description` and `subtasks` are optional. Array order
+  is the order within a category.
+- `subtasks` sit inside their task, one level deep. A subtask has an `id`, a
+  `title` and `done` (left out when false), plus an optional `description` and
+  `plan`.
+- IDs are 7 characters from `0123456789abcdefghjkmnpqrstvwxyz`. Every category,
+  task and subtask has its own. This is what `--id` takes.
 
-Opening a database made by an older todo migrates it once to schema v2:
+**The lock file.** A write first takes a lock on `.todo.json.lock`, next to the
+list. Two todo processes never write at the same time. A write that waits more
+than 5 seconds for the lock fails as a conflict (exit code `6`). Reading needs
+no lock. todo only creates the lock file when it writes.
 
-- It first writes a backup next to the database, `<db>.bak` (e.g. `.todo.db.bak`).
-  An existing backup is never overwritten: when `<db>.bak` already exists, the
-  backup goes to the first free `<db>.bak.1`, `<db>.bak.2`, ….
-- Nesting deeper than one subtask level is flattened.
-- Subtask states become `open` / `done`.
-- Older todo versions refuse an upgraded database.
+**Hand edits.** You can edit `.todo.json` by hand. Two things to know:
 
-To go back:
+- An editor does not take the lock. If you save while todo is writing, one of
+  the two changes can be lost: the last writer wins for the whole file. To
+  change the list while todo runs, use the CLI.
+- A mistake, such as broken JSON or a task whose category does not exist, stops
+  every todo write until you fix it. The error names the problem. todo never
+  repairs or overwrites such a file.
 
-1. Quit todo (the TUI and any running `todo` command).
-2. Delete the `<db>-wal` and `<db>-shm` side files next to the database, if
-   they exist.
-3. Copy the backup over the database file: `<db>.bak`, or the highest-numbered
-   `<db>.bak.N` when there are several, as that one is the newest.
+**Git.** Commit `.todo.json` and ignore `.todo.json.lock`.
 
-Don't open a backup directly with `-f`: that would migrate the backup itself.
+**Old `.todo.db` files.** todo no longer reads SQLite files. A `.todo.db` in the
+directory is ignored and left alone. There is no conversion.

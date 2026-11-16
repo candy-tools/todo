@@ -11,14 +11,14 @@ import (
 )
 
 const (
-	// defaultFile is the SQLite store used when no path is given.
-	defaultFile = ".todo.db"
+	// defaultFile is the JSON list file used when no path is given.
+	defaultFile = ".todo.json"
 	// legacyFile is the markdown file imported automatically on first run.
 	legacyFile = "TODO.md"
 )
 
 // openDB opens an existing store or creates it; tests replace it to observe
-// how often a command opens the database.
+// how often a command opens the store.
 var openDB = todo.OpenStore
 
 // resolvePath returns the store a command operates on: the positional argument,
@@ -41,12 +41,8 @@ func resolvePath(cmd *cobra.Command, args []string) (path string, isDefault bool
 }
 
 // importNotice formats the result of an import: a summary line followed by one
-// line per warning. A skipped import (another process created the store first)
-// has no notice.
+// line per warning.
 func importNotice(rep todo.ImportReport, from string) string {
-	if rep.Skipped {
-		return ""
-	}
 	lines := []string{fmt.Sprintf("imported %d categories, %d tasks from %s", rep.Categories, rep.Tasks, from)}
 	return strings.Join(append(lines, rep.Warnings...), "\n")
 }
@@ -133,7 +129,7 @@ func loadStore(cmd *cobra.Command, path string, isDefault bool) (*todo.Store, *t
 	doc, _, err := s.Load(storeCtx(cmd))
 	if err != nil {
 		_ = s.Close()
-		return nil, nil, err
+		return nil, nil, listErr(err)
 	}
 	return s, doc, nil
 }
@@ -151,8 +147,9 @@ type storeOpener func() (*todo.Store, error)
 // — never creates the store. The store is closed afterwards. A store
 // ErrNotFound becomes the CLI's not-found error, a store ErrTooDeep,
 // ErrSubtaskStatus or ErrInvalidMove its usage one, a store ErrWrongParent or
-// ErrNotTask its wrong-kind one, and a store ErrConflict or ErrBusy its conflict
-// one.
+// ErrNotTask its wrong-kind one, a store ErrConflict or ErrBusy its conflict
+// one, and a store ErrInvalidList or ErrNewerSchema a generic failure (exit 1)
+// with the store's message.
 func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener, doc *todo.Document) error) error {
 	path, isDefault, err := resolvePath(cmd, nil)
 	if err != nil {
@@ -191,7 +188,7 @@ func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener
 		if c := conflictErr(err); c != nil {
 			return c
 		}
-		return err
+		return listErr(err)
 	}
 	return nil
 }
@@ -204,6 +201,15 @@ func conflictErr(err error) error {
 		return &cliError{exitConflict, err.Error()}
 	}
 	return nil
+}
+
+// listErr returns a store ErrInvalidList or ErrNewerSchema as a generic failure
+// (exit 1) with the store's message, and any other error unchanged.
+func listErr(err error) error {
+	if errors.Is(err, todo.ErrInvalidList) || errors.Is(err, todo.ErrNewerSchema) {
+		return &cliError{exitGeneric, err.Error()}
+	}
+	return err
 }
 
 // printNotice writes a non-empty notice to stderr.

@@ -63,7 +63,7 @@ func wrongKind(action string, it *todo.Item, want string) error {
 // (e.g. "parent-").
 func addSelectorFlags(cmd *cobra.Command, prefix string) {
 	cmd.Flags().Int(prefix+"number", 0, "address the item by its list number")
-	cmd.Flags().String(prefix+"id", "", "address the item by its database id")
+	cmd.Flags().String(prefix+"id", "", "address the item by its 7-character id (see list --json)")
 	cmd.Flags().String(prefix+"title", "", "address the item by its exact title")
 }
 

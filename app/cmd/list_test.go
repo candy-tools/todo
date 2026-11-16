@@ -3,13 +3,11 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo/todotest"
-	"github.com/go-bumbu/db/gormdb"
-	"github.com/go-bumbu/db/gormdb/sqlite"
-	"gorm.io/gorm/logger"
 )
 
 func runCmd(t *testing.T, args ...string) (string, error) {
@@ -208,33 +206,26 @@ func TestListColumnFilterMatchesWithinColumn(t *testing.T) {
 	}
 }
 
-func TestListTableDropsStoredControlCharacters(t *testing.T) {
+// A hand-edited title with terminal escapes makes the file invalid, so list
+// fails instead of printing them.
+func TestListRefusesStoredControlCharacters(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-	db, err := gormdb.Open(gormdb.Cfg{
-		Driver: gormdb.DriverSqlite,
-		Sqlite: gormdb.SqliteCfg{Path: path},
-		Logger: logger.Discard,
-	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("open raw handle: %v", err)
+		t.Fatal(err)
 	}
-	// An older version could store escapes; write them past the store's checks.
-	const hostile = "\x1b[31m\x1b]0;pwn\x07"
-	err = db.Exec("UPDATE items SET title = title || ?, description = ?", hostile, "d"+hostile).Error
-	_ = gormdb.Close(db)
-	if err != nil {
-		t.Fatalf("store raw titles: %v", err)
+	edited := strings.Replace(string(raw), `"title": "a"`, `"title": "a\u001b[31m\u001b]0;pwn\u0007"`, 1)
+	if edited == string(raw) {
+		t.Fatalf("no title replaced in:\n%s", raw)
+	}
+	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	out, err := runCmd(t, "list", "--file", path)
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	if codeOf(t, err) != exitGeneric {
+		t.Fatalf("list on a list with control characters = %v, want exit 1", err)
 	}
 	if strings.ContainsAny(out, "\x1b\x07") {
-		t.Errorf("list text output carries stored control characters:\n%q", out)
-	}
-	for _, want := range []string{"Work[31m]0;pwn", "a[31m]0;pwn"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("list output missing the printable rest %q:\n%q", want, out)
-		}
+		t.Errorf("list output carries stored control characters:\n%q", out)
 	}
 }

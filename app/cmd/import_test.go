@@ -19,7 +19,7 @@ func writeMD(t *testing.T, md string) string {
 }
 
 func TestImportCmd(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "x.db")
+	db := filepath.Join(t.TempDir(), "x.json")
 	md := writeMD(t, "# Work\n\n- [ ] a\n- [x] b\n")
 	out, err := runCmd(t, "import", md, "-f", db)
 	if err != nil {
