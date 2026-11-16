@@ -745,24 +745,46 @@ func TestProbeAcrossOwnABAIsIgnored(t *testing.T) {
 	}
 }
 
-// TestNoProbeWhileOneIsInFlight sends ticks: the first starts a probe, and no
-// other starts until its message has arrived.
+// TestNoProbeWhileOneIsInFlight drives the poll by its ticks: a tick starts a
+// probe next to the next tick; a tick while that probe is out only schedules
+// the next tick; once the probe's report is in, the next tick probes again.
 func TestNoProbeWhileOneIsInFlight(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = send(m, reloadTickMsg{})
-	if !m.probing {
+	m, probe := tickProbe(t, m)
+	if probe == nil {
 		t.Fatal("a tick must start a probe")
 	}
-	if cmd := m.startProbe(); cmd != nil {
-		t.Error("a second probe must not start while one is in flight")
+	if _, again := tickProbe(t, m); again != nil {
+		t.Error("a tick must not start a probe while one is in flight")
 	}
-	m = send(m, m.reloadCheckCmd()()) // the probe's message
-	if m.probing {
-		t.Error("the probe's message must end it")
+	m = send(m, probe())
+	if _, next := tickProbe(t, m); next == nil {
+		t.Error("the tick after the probe's report must start a probe again")
 	}
-	if cmd := m.startProbe(); cmd == nil {
-		t.Error("the next tick must start a probe again")
+}
+
+// tickProbe sends m a poll tick and returns the model and the probe the tick
+// started, nil when it only scheduled the next tick. It runs the tick's
+// command to tell them apart: a probe comes batched with the next tick, while
+// a lone next tick waits out the poll interval and reports reloadTickMsg.
+func tickProbe(t *testing.T, m model) (model, tea.Cmd) {
+	t.Helper()
+	nm, cmd := m.Update(reloadTickMsg{})
+	if cmd == nil {
+		t.Fatal("a tick must schedule the next tick")
 	}
+	switch msg := cmd().(type) {
+	case tea.BatchMsg:
+		if len(msg) != 2 {
+			t.Fatalf("a probing tick returns the probe and the next tick, got %d commands", len(msg))
+		}
+		return nm.(model), msg[0]
+	case reloadTickMsg:
+		return nm.(model), nil
+	default:
+		t.Fatalf("a tick returned %T", msg)
+	}
+	return nm.(model), nil
 }
 
 // TestDeferredReloadDropsUndo completes a task and opens the state picker to
