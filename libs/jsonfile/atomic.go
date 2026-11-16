@@ -27,6 +27,11 @@ var afterTempWrite func(name string)
 // file gets mode 0o666 less the umask; a replaced one keeps its mode. The temp
 // file is removed on any failure. path must not be a symlink (the rename would
 // replace the link): callers resolve it first (see resolveLinks).
+//
+// The directory fsync is best-effort: its errors are ignored, and it is
+// skipped on Windows, which cannot fsync a directory. The write has succeeded
+// once the rename has; the fsync only makes the rename more likely to survive
+// a crash or power loss right after it.
 func atomicWrite(path string, data []byte) (err error) {
 	dir, base := filepath.Split(path)
 	if dir == "" {

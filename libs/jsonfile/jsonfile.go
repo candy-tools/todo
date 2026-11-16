@@ -2,7 +2,9 @@
 // can share safely. Writes go through Update, a read-modify-write that holds an
 // exclusive lock on a separate `<path>.lock` file and replaces the data file
 // atomically (temp file, fsync, rename), so a reader never sees a half-written
-// file. Reads (Load) and change polling (Changed) take no lock. The package is
+// file. The directory is fsynced after the rename on a best-effort basis only
+// (errors ignored, skipped on Windows), so a crash right after a write may
+// still lose the rename on some file systems. Reads (Load) and change polling (Changed) take no lock. The package is
 // generic over the stored type and knows nothing about what it stores: the
 // path, the lock timeout and the validation hook all come from Config.
 //
