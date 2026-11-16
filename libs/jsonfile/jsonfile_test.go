@@ -409,8 +409,17 @@ func TestNoTempFilesLeft(t *testing.T) {
 func TestWriteSweepsStaleTempFiles(t *testing.T) {
 	path := tempPath(t)
 	dir := filepath.Dir(path)
-	stale := []string{".list.json.tmp-CRASHED1", ".list.json.tmp-CRASHED2"}
-	keep := []string{".other.json.tmp-X", "list.json.tmp-X", ".list.json.tmpX"}
+	const suffix = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" // rand.Text's form: 26 of [A-Z2-7]
+	stale := []string{".list.json.tmp-" + suffix, ".list.json.tmp-234567ABCDEFGHIJKLMNOPQRST"}
+	keep := []string{
+		".other.json.tmp-" + suffix,
+		"list.json.tmp-" + suffix,
+		".list.json.tmp" + suffix,
+		".list.json.tmp-x.tmp-" + suffix, // a temp of the list "list.json.tmp-x"
+		".list.json.tmp-CRASHED1",        // too short
+		".list.json.tmp-" + suffix + "0", // too long
+		".list.json.tmp-abcdefghijklmnopqrstuvwxyz",
+	}
 	for _, name := range append(append([]string{}, stale...), keep...) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("partial"), 0o644); err != nil {
 			t.Fatal(err)

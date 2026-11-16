@@ -92,21 +92,42 @@ func atomicWrite(path string, data []byte) (err error) {
 	return nil
 }
 
-// sweepTemps removes the files in dir whose names start with prefix: temp
-// files a writer left behind when it crashed between creating and renaming
-// one. It must only run under the lock: only the lock holder creates temp
-// files, so any found then are leftovers. It is best-effort, and errors are
-// ignored (a leftover only wastes space).
+// sweepTemps removes the files in dir named prefix plus a createTemp suffix:
+// temp files a writer left behind when it crashed between creating and
+// renaming one. It must only run under the lock: only the lock holder creates
+// temp files, so any found then are leftovers. The suffix must have
+// createTemp's exact form, so the temps of another file whose name starts
+// with this one's (list "a.tmp-b" next to list "a") are left alone. It is
+// best-effort, and errors are ignored (a leftover only wastes space).
 func sweepTemps(dir, prefix string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), prefix) && e.Type().IsRegular() {
+		suffix, ok := strings.CutPrefix(e.Name(), prefix)
+		if ok && isTempSuffix(suffix) && e.Type().IsRegular() {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
+}
+
+// tempSuffixLen is the length of rand.Text's output, createTemp's suffix.
+const tempSuffixLen = 26
+
+// isTempSuffix reports whether s has the form of rand.Text's output, the
+// suffix createTemp gives a temp file: tempSuffixLen characters of the
+// base32 alphabet [A-Z2-7].
+func isTempSuffix(s string) bool {
+	if len(s) != tempSuffixLen {
+		return false
+	}
+	for _, c := range []byte(s) {
+		if (c < 'A' || c > 'Z') && (c < '2' || c > '7') {
+			return false
+		}
+	}
+	return true
 }
 
 // createTemp creates a new file named prefix plus a random suffix in dir, with
