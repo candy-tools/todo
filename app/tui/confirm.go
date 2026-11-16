@@ -153,8 +153,8 @@ func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	}
 	m.snapshots = map[string]todo.DoneStates{}
 	var removed int
-	saved := m.commit(focus, func(ctx context.Context) (res todo.WriteResult, err error) {
-		removed, res, err = m.store.Prune(ctx)
+	saved := m.commit(focus, func(ctx context.Context, st *todo.Store) (res todo.WriteResult, err error) {
+		removed, res, err = st.Prune(ctx)
 		return res, err
 	})
 	if sel := m.focused().selected(); focus != "" && (sel == nil || sel.ID != focus) {
@@ -188,8 +188,8 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 	// A structural change ends the accidental-complete undo window.
 	m.snapshots = map[string]todo.DoneStates{}
 	id := it.ID
-	m.commit(prevID, func(ctx context.Context) (todo.WriteResult, error) {
-		return m.store.Delete(ctx, id)
+	m.commit(prevID, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+		return st.Delete(ctx, id)
 	})
 	return m, nil
 }

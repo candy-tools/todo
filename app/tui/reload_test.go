@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -287,11 +288,11 @@ func TestRemovedFileKeepsView(t *testing.T) {
 		t.Fatalf("a list file exists at the path after the polls (stat err %v); none may be created", err)
 	}
 
-	// A save finds no task to change: it fails, and the view keeps the list
-	// rather than show the empty one a missing file reads as.
+	// A save needs the file the model read: it fails as removed, and the view
+	// keeps the list rather than show the empty one a missing file reads as.
 	m = pickState(t, selectTitle(t, m, "a"), todo.Done)
-	if !errors.Is(m.err, todo.ErrNotFound) {
-		t.Errorf("m.err = %v, want the failed save (ErrNotFound)", m.err)
+	if !errors.Is(m.err, errListRemoved) {
+		t.Errorf("m.err = %v, want the save to fail as removed", m.err)
 	}
 	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
 		t.Errorf("after the failed save rows = %v, want %v", got, rows)
@@ -306,6 +307,57 @@ func TestRemovedFileKeepsView(t *testing.T) {
 	m = pollCmdOnce(m)
 	if m.pollErr != nil || find(m.doc, "Back") == nil || find(m.doc, "a") != nil {
 		t.Errorf("the file written back must be reloaded: poll error %v, rows %v", m.pollErr, rowTitles(m.tree))
+	}
+}
+
+// TestAddWhileFileRemovedCreatesNothing removes the list file and adds a root
+// category before any poll noticed: the write requires the file the model
+// read, so it fails as removed, creates no file, and the view keeps the list.
+func TestAddWhileFileRemovedCreatesNothing(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	rows, fp := rowTitles(m.tree), m.lastFP
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	m = press(m, "down", "down") // the "+ new category" row
+	if !m.tree.onPlaceholder() {
+		t.Fatalf("precondition: the cursor must be on the placeholder, rows %v", rowTitles(m.tree))
+	}
+	m = typeText(press(m, "c"), "Home")
+	m = press(m, "enter")
+	if !errors.Is(m.err, errListRemoved) {
+		t.Errorf("m.err = %v, want the write to fail as removed", m.err)
+	}
+	if got := m.footer(200); !strings.Contains(got, "save failed: list file was removed") {
+		t.Errorf("footer = %q, want the removed-file error", got)
+	}
+	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
+		t.Errorf("rows = %v, want %v", got, rows)
+	}
+	if m.lastFP != fp {
+		t.Errorf("lastFP moved to %x, want the last loaded %x", m.lastFP, fp)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a list file exists at the path after the add (stat err %v); none may be created", err)
+	}
+}
+
+// TestFirstWriteCreatesMissingList starts on a missing list file: the model
+// never read a file, so its first write creates it.
+func TestFirstWriteCreatesMissingList(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	m := modelOn(t, path)
+	m = typeText(press(m, "c"), "Home")
+	m = press(m, "enter")
+	if m.err != nil {
+		t.Fatalf("the first write failed: %v", m.err)
+	}
+	if find(m.doc, "Home") == nil {
+		t.Errorf("the new category must be shown, rows %v", rowTitles(m.tree))
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the first write must create the list file: %v", err)
 	}
 }
 
@@ -858,8 +910,8 @@ func TestSavedWriteAdoptsWriteResult(t *testing.T) {
 	a, b := find(m.doc, "a"), find(m.doc, "b")
 	m.doc.Remove(b)
 	var wrote todo.Fingerprint
-	saved := m.commit(a.ID, func(ctx context.Context) (todo.WriteResult, error) {
-		res, err := m.store.Delete(ctx, b.ID)
+	saved := m.commit(a.ID, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+		res, err := st.Delete(ctx, b.ID)
 		writeList(t, path, []byte(halfWritten)) // a read after the write fails
 		wrote = res.Wrote
 		return res, err
@@ -884,7 +936,9 @@ func TestFailedWriteRevertsToStore(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	b := find(m.doc, "b")
 	m.doc.Remove(b)
-	m.commit(b.ID, func(context.Context) (todo.WriteResult, error) { return todo.WriteResult{}, errors.New("boom") })
+	m.commit(b.ID, func(context.Context, *todo.Store) (todo.WriteResult, error) {
+		return todo.WriteResult{}, errors.New("boom")
+	})
 	if got := m.footer(200); !strings.Contains(got, "save failed: boom") {
 		t.Errorf("footer should report the failed save, got %q", got)
 	}
@@ -904,7 +958,9 @@ func TestFailedWriteReloadsOutsideChange(t *testing.T) {
 	a := find(m.doc, "a")
 	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
 	externalAddTask(t, path, "b", find(m.doc, "Work").ID, a.ID)
-	m.commit(a.ID, func(context.Context) (todo.WriteResult, error) { return todo.WriteResult{}, errors.New("boom") })
+	m.commit(a.ID, func(context.Context, *todo.Store) (todo.WriteResult, error) {
+		return todo.WriteResult{}, errors.New("boom")
+	})
 	if find(m.doc, "b") == nil || !hasRow(m, "b") {
 		t.Errorf("the reload must show the outside change, rows %v", rowTitles(m.tree))
 	}
@@ -1020,7 +1076,7 @@ func TestCommitWithoutStoreWriteReloads(t *testing.T) {
 		}
 		b := find(m.doc, "b")
 		m.doc.Remove(b)
-		if !m.commit(b.ID, func(context.Context) (todo.WriteResult, error) { return todo.WriteResult{}, nil }) {
+		if !m.commit(b.ID, func(context.Context, *todo.Store) (todo.WriteResult, error) { return todo.WriteResult{}, nil }) {
 			t.Fatalf("afterWrite=%v: the commit must report success", afterWrite)
 		}
 		if find(m.doc, "b") == nil || !hasRow(m, "b") {

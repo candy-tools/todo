@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -46,9 +47,22 @@ func (m *model) noteLeftTab(id string) bool {
 	return true
 }
 
-// storeWrite is one store write as commit runs it: it returns the write's
-// result, or the zero WriteResult when it succeeded without a store write.
-type storeWrite func(ctx context.Context) (todo.WriteResult, error)
+// storeWrite is one store write as commit runs it, on st, the store commit
+// hands it (see writer): it returns the write's result.
+type storeWrite func(ctx context.Context, st *todo.Store) (todo.WriteResult, error)
+
+// writer returns the store every write goes through. Once the model has read
+// the list from a file, a write requires that file to still be there
+// (Store.Existing), so a list removed since is never silently recreated; it
+// fails with todo.ErrListMissing and writes nothing. A model that started on
+// a missing file writes through the plain store, so its first write creates
+// the file.
+func (m *model) writer() *todo.Store {
+	if m.lastFP.IsMissing() {
+		return m.store
+	}
+	return m.store.Existing()
+}
 
 // commit runs write, one store write, and shows its result, so the view always
 // shows what the store holds. A write error is kept for the footer (a success
@@ -66,8 +80,8 @@ type storeWrite func(ctx context.Context) (todo.WriteResult, error)
 // On failure the list is loaded again, and handled the same way when it moved;
 // when that fails too, a copy of the document as last loaded is put back, so
 // the change the caller made in memory does not stay on screen as if saved. A
-// write that found the file removed and wrote nothing (clearing the done
-// tasks of the empty list a missing file reads as) is such a failure too.
+// write that finds the file the model read removed fails as errListRemoved
+// and writes nothing (see writer); the view keeps the list.
 //
 // commit reports whether the write succeeded, so a caller can keep the user's
 // input to retry a failed save.
@@ -75,8 +89,11 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 	ctx := context.Background()
 	m.err = nil
 	onPH := m.focused().onPlaceholder()
-	r, err := write(ctx)
+	r, err := write(ctx, m.writer())
 	if err != nil {
+		if errors.Is(err, todo.ErrListMissing) {
+			err = errListRemoved
+		}
 		m.err = fmt.Errorf("save failed: %w", err)
 		m.reload(ctx)
 		m.adoptAll(m.doc, focusID, onPH)
@@ -88,15 +105,6 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 		m.reload(ctx)
 		m.adoptAll(m.doc, focusID, onPH)
 		return true
-	}
-	if r.Read.IsMissing() && r.Wrote.IsMissing() && !m.lastFP.IsMissing() {
-		// The file is gone and the write, finding nothing to change in the
-		// empty list that reads as, wrote nothing: adopting that empty list
-		// would wipe the view the removed-file error keeps. Fail as removed.
-		m.err = fmt.Errorf("save failed: %w", errListRemoved)
-		m.doc = m.saved.Clone()
-		m.adoptAll(m.doc, focusID, onPH)
-		return false
 	}
 	external := r.Read != m.lastFP
 	m.ownRead = r.Read

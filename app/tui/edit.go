@@ -221,11 +221,11 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	// process moved or deleted does not matter.
 	parentID, _ := m.doc.Placement(added)
 	var newID string
-	if !m.commit("", func(ctx context.Context) (res todo.WriteResult, err error) {
+	if !m.commit("", func(ctx context.Context, st *todo.Store) (res todo.WriteResult, err error) {
 		if added.Kind == todo.Category {
-			newID, res, err = m.store.AppendCategory(ctx, title, parentID)
+			newID, res, err = st.AppendCategory(ctx, title, parentID)
 		} else {
-			newID, res, err = m.store.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, added.Status, parentID)
+			newID, res, err = st.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, added.Status, parentID)
 		}
 		return res, err
 	}) {
@@ -256,8 +256,8 @@ func (m *model) submitEdit() {
 	m.snapshots = map[string]todo.DoneStates{}
 	applyChanges(m.editing, ch)
 	id := m.editing.ID
-	if m.commit(id, func(ctx context.Context) (todo.WriteResult, error) {
-		return m.store.Edit(ctx, id, ch)
+	if m.commit(id, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+		return st.Edit(ctx, id, ch)
 	}) {
 		return
 	}

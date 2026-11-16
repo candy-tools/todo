@@ -130,8 +130,8 @@ func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
 	}
 	id := it.ID
 	parentID, afterID := m.doc.Placement(it)
-	m.commit(id, func(ctx context.Context) (todo.WriteResult, error) {
-		return m.store.Move(ctx, id, parentID, afterID)
+	m.commit(id, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+		return st.Move(ctx, id, parentID, afterID)
 	})
 	if m.noteLeftTab(id) {
 		m.focused().grabbed = false
