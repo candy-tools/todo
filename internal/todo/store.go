@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"strings"
 	"time"
 
@@ -92,10 +94,11 @@ func NewStore(path string, opts ...Option) *Store {
 func (s *Store) Path() string { return s.file.Path() }
 
 // Existing returns a store on the same file whose writes require the file to
-// exist: on a missing file each write, even one that would change nothing,
-// fails with ErrListMissing and writes nothing (it does not create the list
-// file; the lock file next to it may be). The check is made under the write's
-// lock, before the write looks at the list. A caller that has read the file
+// exist: on a missing file, or a missing directory, each write, even one that
+// would change nothing, fails with ErrListMissing and creates nothing: no
+// list file, and no lock file unless the list goes in the instant between a
+// cheap check made before locking and the lock. The check that counts is made
+// under the write's lock, before the write looks at the list. A caller that has read the file
 // writes through Existing so that a file removed since is not silently
 // recreated as a new list.
 func (s *Store) Existing() *Store {
@@ -137,6 +140,11 @@ func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, e
 // update is write with fn also given the Snapshot of the file as the write
 // read it under the lock.
 func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Snapshot) (changed bool, err error)) (WriteResult, error) {
+	if s.mustExist {
+		if _, err := os.Stat(s.Path()); errors.Is(err, fs.ErrNotExist) {
+			return WriteResult{}, ErrListMissing // not even the lock is taken
+		}
+	}
 	res, err := s.file.Update(ctx, func(l *diskList, cur jsonfile.Snapshot) (bool, error) {
 		if s.mustExist && !cur.Exists {
 			return false, ErrListMissing
@@ -149,6 +157,9 @@ func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Sn
 		*l = toDisk(d)
 		return true, nil
 	})
+	if s.mustExist && errors.Is(err, fs.ErrNotExist) {
+		return WriteResult{}, ErrListMissing // the directory went before the lock
+	}
 	if err != nil {
 		return WriteResult{}, s.mapErr(err)
 	}

@@ -255,6 +255,9 @@ func TestStoreExistingRefusesMissingFile(t *testing.T) {
 		if b := fileBytes(t, s.Path()); b != nil {
 			t.Fatalf("%s created the list file:\n%s", name, b)
 		}
+		if _, err := os.Stat(s.Path() + ".lock"); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s created the lock file: stat err = %v", name, err)
+		}
 	}
 	if _, _, err := s.Existing().Prune(ctx); !errors.Is(err, ErrListMissing) {
 		t.Errorf("Prune of nothing on a missing file = %v, want ErrListMissing", err)
@@ -268,6 +271,21 @@ func TestStoreExistingRefusesMissingFile(t *testing.T) {
 	item(t, load(t, s), id)
 	if s.Existing().Path() != s.Path() {
 		t.Errorf("Existing().Path() = %q, want %q", s.Existing().Path(), s.Path())
+	}
+}
+
+// A store from Existing whose directory was removed refuses every write with
+// ErrListMissing and creates nothing: not the directory, the list or a lock.
+func TestStoreExistingRefusesMissingDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gone")
+	s := NewStore(filepath.Join(dir, ".todo.json"))
+	for name, w := range everyWrite(s.Existing(), "aaaaaaa", "bbbbbbb") {
+		if err := w(); !errors.Is(err, ErrListMissing) {
+			t.Errorf("%s in a missing directory = %v, want ErrListMissing", name, err)
+		}
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the directory was created: stat err = %v", err)
 	}
 }
 
