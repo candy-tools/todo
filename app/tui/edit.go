@@ -271,11 +271,7 @@ func itemMeta(it *todo.Item) string {
 		return labelStyle.Render("Category") + helpTextStyle.Render(fmt.Sprintf("  ·  %d of %d tasks done", done, total))
 	}
 	glyph, st := statusGlyph(it.Status, it.IsSubtask())
-	col := it.Status.Column()
-	if it.IsSubtask() && it.Parent != nil {
-		col = it.Parent.Status.Column() // a subtask sits in its parent's column
-	}
-	status := st.Render(glyph + " " + col.Title() + " · " + it.Status.Label())
+	status := st.Render(glyph + " " + it.Column().Title() + " · " + it.Status.Label())
 	if done, total := it.TaskCounts(); total > 0 {
 		status += helpTextStyle.Render("  ·  ") + labelStyle.Render("Subtasks") + helpTextStyle.Render(fmt.Sprintf(" %d/%d done", done, total))
 	}

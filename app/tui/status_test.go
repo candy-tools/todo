@@ -414,9 +414,12 @@ func TestTaskRowShowsSubtaskProgress(t *testing.T) {
 }
 
 func TestItemMetaStatus(t *testing.T) {
-	d := todotest.Parse(t, "# Work\n\n- [/] working\n- [>] defer\n")
+	d := todotest.Parse(t, "# Work\n\n- [/] working\n  - [ ] sub\n- [>] defer\n")
 	if got := itemMeta(find(d, "working")); !strings.Contains(got, "In Progress · working") {
 		t.Errorf("itemMeta for a working task should say 'In Progress · working', got %q", got)
+	}
+	if got := itemMeta(find(d, "sub")); !strings.Contains(got, "In Progress · open") {
+		t.Errorf("itemMeta for a subtask should name its task's column, got %q", got)
 	}
 	if got := itemMeta(find(d, "defer")); !strings.Contains(got, "Backlog · deferred") {
 		t.Errorf("itemMeta for a deferred task should say 'deferred', got %q", got)

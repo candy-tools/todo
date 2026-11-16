@@ -42,7 +42,7 @@ func (m *model) noteLeftTab(id string) bool {
 				return true
 			}
 		}
-		m.status = fmt.Sprintf("moved to %s — %s", task.Status.Column().Title(), task.Status.Label())
+		m.status = fmt.Sprintf("moved to %s — %s", task.Column().Title(), task.Status.Label())
 	}
 	return true
 }

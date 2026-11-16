@@ -82,7 +82,7 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	cols := todo.Columns()
-	cur := slices.Index(cols, it.Status.Column())
+	cur := slices.Index(cols, it.Column())
 	if cur < 0 {
 		cur = 0 // a column off the board (an unknown status) counts as Backlog
 	}
