@@ -314,7 +314,7 @@ func TestInvalidFileExitsOne(t *testing.T) {
 	if codeOf(t, err) != exitGeneric {
 		t.Fatalf("add on an invalid list = %v, want exit 1", err)
 	}
-	if want := "task aaaaaaa: category bbbbbbb does not exist"; !contains(err.Error(), want) {
+	if want := `task aaaaaaa: category "bbbbbbb" does not exist`; !contains(err.Error(), want) {
 		t.Errorf("error %q does not name %q", err, want)
 	}
 	if got := bytesOf(t, defaultFile); string(got) != bad {

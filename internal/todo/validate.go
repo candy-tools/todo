@@ -29,7 +29,7 @@ func (l *diskList) validate() error {
 	}
 	for _, t := range l.Tasks {
 		if _, ok := parents[t.Category]; !ok {
-			return invalidf("task %s: category %s does not exist", t.ID, t.Category)
+			return invalidf("task %s: category %q does not exist", t.ID, t.Category)
 		}
 	}
 	for _, t := range l.Tasks {
@@ -76,7 +76,7 @@ func (l *diskList) validateCategories() (map[string]string, error) {
 	}
 	for _, c := range l.Categories {
 		if _, ok := parents[c.Parent]; c.Parent != "" && !ok {
-			return nil, invalidf("category %s: parent %s does not exist", c.ID, c.Parent)
+			return nil, invalidf("category %s: parent %q does not exist", c.ID, c.Parent)
 		}
 	}
 	for _, c := range l.Categories {
@@ -110,14 +110,15 @@ func (l *diskList) validateTitles() error {
 	return nil
 }
 
-// checkTitle fails when CleanTitle rejects title or would change it.
+// checkTitle fails when CleanTitle rejects title or would change it. CleanTitle
+// changes a title it accepts only by trimming the whitespace around it.
 func checkTitle(kind, id, title string) error {
 	clean, err := CleanTitle(title)
 	if err != nil {
 		return invalidf("%s %s: title: %v", kind, id, err)
 	}
 	if clean != title {
-		return invalidf("%s %s: title is not normalized", kind, id)
+		return invalidf("%s %s: title has leading or trailing whitespace", kind, id)
 	}
 	return nil
 }
