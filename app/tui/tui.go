@@ -120,8 +120,8 @@ type model struct {
 }
 
 // BusyTimeout is how long a TUI write waits for another process to release the
-// store's writer lock before it fails with todo.ErrBusy. Writes run on the UI
-// thread, so the wait is kept well below the CLI's: the caller opens the store
+// list's write lock before it fails with todo.ErrBusy. Writes run on the UI
+// thread, so the wait is kept well below the CLI's: the caller makes the store
 // it passes to Run with todo.WithBusyTimeout(BusyTimeout).
 const BusyTimeout = 750 * time.Millisecond
 

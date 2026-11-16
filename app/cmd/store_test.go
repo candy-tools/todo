@@ -177,7 +177,7 @@ func TestIgnoresTodoDB(t *testing.T) {
 	}
 }
 
-// The automatic TODO.md import writes the JSON list, not a database.
+// The automatic TODO.md import writes the JSON list, and no .todo.db.
 func TestAutoImportWritesJSON(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile(legacyFile, []byte("# Work\n\n- [ ] alpha\n"), 0o600); err != nil {

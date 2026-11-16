@@ -165,7 +165,7 @@ func TestSetStateBackToOpen(t *testing.T) {
 
 // TestStateWritesRejectMissingID: a write naming an item the store does not
 // hold, such as one another process deleted since the caller's read, fails
-// whole with ErrNotFound instead of reporting success for 0 rows.
+// whole with ErrNotFound instead of reporting a success that changed nothing.
 func TestStateWritesRejectMissingID(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
