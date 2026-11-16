@@ -1,7 +1,6 @@
 package todo
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -13,12 +12,6 @@ const MaxTitleLen = 200
 
 // untitled is the title an import gives an item whose title is empty.
 const untitled = "Untitled"
-
-// ErrInvalidTitle is returned by a write that would store an empty title, one
-// longer than MaxTitleLen characters, or one holding a control character (a
-// newline, tab or escape among them) or another unsafe character (see
-// unsafeRune).
-var ErrInvalidTitle = errors.New("invalid title")
 
 // CleanTitle returns title trimmed of surrounding whitespace, or
 // ErrInvalidTitle when the trimmed title is empty, longer than MaxTitleLen

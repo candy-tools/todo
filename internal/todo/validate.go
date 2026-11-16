@@ -1,14 +1,8 @@
 package todo
 
-import (
-	"errors"
-	"fmt"
-)
+import "fmt"
 
-// ErrInvalidList is returned (wrapped) when the list file is well-formed JSON
-// but breaks the format's rules.
-var ErrInvalidList = errors.New("invalid list file")
-
+// invalidf returns an ErrInvalidList with the message format makes of args.
 func invalidf(format string, args ...any) error {
 	return fmt.Errorf("%w: "+format, append([]any{ErrInvalidList}, args...)...)
 }

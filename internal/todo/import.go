@@ -14,10 +14,6 @@ import (
 // heading, which the store (like the app) does not allow at the root.
 const uncategorizedTitle = "Uncategorized"
 
-// ErrNotEmpty is returned by Import when the list already holds items and the
-// caller did not ask to replace them.
-var ErrNotEmpty = errors.New("list is not empty")
-
 // ImportReport summarises a markdown import: how many categories and tasks were
 // read and what the parser left out. Each warning reads `line N: <reason>`.
 type ImportReport struct {

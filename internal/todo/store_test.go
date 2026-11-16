@@ -234,6 +234,9 @@ func TestStoreRefusedValueIsNotAnInvalidFile(t *testing.T) {
 	if msg := err.Error(); !strings.HasPrefix(msg, prefix) || strings.Contains(msg, ErrInvalidList.Error()) {
 		t.Errorf("err = %q, want it to start with %q and not say %q", msg, prefix, ErrInvalidList)
 	}
+	if !errors.Is(err, ErrInternal) || errors.Is(err, ErrInvalidList) {
+		t.Errorf("err = %v: want an ErrInternal, not an ErrInvalidList", err)
+	}
 	if b := fileBytes(t, s.Path()); b != nil {
 		t.Errorf("the refused write created the file:\n%s", b)
 	}

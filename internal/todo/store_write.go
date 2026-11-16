@@ -1,42 +1,6 @@
 package todo
 
-import (
-	"context"
-	"errors"
-)
-
-// ErrNotFound is returned by a write that names an item (or a parent) the store
-// does not hold.
-var ErrNotFound = errors.New("item not found")
-
-// ErrTooDeep is returned by a write that would nest a task below a subtask:
-// subtasks cannot have subtasks.
-var ErrTooDeep = errors.New("subtasks cannot have subtasks")
-
-// ErrSubtaskStatus is returned by a write that would give a subtask a state
-// other than Open or Done.
-var ErrSubtaskStatus = errors.New("a subtask can only be open or done")
-
-// ErrWrongParent is returned by a write that would place a task at the root or
-// a category under a task: a task always sits under a category or a task, and a
-// category under a category or at the root.
-var ErrWrongParent = errors.New("a task must sit under a category and a category cannot sit under a task")
-
-// ErrNotTask is returned by a write that would set the status of a category:
-// only a task has a status.
-var ErrNotTask = errors.New("only a task has a status")
-
-// ErrConflict is returned by a write whose placement no longer fits the tree
-// it finds: the sibling it names to place an item after is no longer under that
-// parent. It usually means another process changed the list since the caller
-// read it.
-var ErrConflict = errors.New("the list changed since it was read; reload and try again")
-
-// ErrInvalidMove is returned by a move that would put an item under itself or
-// one of its descendants. It is usually a bad request, but can also follow a
-// stale read (another process made the target a descendant of the item since
-// the caller read the list); either way, retrying the same move fails again.
-var ErrInvalidMove = errors.New("cannot move an item into its own subtree")
+import "context"
 
 // Fields are the editable text fields of an item. A category uses Title only.
 type Fields struct {

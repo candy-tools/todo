@@ -2,13 +2,8 @@ package todo
 
 import (
 	"context"
-	"errors"
 	"maps"
 )
-
-// ErrRestoreAndCascade is returned by a Reopen asked both to restore the
-// subtasks from a snapshot and to open them all: the two disagree.
-var ErrRestoreAndCascade = errors.New("a reopen cannot both restore the subtasks and open them all")
 
 // ReopenTarget is the state reopening it lands on: Open for a subtask, which
 // can only be open or done, and Working for any other task.

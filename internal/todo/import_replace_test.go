@@ -97,8 +97,8 @@ func TestImportReplaceRemovesBackupWhenWriteFails(t *testing.T) {
 	doc := &Document{}
 	doc.AppendRoot(&Item{ID: "not-an-id", Kind: Category, Title: "New"})
 	_, backup, err := s.importDoc(context.Background(), doc, true, true)
-	if !errors.Is(err, ErrInvalidList) {
-		t.Fatalf("importDoc = %v, want ErrInvalidList", err)
+	if !errors.Is(err, ErrInternal) {
+		t.Fatalf("importDoc = %v, want ErrInternal (a refused value)", err)
 	}
 	if backup != "" {
 		t.Errorf("backup = %q after a failed import, want none", backup)

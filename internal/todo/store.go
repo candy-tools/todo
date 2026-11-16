@@ -10,15 +10,6 @@ import (
 	"github.com/candy-tools/todo/libs/jsonfile"
 )
 
-// ErrNewerSchema is returned when the list file was written by a newer todo,
-// whose format this binary does not know and must not read or write. It is
-// wrapped with the version found.
-var ErrNewerSchema = errors.New("list was written by a newer todo")
-
-// ErrBusy is returned by a write that gave up waiting for another process to
-// release the list's write lock (after the store's busy timeout).
-var ErrBusy = errors.New("list busy (another todo is writing), try again")
-
 // newerSchemaError returns ErrNewerSchema wrapped with the format version
 // found in the file.
 func newerSchemaError(version int) error {
@@ -68,10 +59,6 @@ type WriteResult struct {
 	// Written reports whether the write replaced the file.
 	Written bool
 }
-
-// ErrListMissing is returned by a write through a store from Existing when
-// the list file does not exist: it was removed since the caller read it.
-var ErrListMissing = errors.New("the list file does not exist")
 
 // Store is a TODO list kept in one JSON file. Every write is one locked
 // read-modify-write of the file as it is now (see write), so several Stores, in
@@ -175,7 +162,7 @@ func (s *Store) mapErr(err error) error {
 	case errors.Is(err, jsonfile.ErrInvalidValue):
 		return &refusedError{err: err}
 	case errors.Is(err, jsonfile.ErrInvalid):
-		if errors.Is(err, ErrInvalidList) || errors.Is(err, ErrNewerSchema) {
+		if errors.Is(err, ErrInvalidList) { // ErrNewerSchema included
 			return fmt.Errorf("%s: %w", s.Path(), err)
 		}
 		return fmt.Errorf("%s: %w: %w", s.Path(), ErrInvalidList, err)
@@ -184,9 +171,9 @@ func (s *Store) mapErr(err error) error {
 }
 
 // refusedError is a write that produced a list the format refuses, so nothing
-// was written: a bug in the write, not a problem with the file. Its message
-// says so without calling the file invalid; it still wraps the validation
-// error, so errors.Is reaches ErrInvalidList and the like.
+// was written: a bug in the write, not a problem with the file. Its class is
+// ErrInternal, and it does not wrap the validation error, so it never reads as
+// ErrInvalidList (a bad file); its message says what the validation refused.
 type refusedError struct {
 	err error
 }
@@ -197,5 +184,5 @@ func (e *refusedError) Error() string {
 	return "refused to write an invalid list: " + msg
 }
 
-// Unwrap returns the validation error.
-func (e *refusedError) Unwrap() error { return e.err }
+// Is reports whether target is ErrInternal.
+func (e *refusedError) Is(target error) bool { return target == ErrInternal }
