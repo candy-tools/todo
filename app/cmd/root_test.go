@@ -39,7 +39,7 @@ func TestResolvePath(t *testing.T) {
 
 func TestRootMeta(t *testing.T) {
 	c := newRootCommand()
-	if c.Use != "todo [db-file]" || c.Short != "A minimalistic terminal TODO manager" {
+	if c.Use != "todo [list-file]" || c.Short != "A minimalistic terminal TODO manager" {
 		t.Errorf("unexpected Use/Short: %q / %q", c.Use, c.Short)
 	}
 }

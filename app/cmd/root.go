@@ -1,5 +1,5 @@
-// Package cmd is the command-line entry point: it parses `todo [db-file]` and
-// launches the interactive TUI on that store.
+// Package cmd is the command-line entry point: it parses `todo [list-file]` and
+// launches the interactive TUI on that list file.
 package cmd
 
 import (
@@ -29,7 +29,7 @@ func Execute() {
 
 func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "todo [db-file]",
+		Use:           "todo [list-file]",
 		Short:         "A minimalistic terminal TODO manager",
 		Long:          "todo opens a JSON list file as a keyboard-driven task list of categories,\ntasks and subtasks, shown as a kanban board with Backlog, Next, In Progress and\nDone tabs. Each task has a state; set one from the command line with\n`todo status --to <state>`.\n\nWith no argument it uses .todo.json in the current directory. When that file\ndoes not exist yet and a TODO.md is present, TODO.md is imported on first run.\nUse `todo import <file.md>` to import a markdown file explicitly.",
 		Version:       metainfo.Version,
@@ -41,10 +41,10 @@ func newRootCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Opening creates the store when it is missing (or imports TODO.md),
-			// so launching todo always starts from a real list file on disk. Its
-			// writes wait only tui.BusyTimeout for another writer, so a stuck
-			// one elsewhere does not freeze the UI.
+			// Opening does no I/O: a missing list file shows as an empty list,
+			// and nothing is created until the first write (unless TODO.md is
+			// imported first). Its writes wait only tui.BusyTimeout for another
+			// writer, so a stuck one elsewhere does not freeze the UI.
 			st, notice, err := openStore(c, path, isDefault, todo.WithBusyTimeout(tui.BusyTimeout))
 			if err != nil {
 				return err
