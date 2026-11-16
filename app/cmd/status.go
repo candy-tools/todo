@@ -46,6 +46,22 @@ func set(st todo.Status) statusWrite {
 	}
 }
 
+// setThroughPolicy writes st for the task alone, through the store's complete
+// and reopen policy: into Done it completes the task, out of Done it reopens
+// it, and any other change is a plain state change. The subtasks keep their
+// states in all three.
+func setThroughPolicy(st todo.Status) statusWrite {
+	return func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
+		switch {
+		case st == todo.Done:
+			return st, s.Complete(ctx, it.ID, false)
+		case it.Status == todo.Done:
+			return st, s.Reopen(ctx, it.ID, st, todo.ReopenOptions{})
+		}
+		return set(st)(ctx, s, it)
+	}
+}
+
 func statusCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "status --to <state>",
@@ -57,7 +73,7 @@ func statusCmd() *cobra.Command {
 			if !ok {
 				return usageErr(fmt.Sprintf("invalid --to %q (%s)", name, statusNames))
 			}
-			return setStatus(cmd, "status", set(st))
+			return setStatus(cmd, "status", setThroughPolicy(st))
 		},
 	}
 	addSelectorFlags(c, "")
