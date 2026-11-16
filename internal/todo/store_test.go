@@ -99,7 +99,7 @@ func TestWriteRefusesNewerSchema(t *testing.T) {
 	s := newStore(t)
 	bumpSchemaVersion(t, s.Path())
 
-	if _, err := s.AddCategory(context.Background(), "C", 0, 0); !errors.Is(err, ErrNewerSchema) {
+	if _, err := s.AddCategory(context.Background(), "C", "", ""); !errors.Is(err, ErrNewerSchema) {
 		t.Fatalf("AddCategory = %v, want ErrNewerSchema", err)
 	}
 	var count int64
@@ -148,7 +148,7 @@ func TestWriteRefusesReplacedFile(t *testing.T) {
 			if err := s.CheckFile(); !errors.Is(err, ErrFileReplaced) {
 				t.Fatalf("CheckFile = %v, want ErrFileReplaced", err)
 			}
-			if _, err := s.AddCategory(context.Background(), "C", 0, 0); !errors.Is(err, ErrFileReplaced) {
+			if _, err := s.AddCategory(context.Background(), "C", "", ""); !errors.Is(err, ErrFileReplaced) {
 				t.Fatalf("AddCategory = %v, want ErrFileReplaced", err)
 			}
 			// The writer connection reads the file the store holds; Load would
@@ -207,7 +207,7 @@ func TestReadRefusesReplacedFile(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, title := range []string{"B", "C", "D"} {
-				if _, err := other.AppendCategory(ctx, title, 0); err != nil {
+				if _, err := other.AppendCategory(ctx, title, ""); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -242,11 +242,11 @@ func TestReadRefusesReplacedFile(t *testing.T) {
 func TestCloseAfterReplaceKeepsBothFiles(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	if _, err := s.AppendCategory(ctx, "A", 0); err != nil {
+	if _, err := s.AppendCategory(ctx, "A", ""); err != nil {
 		t.Fatal(err)
 	}
 	other := newStore(t)
-	if _, err := other.AppendCategory(ctx, "B", 0); err != nil {
+	if _, err := other.AppendCategory(ctx, "B", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := other.Close(); err != nil {
@@ -317,7 +317,7 @@ func TestOpenStoreFileReplacedWhileOpening(t *testing.T) {
 				}
 				return
 			}
-			if _, err := s.AppendCategory(ctx, "C", 0); err != nil {
+			if _, err := s.AppendCategory(ctx, "C", ""); err != nil {
 				t.Fatalf("AppendCategory: %v", err)
 			}
 			if err := s.Close(); err != nil {
@@ -357,7 +357,7 @@ func storeWithCategory(t *testing.T, path, title string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AppendCategory(context.Background(), title, 0); err != nil {
+	if _, err := s.AppendCategory(context.Background(), title, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -400,7 +400,7 @@ func TestLoadRevisionMatchesTree(t *testing.T) {
 
 	loadBetweenReads = func() {
 		loadBetweenReads = nil
-		if _, err := other.AppendCategory(ctx, "external", 0); err != nil {
+		if _, err := other.AppendCategory(ctx, "external", ""); err != nil {
 			t.Errorf("external write: %v", err)
 		}
 	}

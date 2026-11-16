@@ -360,7 +360,7 @@ func loadDocument(ctx context.Context, db *gorm.DB) (*Document, error) {
 // category's Level is one more than its number of category ancestors.
 func itemFromRow(r *dbItem, parent *Item) *Item {
 	it := &Item{
-		ID:          r.NodeId,
+		ID:          formatID(r.NodeId),
 		Kind:        Kind(r.Kind),
 		Title:       r.Title,
 		Status:      Status(r.Status),

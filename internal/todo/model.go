@@ -207,7 +207,7 @@ func StatusAfterMove(cur Status, toSubtask bool, oldParent Status) Status {
 // tasks hold sub-tasks. Only tasks use Status and Description; only categories
 // use Level.
 type Item struct {
-	ID          uint // database node ID; 0 until the item is persisted
+	ID          string // item ID; empty until the item is persisted
 	Kind        Kind
 	Title       string
 	Level       int    // Category only: its depth among categories, 1 for a root category
@@ -412,7 +412,7 @@ func (it *Item) TaskCounts() (done, total int) {
 // task's own board state, such as Working or Review. It is the in-memory snapshot behind the "I
 // marked the parent done by accident" undo; keyed by ID, it outlives a reload of
 // the document, and it is what Store.SetStatuses writes back.
-type DoneStates map[uint]Status
+type DoneStates map[string]Status
 
 // SnapshotDone captures the Status of it and all its descendant tasks, by ID.
 func SnapshotDone(it *Item) DoneStates {
@@ -459,10 +459,10 @@ func fullyDone(it *Item) bool {
 	return done == total
 }
 
-// Placement returns where it sits in the tree as database IDs: parentID is the
-// parent's ID (0 for a root) and afterID is the ID of the sibling immediately
-// before it (0 when it is the first among its peers).
-func (d *Document) Placement(it *Item) (parentID, afterID uint) {
+// Placement returns where it sits in the tree as item IDs: parentID is the
+// parent's ID ("" for a root) and afterID is the ID of the sibling immediately
+// before it ("" when it is the first among its peers).
+func (d *Document) Placement(it *Item) (parentID, afterID string) {
 	if it.Parent != nil {
 		parentID = it.Parent.ID
 	}

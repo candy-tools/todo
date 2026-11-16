@@ -56,8 +56,8 @@ func TestImportFileLosingFirstRunRaceKeepsWinnersDB(t *testing.T) {
 	if rep.Tasks != 1 || rep.Skipped {
 		t.Fatalf("first report = %+v; want 1 task imported", rep)
 	}
-	id, err := first.AddTask(context.Background(), Fields{Title: "winner's write"}, Open, mustRootID(t, first), 0)
-	if err != nil || id == 0 {
+	id, err := first.AddTask(context.Background(), Fields{Title: "winner's write"}, Open, mustRootID(t, first), "")
+	if err != nil || id == "" {
 		t.Fatalf("first store write: %v", err)
 	}
 
@@ -156,7 +156,7 @@ func TestImportFileRenameFallbackKeepsWinnersDB(t *testing.T) {
 		t.Fatalf("first import: %v", err)
 	}
 	defer func() { _ = first.Close() }()
-	if _, err := first.AddTask(context.Background(), Fields{Title: "winner's write"}, Open, mustRootID(t, first), 0); err != nil {
+	if _, err := first.AddTask(context.Background(), Fields{Title: "winner's write"}, Open, mustRootID(t, first), ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,7 +179,7 @@ func TestImportFileRenameFallbackKeepsWinnersDB(t *testing.T) {
 }
 
 // mustRootID returns the ID of the first root item of s.
-func mustRootID(t *testing.T, s *Store) uint {
+func mustRootID(t *testing.T, s *Store) string {
 	t.Helper()
 	doc, _, err := s.Load(context.Background())
 	if err != nil || len(doc.Roots) == 0 {

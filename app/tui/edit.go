@@ -167,14 +167,14 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.snapshots = map[uint]todo.DoneStates{}
+	m.snapshots = map[string]todo.DoneStates{}
 	sel := m.focused().selected()
 	if m.target != targetAddCategory {
 		sel = m.taskAnchor()
 	}
 	// The anchor is selected again if the write fails, so a retry adds at the
 	// same place even when the reload shifted the rows.
-	var anchorID uint
+	var anchorID string
 	if sel != nil && !m.focused().onPlaceholder() {
 		anchorID = sel.ID
 	}
@@ -220,8 +220,8 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	// last child, as the store finds them when it writes, so a sibling another
 	// process moved or deleted does not matter.
 	parentID, _ := m.doc.Placement(added)
-	var newID uint
-	if !m.commit(0, func(ctx context.Context) error {
+	var newID string
+	if !m.commit("", func(ctx context.Context) error {
 		var err error
 		if added.Kind == todo.Category {
 			newID, err = m.store.AppendCategory(ctx, title, parentID)
@@ -230,7 +230,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		}
 		return err
 	}) {
-		if anchorID != 0 {
+		if anchorID != "" {
 			m.adoptAll(m.doc, anchorID, false)
 		}
 		m.mode = modeForm
@@ -254,7 +254,7 @@ func (m *model) submitEdit() {
 	if ch == (todo.Changes{}) {
 		return
 	}
-	m.snapshots = map[uint]todo.DoneStates{}
+	m.snapshots = map[string]todo.DoneStates{}
 	applyChanges(m.editing, ch)
 	id := m.editing.ID
 	if m.commit(id, func(ctx context.Context) error {

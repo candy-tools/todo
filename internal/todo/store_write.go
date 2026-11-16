@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"time"
 
 	closuretree "github.com/go-bumbu/closure-tree"
@@ -155,6 +156,54 @@ func writeIn(ctx context.Context, tx *gorm.DB, fn func(tx *gorm.DB, tree *closur
 	return nil
 }
 
+// parseID converts an item ID, at the SQLite store's edge, to its numeric node
+// ID: "" is 0 (the root, or "place first"), and an ID that is not a node number
+// is ErrNotFound. Temporary: it goes with the SQLite store.
+func parseID(id string) (uint, error) {
+	if id == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseUint(id, 10, strconv.IntSize)
+	if err != nil {
+		return 0, fmt.Errorf("%w: id %s", ErrNotFound, id)
+	}
+	return uint(n), nil
+}
+
+// formatID is the item ID of node n: its decimal string, "" for 0.
+func formatID(n uint) string {
+	if n == 0 {
+		return ""
+	}
+	return strconv.FormatUint(uint64(n), 10)
+}
+
+// parseIDs converts ids with parseID.
+func parseIDs(ids ...string) ([]uint, error) {
+	out := make([]uint, len(ids))
+	for i, id := range ids {
+		n, err := parseID(id)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = n
+	}
+	return out, nil
+}
+
+// parseStates converts the keys of states with parseID.
+func parseStates(states map[string]Status) (map[uint]Status, error) {
+	out := make(map[uint]Status, len(states))
+	for id, st := range states {
+		n, err := parseID(id)
+		if err != nil {
+			return nil, err
+		}
+		out[n] = st
+	}
+	return out, nil
+}
+
 // kindAndParent reads row id as it is in the write's transaction (tree is bound
 // to tx): its kind and status, and its parent's ID from the closure table in
 // ParentId (0 for a root item). A missing row is closuretree.ErrNodeNotFound.
@@ -245,35 +294,44 @@ func addRow(ctx context.Context, tree *closuretree.Tree, row *dbItem, parentID, 
 // order); an afterID that is no longer a child of parentID fails it with
 // ErrConflict. A caller that only wants the category last uses AppendCategory,
 // which cannot conflict.
-func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID uint) (uint, error) {
+func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID string) (string, error) {
 	title, err := CleanTitle(title)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
-	return s.add(ctx, &dbItem{Kind: int(Category), Title: title}, parentID, afterID)
+	ids, err := parseIDs(parentID, afterID)
+	if err != nil {
+		return "", err
+	}
+	n, err := s.add(ctx, &dbItem{Kind: int(Category), Title: title}, ids[0], ids[1])
+	return formatID(n), err
 }
 
 // AppendCategory adds a category like AddCategory, placed after the last child
 // of parentID (0 for the root) — after its tasks and subcategories — as the
 // tree is at write time: a sibling another process moved or deleted since the
 // caller read the tree cannot make the add fail.
-func (s *Store) AppendCategory(ctx context.Context, title string, parentID uint) (uint, error) {
+func (s *Store) AppendCategory(ctx context.Context, title string, parentID string) (string, error) {
 	title, err := CleanTitle(title)
 	if err != nil {
-		return 0, err
+		return "", err
+	}
+	parent, err := parseID(parentID)
+	if err != nil {
+		return "", err
 	}
 	row := &dbItem{Kind: int(Category), Title: title}
 	err = s.write(ctx, func(_ *gorm.DB, tree *closuretree.Tree) error {
-		afterID, err := lastChild(ctx, tree, parentID)
+		afterID, err := lastChild(ctx, tree, parent)
 		if err != nil {
 			return err
 		}
-		return addRow(ctx, tree, row, parentID, afterID)
+		return addRow(ctx, tree, row, parent, afterID)
 	})
 	if err != nil {
-		return 0, err
+		return "", err
 	}
-	return row.NodeId, nil
+	return formatID(row.NodeId), nil
 }
 
 // lastChild returns the ID of parentID's last child (0 when it has none),
@@ -299,20 +357,30 @@ func lastChild(ctx context.Context, tree *closuretree.Tree, parentID uint) (uint
 // is no longer a child of parentID fails it with ErrConflict. A caller that
 // only wants the task after its last task sibling uses AppendTask, which
 // cannot conflict.
-func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afterID uint) (uint, error) {
-	return s.addTask(ctx, f, st, parentID, func(context.Context, *closuretree.Tree) (uint, error) {
-		return afterID, nil
+func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afterID string) (string, error) {
+	ids, err := parseIDs(parentID, afterID)
+	if err != nil {
+		return "", err
+	}
+	n, err := s.addTask(ctx, f, st, ids[0], func(context.Context, *closuretree.Tree) (uint, error) {
+		return ids[1], nil
 	})
+	return formatID(n), err
 }
 
 // AppendTask adds a task like AddTask, placed after the last task child of
 // parentID and before any subcategory, as the tree is at write time: a sibling
 // another process moved or deleted since the caller read the tree cannot make
 // the add fail.
-func (s *Store) AppendTask(ctx context.Context, f Fields, st Status, parentID uint) (uint, error) {
-	return s.addTask(ctx, f, st, parentID, func(ctx context.Context, tree *closuretree.Tree) (uint, error) {
-		return lastTaskChild(ctx, tree, parentID)
+func (s *Store) AppendTask(ctx context.Context, f Fields, st Status, parentID string) (string, error) {
+	parent, err := parseID(parentID)
+	if err != nil {
+		return "", err
+	}
+	n, err := s.addTask(ctx, f, st, parent, func(ctx context.Context, tree *closuretree.Tree) (uint, error) {
+		return lastTaskChild(ctx, tree, parent)
 	})
+	return formatID(n), err
 }
 
 // addTask is AddTask with the sibling to place the task after worked out by
@@ -376,9 +444,13 @@ func itemRows(tx *gorm.DB, ids ...uint) *gorm.DB {
 // refuses fails the edit with ErrInvalidTitle. A c naming no field, or naming only
 // fields a category ignores on a category, is a no-op: nothing is written and
 // the revision is kept (a missing id is still ErrNotFound).
-func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
+func (s *Store) Edit(ctx context.Context, itemID string, c Changes) error {
 	if c == (Changes{}) {
 		return nil
+	}
+	id, err := parseID(itemID)
+	if err != nil {
+		return err
 	}
 	var title string
 	if c.Title != nil {
@@ -388,7 +460,7 @@ func (s *Store) Edit(ctx context.Context, id uint, c Changes) error {
 		}
 		title = t
 	}
-	err := s.write(ctx, func(tx *gorm.DB, _ *closuretree.Tree) error {
+	err = s.write(ctx, func(tx *gorm.DB, _ *closuretree.Tree) error {
 		var kinds []int
 		if err := itemRows(tx, id).Pluck("kind", &kinds).Error; err != nil {
 			return err
@@ -429,9 +501,13 @@ var errNothingToEdit = errors.New("nothing to edit")
 // read, fails the whole write with ErrNotFound; giving a subtask a state other
 // than Open or Done fails it with ErrSubtaskStatus, and naming a category with
 // ErrNotTask.
-func (s *Store) SetStatuses(ctx context.Context, states map[uint]Status) error {
+func (s *Store) SetStatuses(ctx context.Context, states map[string]Status) error {
+	nodes, err := parseStates(states)
+	if err != nil {
+		return err
+	}
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
-		return setStatuses(ctx, tx, tree, states)
+		return setStatuses(ctx, tx, tree, nodes)
 	})
 }
 
@@ -526,7 +602,11 @@ func heldStates(tx *gorm.DB, states map[uint]Status) (map[uint]Status, error) {
 // write time, to Done when st is Done and to Open otherwise: a board state never
 // reaches a subtask. When id is itself a subtask, st must be Open or Done, or
 // the write fails with ErrSubtaskStatus. A category fails it with ErrNotTask.
-func (s *Store) CascadeStatus(ctx context.Context, id uint, st Status) error {
+func (s *Store) CascadeStatus(ctx context.Context, itemID string, st Status) error {
+	id, err := parseID(itemID)
+	if err != nil {
+		return err
+	}
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
 		r, err := kindAndParent(ctx, tree, id)
 		if err != nil {
@@ -571,7 +651,12 @@ func (s *Store) CascadeStatus(ctx context.Context, id uint, st Status) error {
 // be a subtask, or the move fails with ErrTooDeep. A task that becomes, stays
 // or stops being a subtask takes its status from StatusAfterMove; a task moved
 // between categories keeps its status.
-func (s *Store) Move(ctx context.Context, id, parentID, afterID uint) error {
+func (s *Store) Move(ctx context.Context, itemID, parentItem, afterItem string) error {
+	ids, err := parseIDs(itemID, parentItem, afterItem)
+	if err != nil {
+		return err
+	}
+	id, parentID, afterID := ids[0], ids[1], ids[2]
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
 		r, err := kindAndParent(ctx, tree, id)
 		if err != nil {
@@ -629,7 +714,11 @@ func moveTaskStatus(ctx context.Context, tx *gorm.DB, tree *closuretree.Tree, r 
 }
 
 // Delete removes item id together with its subtree as it is at write time.
-func (s *Store) Delete(ctx context.Context, id uint) error {
+func (s *Store) Delete(ctx context.Context, itemID string) error {
+	id, err := parseID(itemID)
+	if err != nil {
+		return err
+	}
 	return s.write(ctx, func(_ *gorm.DB, tree *closuretree.Tree) error {
 		return tree.DeleteRecurse(ctx, id, storeScope)
 	})
@@ -647,7 +736,11 @@ func (s *Store) Prune(ctx context.Context) (int, error) {
 			return err
 		}
 		for _, it := range doc.DoneSubtrees() {
-			if err := tree.DeleteRecurse(ctx, it.ID, storeScope); err != nil {
+			id, err := parseID(it.ID)
+			if err != nil {
+				return err
+			}
+			if err := tree.DeleteRecurse(ctx, id, storeScope); err != nil {
 				return err
 			}
 			_, total := it.TaskCounts()

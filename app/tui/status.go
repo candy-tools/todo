@@ -150,8 +150,8 @@ func (m model) setState(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 }
 
 // setStatusesWrite returns the store write that sets item id to st.
-func (m model) setStatusesWrite(id uint, st todo.Status) func(ctx context.Context) error {
+func (m model) setStatusesWrite(id string, st todo.Status) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		return m.store.SetStatuses(ctx, map[uint]todo.Status{id: st})
+		return m.store.SetStatuses(ctx, map[string]todo.Status{id: st})
 	}
 }

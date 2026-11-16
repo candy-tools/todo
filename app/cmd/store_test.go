@@ -32,7 +32,7 @@ func TestListMissingDBCreatesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if !contains(out, "  #    id  state     item") {
+	if !contains(out, "  #      id  state     item") {
 		t.Errorf("missing header:\n%s", out)
 	}
 	if _, err := os.Stat(defaultFile); !os.IsNotExist(err) {

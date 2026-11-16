@@ -159,7 +159,7 @@ func TestSplitReloadKeepsScope(t *testing.T) {
 	m = press(m, "v")
 	m = sideSelect(t, m, "Backend")
 	backend := find(m.doc, "Backend").ID
-	if _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "ext"}, todo.Open, backend, 0); err != nil {
+	if _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "ext"}, todo.Open, backend, ""); err != nil {
 		t.Fatalf("external add: %v", err)
 	}
 	m = pollOnce(t, m)

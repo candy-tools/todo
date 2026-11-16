@@ -42,7 +42,7 @@ const statusNames = "open|working|deferred|done|new|ready|review|followup|wontdo
 // set writes st for the task alone; its subtasks keep their states.
 func set(st todo.Status) statusWrite {
 	return func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
-		return st, s.SetStatuses(ctx, map[uint]todo.Status{it.ID: st})
+		return st, s.SetStatuses(ctx, map[string]todo.Status{it.ID: st})
 	}
 }
 

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -69,7 +70,7 @@ func parseDoc(t testing.TB, src string) *todo.Document {
 	t.Helper()
 	d := todotest.Parse(t, src)
 	for i, it := range d.Enumerate() {
-		it.ID = uint(i + 1)
+		it.ID = strconv.Itoa(i + 1)
 	}
 	return d
 }

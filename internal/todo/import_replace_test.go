@@ -33,14 +33,14 @@ func TestImportFileReplaceConflictsWithWriteAfterBackup(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = other.Close() })
 			for _, title := range tc.old {
-				if _, err := other.AppendCategory(ctx, title, 0); err != nil {
+				if _, err := other.AppendCategory(ctx, title, ""); err != nil {
 					t.Fatal(err)
 				}
 			}
 
 			importAfterBackup = func() {
 				importAfterBackup = nil
-				if _, err := other.AppendCategory(ctx, "External", 0); err != nil {
+				if _, err := other.AppendCategory(ctx, "External", ""); err != nil {
 					t.Errorf("external write: %v", err)
 				}
 			}
@@ -85,7 +85,7 @@ func TestImportFileReplaceRemovesBackupWhenNothingWritten(t *testing.T) {
 		want  error
 	}{
 		{"conflict", func(t *testing.T, other *Store, _ context.CancelFunc) {
-			if _, err := other.AppendCategory(context.Background(), "External", 0); err != nil {
+			if _, err := other.AppendCategory(context.Background(), "External", ""); err != nil {
 				t.Errorf("external write: %v", err)
 			}
 		}, ErrConflict},
@@ -104,7 +104,7 @@ func TestImportFileReplaceRemovesBackupWhenNothingWritten(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = other.Close() })
-			if _, err := other.AppendCategory(ctx, "Old", 0); err != nil {
+			if _, err := other.AppendCategory(ctx, "Old", ""); err != nil {
 				t.Fatal(err)
 			}
 			older := BackupPath(other.Path(), 0)

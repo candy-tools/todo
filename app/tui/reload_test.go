@@ -19,7 +19,7 @@ import (
 
 // externalAddTask adds a task through a second store handle, standing in for a
 // CLI command or an agent writing while the TUI runs.
-func externalAddTask(t *testing.T, path, title string, parentID, afterID uint) uint {
+func externalAddTask(t *testing.T, path, title string, parentID, afterID string) string {
 	t.Helper()
 	id, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: title}, todo.Open, parentID, afterID)
 	if err != nil {
@@ -365,7 +365,7 @@ func TestExternalWriteReloadsKeepingSelection(t *testing.T) {
 	}
 
 	// A second handle adds a task first under A, which shifts b's row index.
-	externalAddTask(t, path, "new", find(m.doc, "A").ID, 0)
+	externalAddTask(t, path, "new", find(m.doc, "A").ID, "")
 	m = pollOnce(t, m)
 
 	if find(m.doc, "new") == nil {
@@ -442,7 +442,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 
 	// An agent reopens c1 through a second handle; no poll runs.
 	c1 := find(m.doc, "c1").ID
-	if err := openSecond(t, path).SetStatuses(context.Background(), map[uint]todo.Status{c1: todo.Open}); err != nil {
+	if err := openSecond(t, path).SetStatuses(context.Background(), map[string]todo.Status{c1: todo.Open}); err != nil {
 		t.Fatalf("external write: %v", err)
 	}
 
@@ -577,7 +577,7 @@ func TestOwnWriteWithFailedReloadNotExternal(t *testing.T) {
 	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
 	added := todo.NewTask("b", "", false)
 	work.AppendTask(added)
-	m.commit(0, func(ctx context.Context) error {
+	m.commit("", func(ctx context.Context) error {
 		_, err := m.store.AppendTask(ctx, todo.Fields{Title: "b"}, todo.Open, work.ID)
 		setSchemaVersion(t, path, v+1) // the reload that follows fails
 		return err
@@ -594,7 +594,7 @@ func TestOwnWriteWithFailedReloadNotExternal(t *testing.T) {
 	if len(m.snapshots) != 1 {
 		t.Errorf("the app's own write must keep the undo snapshots, got %d", len(m.snapshots))
 	}
-	if b := find(m.doc, "b"); b == nil || b.ID == 0 {
+	if b := find(m.doc, "b"); b == nil || b.ID == "" {
 		t.Errorf("the poll must load the list the write left, got b = %v", b)
 	}
 	if msg := reloadCheck(m.store, m.lastRev); msg != nil {
@@ -610,7 +610,7 @@ func commitWithFailedReload(t *testing.T, m *model, path, title string) int {
 	v := schemaVersionOf(t, path)
 	work := find(m.doc, "Work")
 	work.AppendTask(todo.NewTask(title, "", false))
-	m.commit(0, func(ctx context.Context) error {
+	m.commit("", func(ctx context.Context) error {
 		_, err := m.store.AppendTask(ctx, todo.Fields{Title: title}, todo.Open, work.ID)
 		setSchemaVersion(t, path, v+1)
 		return err
@@ -631,11 +631,11 @@ func TestOwnWriteFailedReloadClearedOnRecovery(t *testing.T) {
 		v := commitWithFailedReload(t, &m, path, "b")
 		setSchemaVersion(t, path, v)
 		if external {
-			externalAddTask(t, path, "c", find(m.doc, "Work").ID, 0)
+			externalAddTask(t, path, "c", find(m.doc, "Work").ID, "")
 		}
 
 		m = pollCmdOnce(m)
-		if find(m.doc, "b") == nil || find(m.doc, "b").ID == 0 {
+		if find(m.doc, "b") == nil || find(m.doc, "b").ID == "" {
 			t.Fatalf("external=%v: the poll must load the list the write left", external)
 		}
 		if m.err != nil || strings.Contains(m.footer(200), "reload failed:") {
@@ -651,7 +651,7 @@ func TestOwnWriteFailedReloadClearedOnRecovery(t *testing.T) {
 func TestOwnWriteFailedReloadRecoveryKeepsLaterError(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	v := commitWithFailedReload(t, &m, path, "b")
-	m.commit(0, func(context.Context) error { return errors.New("refused") })
+	m.commit("", func(context.Context) error { return errors.New("refused") })
 	setSchemaVersion(t, path, v)
 
 	m = pollCmdOnce(m)

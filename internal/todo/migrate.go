@@ -206,10 +206,15 @@ func upgradeToV2(ctx context.Context, tx *gorm.DB) error {
 			return err
 		}
 		for _, it := range doc.FlattenSubtasks() {
-			parentID, afterID := doc.Placement(it)
+			parent, after := doc.Placement(it)
+			ids, err := parseIDs(it.ID, parent, after)
+			if err != nil {
+				return err
+			}
+			id, parentID, afterID := ids[0], ids[1], ids[2]
 			// A nil item moves only. Store.Move is not used: it refuses a task
 			// that still has children of its own, as a1 does until a1x moves.
-			if err := tree.Update(ctx, it.ID, nil, &parentID, &afterID, storeScope); err != nil {
+			if err := tree.Update(ctx, id, nil, &parentID, &afterID, storeScope); err != nil {
 				return err
 			}
 		}
@@ -227,7 +232,11 @@ func writeSubtaskStatuses(tx *gorm.DB, doc *Document) error {
 	states := map[uint]Status{}
 	for _, it := range doc.Enumerate() {
 		if it.IsSubtask() {
-			states[it.ID] = it.Status
+			id, err := parseID(it.ID)
+			if err != nil {
+				return err
+			}
+			states[id] = it.Status
 		}
 	}
 	return writeStatuses(tx, states)

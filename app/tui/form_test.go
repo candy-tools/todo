@@ -238,7 +238,7 @@ func TestEditSaveWhileLockedKeepsForm(t *testing.T) {
 		t.Fatalf("the retried save: mode %v, err %v", m.mode, m.err)
 	}
 	if got := storedItem(t, path, "b2").ID; got != bID {
-		t.Errorf("the retried edit renamed item %d, want b (%d)", got, bID)
+		t.Errorf("the retried edit renamed item %s, want b (%s)", got, bID)
 	}
 	storedItem(t, path, "c") // c keeps its title
 }

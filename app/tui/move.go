@@ -124,7 +124,7 @@ func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
 	if it == nil || !op(it) {
 		return m, nil
 	}
-	m.snapshots = map[uint]todo.DoneStates{}
+	m.snapshots = map[string]todo.DoneStates{}
 	if it.Parent != nil {
 		delete(m.focused().collapsed, it.Parent.ID) // reveal the item under its (possibly new) parent
 	}

@@ -619,7 +619,7 @@ func TestAddTaskAfterExternallyMovedSibling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := other.Move(context.Background(), find(doc, "b").ID, find(doc, "Sub").ID, 0); err != nil {
+	if err := other.Move(context.Background(), find(doc, "b").ID, find(doc, "Sub").ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	m = press(m, "n") // Work is selected

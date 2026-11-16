@@ -147,18 +147,18 @@ func (m model) doConfirm() (tea.Model, tea.Cmd) {
 // top row). Like a delete, it ends the accidental-complete undo window.
 func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	m.mode = modeMain
-	var focus uint
+	var focus string
 	if sel := m.focused().selected(); sel != nil && !m.focused().onPlaceholder() {
 		focus = sel.ID
 	}
-	m.snapshots = map[uint]todo.DoneStates{}
+	m.snapshots = map[string]todo.DoneStates{}
 	var removed int
 	var pruneErr error
 	m.commit(focus, func(ctx context.Context) error {
 		removed, pruneErr = m.store.Prune(ctx)
 		return pruneErr
 	})
-	if sel := m.focused().selected(); focus != 0 && (sel == nil || sel.ID != focus) {
+	if sel := m.focused().selected(); focus != "" && (sel == nil || sel.ID != focus) {
 		m.focused().selectTop() // sel was removed
 	}
 	if pruneErr == nil {
@@ -179,7 +179,7 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 	}
 	// In the sidebar no neighbour is picked: the deleted category's place
 	// falls back to All (see adoptAll).
-	var prevID uint
+	var prevID string
 	if t := m.focused(); t.cursor > 0 && t.pane != paneCategories {
 		if r := t.rows[t.cursor-1]; r.kind == rowItem {
 			prevID = r.item.ID
@@ -187,7 +187,7 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 	}
 	m.doc.Remove(it)
 	// A structural change ends the accidental-complete undo window.
-	m.snapshots = map[uint]todo.DoneStates{}
+	m.snapshots = map[string]todo.DoneStates{}
 	id := it.ID
 	m.commit(prevID, func(ctx context.Context) error {
 		return m.store.Delete(ctx, id)

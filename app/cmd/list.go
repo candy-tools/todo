@@ -60,7 +60,7 @@ func depthOf(it *todo.Item) int {
 
 // writeListTable prints the tree as a table; visible (nil => all) limits the rows.
 func writeListTable(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool) error {
-	_, _ = fmt.Fprintln(w, "  #    id  state     item")
+	_, _ = fmt.Fprintln(w, "  #      id  state     item")
 	for i, it := range doc.Enumerate() {
 		if visible != nil && !visible[it] {
 			continue
@@ -70,7 +70,7 @@ func writeListTable(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool
 			st = it.Status.String()
 		}
 		indent := strings.Repeat("  ", depthOf(it))
-		_, _ = fmt.Fprintf(w, "%3d %5d  %-9s %s%s\n", i+1, it.ID, st, indent, todo.Printable(it.Title))
+		_, _ = fmt.Fprintf(w, "%3d %7s  %-9s %s%s\n", i+1, it.ID, st, indent, todo.Printable(it.Title))
 	}
 	return nil
 }
@@ -79,7 +79,7 @@ func writeListTable(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool
 // --json.
 type jsonItem struct {
 	Number      int        `json:"number"`
-	ID          uint       `json:"id"`
+	ID          string     `json:"id"`
 	Kind        string     `json:"kind"`
 	Title       string     `json:"title"`
 	Status      string     `json:"status,omitempty"`

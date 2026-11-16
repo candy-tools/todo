@@ -22,29 +22,29 @@ func TestReopenTarget(t *testing.T) {
 }
 
 func TestReopenStatesCopiesRestore(t *testing.T) {
-	restore := DoneStates{1: Review, 2: Open, 3: Done}
-	got := ReopenStates(1, New, restore)
+	restore := DoneStates{"1": Review, "2": Open, "3": Done}
+	got := ReopenStates("1", New, restore)
 
-	if want := (DoneStates{1: New, 2: Open, 3: Done}); !reflect.DeepEqual(got, want) {
+	if want := (DoneStates{"1": New, "2": Open, "3": Done}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReopenStates = %v, want %v", got, want)
 	}
-	if want := (DoneStates{1: Review, 2: Open, 3: Done}); !reflect.DeepEqual(restore, want) {
+	if want := (DoneStates{"1": Review, "2": Open, "3": Done}); !reflect.DeepEqual(restore, want) {
 		t.Fatalf("restore after ReopenStates = %v, want it untouched: %v", restore, want)
 	}
-	got[2] = Done
-	if restore[2] != Open {
+	got["2"] = Done
+	if restore["2"] != Open {
 		t.Fatalf("the result shares its map with restore")
 	}
 }
 
 func TestReopenStatesNilRestore(t *testing.T) {
-	if got, want := ReopenStates(7, Working, nil), (DoneStates{7: Working}); !reflect.DeepEqual(got, want) {
+	if got, want := ReopenStates("7", Working, nil), (DoneStates{"7": Working}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReopenStates(nil) = %v, want %v", got, want)
 	}
 }
 
 // statuses loads the store and returns the status of each id.
-func statuses(t *testing.T, s *Store, ids ...uint) []Status {
+func statuses(t *testing.T, s *Store, ids ...string) []Status {
 	t.Helper()
 	doc := load(t, s)
 	out := make([]Status, 0, len(ids))
@@ -78,7 +78,7 @@ func TestCompleteCascade(t *testing.T) {
 
 // doneTaskTree is addTaskTree with a second subtask, sub2, the task and both
 // subtasks done.
-func doneTaskTree(t *testing.T, s *Store) (ids taskTree, sub2 uint) {
+func doneTaskTree(t *testing.T, s *Store) (ids taskTree, sub2 string) {
 	t.Helper()
 	ctx := context.Background()
 	ids = addTaskTree(t, s, Working)

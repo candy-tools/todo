@@ -30,7 +30,7 @@ func TestWriteWhileLockedIsBusy(t *testing.T) {
 	todotest.HoldWriteLock(t, path)
 
 	start := time.Now()
-	err = s.SetStatuses(context.Background(), map[uint]todo.Status{a.ID: todo.Done})
+	err = s.SetStatuses(context.Background(), map[string]todo.Status{a.ID: todo.Done})
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Errorf("the write waited %v, want well under the 5 s default", elapsed)
 	}
@@ -119,7 +119,7 @@ func TestOpenStoreShortBusyTimeoutWaitsAtOpen(t *testing.T) {
 			todotest.HoldWriteLock(t, path)
 
 			start := time.Now()
-			err = s.SetStatuses(context.Background(), map[uint]todo.Status{a.ID: todo.Done})
+			err = s.SetStatuses(context.Background(), map[string]todo.Status{a.ID: todo.Done})
 			if elapsed := time.Since(start); elapsed > 2*time.Second {
 				t.Errorf("the write waited %v, want well under the 5 s default", elapsed)
 			}
@@ -160,7 +160,7 @@ func TestImportFileWaitsDefaultBusyTimeout(t *testing.T) {
 	b := doc.Roots[0].Children[0]
 	todotest.HoldWriteLock(t, path)
 	start := time.Now()
-	err = s.SetStatuses(context.Background(), map[uint]todo.Status{b.ID: todo.Done})
+	err = s.SetStatuses(context.Background(), map[string]todo.Status{b.ID: todo.Done})
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Errorf("a write after the import waited %v, want the short timeout", elapsed)
 	}

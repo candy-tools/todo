@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -38,7 +37,7 @@ func TestDoneByNumberAndID(t *testing.T) {
 		t.Error("done --number 2 should complete task a")
 	}
 	path2 := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-	id := strconv.Itoa(int(idOf(t, path2, "a")))
+	id := idOf(t, path2, "a")
 	if _, err := runCmd(t, "done", "--file", path2, "--id", id); err != nil {
 		t.Fatalf("done --id: %v", err)
 	}
@@ -104,7 +103,7 @@ func TestProgressAndDefer(t *testing.T) {
 
 func TestSelectByID(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] b\n")
-	id := strconv.Itoa(int(idOf(t, path, "b")))
+	id := idOf(t, path, "b")
 	if _, err := runCmd(t, "done", "--file", path, "--id", id); err != nil {
 		t.Fatalf("done --id: %v", err)
 	}

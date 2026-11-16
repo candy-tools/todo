@@ -1,6 +1,7 @@
 package todo_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -113,7 +114,7 @@ func TestCascadeSetDone(t *testing.T) {
 func TestSnapshotRestore(t *testing.T) {
 	parent, c1, c2, g1 := buildTree()
 	for i, it := range []*todo.Item{parent, c1, c2, g1} {
-		it.ID = uint(i + 1)
+		it.ID = strconv.Itoa(i + 1)
 	}
 	doc := &todo.Document{}
 	doc.AppendRoot(parent)
@@ -121,13 +122,13 @@ func TestSnapshotRestore(t *testing.T) {
 	c2.Status = todo.Done
 
 	snap := todo.SnapshotDone(parent)
-	want := todo.DoneStates{1: todo.Open, 2: todo.Open, 3: todo.Done, 4: todo.Open}
+	want := todo.DoneStates{"1": todo.Open, "2": todo.Open, "3": todo.Done, "4": todo.Open}
 	if len(snap) != len(want) {
 		t.Fatalf("snapshot = %v, want %v", snap, want)
 	}
 	for id, st := range want {
 		if snap[id] != st {
-			t.Errorf("snapshot[%d] = %v, want %v", id, snap[id], st)
+			t.Errorf("snapshot[%s] = %v, want %v", id, snap[id], st)
 		}
 	}
 	// Accidental complete: everything forced done.
@@ -148,10 +149,10 @@ func TestSnapshotRestore(t *testing.T) {
 
 func TestApplyStatusesSkipsMissingIDs(t *testing.T) {
 	parent, c1, _, _ := buildTree()
-	parent.ID, c1.ID = 1, 2
+	parent.ID, c1.ID = "1", "2"
 	doc := &todo.Document{}
 	doc.AppendRoot(parent)
-	doc.ApplyStatuses(todo.DoneStates{2: todo.Working, 99: todo.Done})
+	doc.ApplyStatuses(todo.DoneStates{"2": todo.Working, "99": todo.Done})
 	if c1.Status != todo.Working {
 		t.Errorf("c1 = %v, want in progress", c1.Status)
 	}
@@ -307,18 +308,18 @@ func TestPlacement(t *testing.T) {
 	doc := todotest.Parse(t, "# A\n\n- [ ] t1\n- [ ] t2\n\n## B\n")
 	a := doc.Roots[0]
 	t1, t2, b := a.Children[0], a.Children[1], a.Children[2]
-	a.ID, t1.ID, t2.ID, b.ID = 1, 2, 3, 4
-	if p, af := doc.Placement(t1); p != 1 || af != 0 {
-		t.Errorf("t1: %d,%d", p, af)
+	a.ID, t1.ID, t2.ID, b.ID = "1", "2", "3", "4"
+	if p, af := doc.Placement(t1); p != "1" || af != "" {
+		t.Errorf("t1: %s,%s", p, af)
 	}
-	if p, af := doc.Placement(t2); p != 1 || af != 2 {
-		t.Errorf("t2: %d,%d", p, af)
+	if p, af := doc.Placement(t2); p != "1" || af != "2" {
+		t.Errorf("t2: %s,%s", p, af)
 	}
-	if p, af := doc.Placement(b); p != 1 || af != 3 {
-		t.Errorf("b: %d,%d", p, af)
+	if p, af := doc.Placement(b); p != "1" || af != "3" {
+		t.Errorf("b: %s,%s", p, af)
 	}
-	if p, af := doc.Placement(a); p != 0 || af != 0 {
-		t.Errorf("a: %d,%d", p, af)
+	if p, af := doc.Placement(a); p != "" || af != "" {
+		t.Errorf("a: %s,%s", p, af)
 	}
 }
 

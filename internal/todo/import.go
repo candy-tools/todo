@@ -116,7 +116,11 @@ func (s *Store) importDoc(ctx context.Context, doc *Document, replace bool, expe
 				return ErrNotEmpty
 			}
 			for _, r := range existing.Roots {
-				if err := tree.DeleteRecurse(ctx, r.ID, storeScope); err != nil {
+				id, err := parseID(r.ID)
+				if err != nil {
+					return err
+				}
+				if err := tree.DeleteRecurse(ctx, id, storeScope); err != nil {
 					return err
 				}
 			}

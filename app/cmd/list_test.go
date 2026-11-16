@@ -50,7 +50,7 @@ func TestListJSON(t *testing.T) {
 		t.Fatalf("root should be the Work category: %+v", items)
 	}
 	a := items[0].Children[0]
-	if a.Title != "a" || a.Status != "open" || a.Number != 2 || a.ID == 0 {
+	if a.Title != "a" || a.Status != "open" || a.Number != 2 || a.ID == "" {
 		t.Errorf("task a wrong: %+v", a)
 	}
 	if len(a.Path) != 1 || a.Path[0] != "Work" {

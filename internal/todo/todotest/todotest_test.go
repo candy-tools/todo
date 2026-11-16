@@ -48,11 +48,11 @@ func TestHoldWriteLock(t *testing.T) {
 	ctx := context.Background()
 	t.Run("held", func(t *testing.T) {
 		todotest.HoldWriteLock(t, path)
-		if _, err := s.AddCategory(ctx, "B", 0, 0); !errors.Is(err, todo.ErrBusy) {
+		if _, err := s.AddCategory(ctx, "B", "", ""); !errors.Is(err, todo.ErrBusy) {
 			t.Errorf("write while held: err = %v, want ErrBusy", err)
 		}
 	})
-	if _, err := s.AddCategory(ctx, "B", 0, 0); err != nil {
+	if _, err := s.AddCategory(ctx, "B", "", ""); err != nil {
 		t.Errorf("write after the holding test ended: %v", err)
 	}
 }

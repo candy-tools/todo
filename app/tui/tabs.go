@@ -28,14 +28,14 @@ func (t *tree) switchView(from viewKey) {
 
 // selectedID is the ID of the item under the cursor, or 0 when there is none
 // (an empty tab, or the placeholder row).
-func (t *tree) selectedID() uint {
+func (t *tree) selectedID() string {
 	if t.onPlaceholder() {
-		return 0
+		return ""
 	}
 	if it := t.selected(); it != nil {
 		return it.ID
 	}
-	return 0
+	return ""
 }
 
 // stepColumn returns the column delta tabs away from c, wrapping around the

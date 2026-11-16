@@ -210,7 +210,7 @@ func (m *model) toggleSplit() {
 		m.split, m.sideFocus = true, true
 		m.side.refreshSidebar()
 		m.side.selectTop()
-		m.tree.scope = 0
+		m.tree.scope = ""
 		m.tree.setPane(paneTasks)
 		if !m.tree.selectID(sel) {
 			m.tree.selectTop()
@@ -248,20 +248,20 @@ func (m *model) focused() *tree {
 // placeholder row when onPH); the other keeps its own selection. The sidebar
 // goes first and falls back to All when its category is gone, so the task
 // list is rebuilt for the category that is left.
-func (m *model) adoptAll(doc *todo.Document, focusID uint, onPH bool) {
+func (m *model) adoptAll(doc *todo.Document, focusID string, onPH bool) {
 	sideID, sidePH := m.side.selectedID(), m.side.onPlaceholder()
 	mainID, mainPH := m.tree.selectedID(), m.tree.onPlaceholder()
 	if m.split && m.sideFocus {
 		// No item to focus (an add whose new ID is selected afterwards) keeps
 		// the sidebar's category.
-		if focusID != 0 || onPH {
+		if focusID != "" || onPH {
 			sideID, sidePH = focusID, onPH
 		}
 	} else {
 		mainID, mainPH = focusID, onPH
 	}
 	m.side.adopt(doc, sideID, sidePH)
-	if (sideID == 0 || m.side.selectedID() != sideID) && (!sidePH || !m.side.onPlaceholder()) {
+	if (sideID == "" || m.side.selectedID() != sideID) && (!sidePH || !m.side.onPlaceholder()) {
 		m.side.selectTop()
 	}
 	m.tree.scope = m.side.selectedID()

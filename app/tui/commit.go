@@ -12,7 +12,7 @@ import (
 // row index (clamped), now on the row that took the task's place, and the
 // footer says where the task went, e.g. "moved to Next — new". A failed write
 // or an external-reload notice takes the footer instead.
-func (m *model) commitStatus(id uint, write func(ctx context.Context) error) {
+func (m *model) commitStatus(id string, write func(ctx context.Context) error) {
 	m.commit(id, write)
 	m.noteLeftTab(id)
 }
@@ -22,7 +22,7 @@ func (m *model) commitStatus(id uint, write func(ctx context.Context) error) {
 // column, the footer says where it went, e.g. "moved to Next — new" (a subtask
 // goes with its task, so its task's column and state are named), unless a save
 // error or the external-reload notice already holds the footer.
-func (m *model) noteLeftTab(id uint) bool {
+func (m *model) noteLeftTab(id string) bool {
 	it, ok := m.doc.ByID(id)
 	if ok && m.focused().shown[it] {
 		return false
@@ -67,7 +67,7 @@ func (m *model) noteLeftTab(id uint) bool {
 //
 // commit reports whether the write succeeded, whatever the reload did, so a
 // caller can keep the user's input to retry a failed save.
-func (m *model) commit(focusID uint, write func(ctx context.Context) error) (saved bool) {
+func (m *model) commit(focusID string, write func(ctx context.Context) error) (saved bool) {
 	ctx := context.Background()
 	m.err = nil
 	expected := m.lastRev
@@ -94,7 +94,7 @@ func (m *model) commit(focusID uint, write func(ctx context.Context) error) (sav
 	m.doc, m.saved, m.lastRev, m.unsynced = doc, doc.Clone(), rev, false
 	m.adoptAll(doc, focusID, onPH)
 	if rev != expected {
-		m.snapshots = map[uint]todo.DoneStates{}
+		m.snapshots = map[string]todo.DoneStates{}
 		m.status = "reloaded — list changed externally"
 	}
 	return saved

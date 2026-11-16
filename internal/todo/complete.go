@@ -25,7 +25,7 @@ func ReopenTarget(it *Item) Status {
 // ReopenStates is the set of statuses that reopens task id into st and gives
 // the tasks in restore (an undo snapshot from SnapshotDone, nil for none) their
 // recorded states back. It returns a new map and never changes restore.
-func ReopenStates(id uint, st Status, restore DoneStates) DoneStates {
+func ReopenStates(id string, st Status, restore DoneStates) DoneStates {
 	states := make(DoneStates, len(restore)+1)
 	maps.Copy(states, restore)
 	states[id] = st
@@ -46,11 +46,11 @@ type ReopenOptions struct {
 // it, as the tree is at write time, is set to Done too (see CascadeStatus);
 // without it the subtasks keep their states. A category fails it with
 // ErrNotTask.
-func (s *Store) Complete(ctx context.Context, id uint, cascade bool) error {
+func (s *Store) Complete(ctx context.Context, id string, cascade bool) error {
 	if cascade {
 		return s.CascadeStatus(ctx, id, Done)
 	}
-	return s.SetStatuses(ctx, map[uint]Status{id: Done})
+	return s.SetStatuses(ctx, map[string]Status{id: Done})
 }
 
 // Reopen sets task id to st, in one write, and treats its subtasks as o says:
@@ -61,7 +61,17 @@ func (s *Store) Complete(ctx context.Context, id uint, cascade bool) error {
 // ErrRestoreAndCascade before anything is written. A category fails it with
 // ErrNotTask, and a subtask given a state other than Open or Done with
 // ErrSubtaskStatus.
-func (s *Store) Reopen(ctx context.Context, id uint, st Status, o ReopenOptions) error {
+func (s *Store) Reopen(ctx context.Context, id string, st Status, o ReopenOptions) error {
+	node, err := parseID(id)
+	if err != nil {
+		return err
+	}
+	restoreNodes := make(map[uint]Status, len(o.Restore))
+	for rid, rst := range o.Restore {
+		if n, err := parseID(rid); err == nil {
+			restoreNodes[n] = rst
+		}
+	}
 	if o.Restore != nil && o.Cascade {
 		return ErrRestoreAndCascade
 	}
@@ -69,10 +79,14 @@ func (s *Store) Reopen(ctx context.Context, id uint, st Status, o ReopenOptions)
 		return s.CascadeStatus(ctx, id, st)
 	}
 	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
-		restore, err := heldStates(tx, o.Restore)
+		restore, err := heldStates(tx, restoreNodes)
 		if err != nil {
 			return err
 		}
-		return setStatuses(ctx, tx, tree, ReopenStates(id, st, restore))
+		if restore == nil {
+			restore = map[uint]Status{}
+		}
+		restore[node] = st
+		return setStatuses(ctx, tx, tree, restore)
 	})
 }

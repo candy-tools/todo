@@ -43,7 +43,7 @@ func TestAddCategoryRejectsInvalidTitles(t *testing.T) {
 	for name, title := range badTitles {
 		t.Run(name, func(t *testing.T) {
 			rejects(t, s, ErrInvalidTitle, func() error {
-				_, err := s.AddCategory(context.Background(), title, 0, 0)
+				_, err := s.AddCategory(context.Background(), title, "", "")
 				return err
 			})
 		})
@@ -52,11 +52,11 @@ func TestAddCategoryRejectsInvalidTitles(t *testing.T) {
 
 func TestAddTaskRejectsInvalidTitles(t *testing.T) {
 	s := newStore(t)
-	cat := mustID(t)(s.AddCategory(context.Background(), "C", 0, 0))
+	cat := mustID(t)(s.AddCategory(context.Background(), "C", "", ""))
 	for name, title := range badTitles {
 		t.Run(name, func(t *testing.T) {
 			rejects(t, s, ErrInvalidTitle, func() error {
-				_, err := s.AddTask(context.Background(), Fields{Title: title}, Open, cat, 0)
+				_, err := s.AddTask(context.Background(), Fields{Title: title}, Open, cat, "")
 				return err
 			})
 		})
@@ -93,8 +93,8 @@ func TestTitleWritesTrimAndAcceptTheLimit(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	long := strings.Repeat("é", MaxTitleLen)
-	cat := mustID(t)(s.AddCategory(ctx, "  C  ", 0, 0))
-	task := mustID(t)(s.AddTask(ctx, Fields{Title: long}, Open, cat, 0))
+	cat := mustID(t)(s.AddCategory(ctx, "  C  ", "", ""))
+	task := mustID(t)(s.AddTask(ctx, Fields{Title: long}, Open, cat, ""))
 	renamed := " t "
 	mustOK(t, s.Edit(ctx, task, Changes{Title: &renamed}))
 	doc := load(t, s)

@@ -115,7 +115,7 @@ type model struct {
 	// task and its subtasks captured at completion time, so un-completing it can
 	// restore them (the accidental-complete undo). Keyed by ID, it survives the
 	// reload after the app's own write; an external reload clears it.
-	snapshots map[uint]todo.DoneStates
+	snapshots map[string]todo.DoneStates
 	status    string // transient one-line footer message
 	version   string // the app version shown in the header
 }
@@ -165,7 +165,7 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		tree:      newTree(doc, v),
 		side:      newSidebar(doc, v),
 		mode:      modeMain,
-		snapshots: map[uint]todo.DoneStates{},
+		snapshots: map[string]todo.DoneStates{},
 		lastRev:   rev,
 		status:    strings.ReplaceAll(notice, "\n", " · "),
 	}, nil

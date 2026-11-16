@@ -205,7 +205,7 @@ func (m model) canApplyReload() bool {
 // back: the snapshots stay and no notice is shown.
 func (m *model) applyReload(msg storeReloadedMsg) {
 	onPH := m.focused().onPlaceholder()
-	var focus uint
+	var focus string
 	if sel := m.focused().selected(); sel != nil && !onPH {
 		focus = sel.ID
 	}
@@ -215,6 +215,6 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 	if own {
 		return
 	}
-	m.snapshots = map[uint]todo.DoneStates{}
+	m.snapshots = map[string]todo.DoneStates{}
 	m.status = "reloaded — list changed externally"
 }

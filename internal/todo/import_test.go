@@ -205,7 +205,7 @@ func TestImportFileReplaceBacksUpNonEmptyStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The live file must stay the one the store opened: the backup copies it.
-	if _, err := s.AddCategory(context.Background(), "After", 0, 0); err != nil {
+	if _, err := s.AddCategory(context.Background(), "After", "", ""); err != nil {
 		t.Fatalf("write after the import: %v", err)
 	}
 	_ = s.Close()

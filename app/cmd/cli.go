@@ -63,7 +63,7 @@ func wrongKind(action string, it *todo.Item, want string) error {
 // (e.g. "parent-").
 func addSelectorFlags(cmd *cobra.Command, prefix string) {
 	cmd.Flags().Int(prefix+"number", 0, "address the item by its list number")
-	cmd.Flags().Uint(prefix+"id", 0, "address the item by its database id")
+	cmd.Flags().String(prefix+"id", "", "address the item by its database id")
 	cmd.Flags().String(prefix+"title", "", "address the item by its exact title")
 }
 
@@ -89,11 +89,11 @@ func resolveSelector(cmd *cobra.Command, doc *todo.Document, prefix string) (*to
 		}
 		return nil, notFound(fmt.Sprintf("no item with --%s %d", numF, n))
 	case cmd.Flags().Changed(idF):
-		n, _ := cmd.Flags().GetUint(idF)
+		n, _ := cmd.Flags().GetString(idF)
 		if it, ok := doc.ByID(n); ok {
 			return it, nil
 		}
-		return nil, notFound(fmt.Sprintf("no item with --%s %d", idF, n))
+		return nil, notFound(fmt.Sprintf("no item with --%s %s", idF, n))
 	default:
 		title, _ := cmd.Flags().GetString(titleF)
 		matches := doc.ByTitle(title)
@@ -107,7 +107,7 @@ func resolveSelector(cmd *cobra.Command, doc *todo.Document, prefix string) (*to
 			var b strings.Builder
 			fmt.Fprintf(&b, "%q matches %d items; disambiguate with --%s or --%s:\n", title, len(matches), numF, idF)
 			for _, it := range matches {
-				fmt.Fprintf(&b, "  --%s %d  (--%s %d, %s)\n", numF, nums[it], idF, it.ID, categoryPath(it))
+				fmt.Fprintf(&b, "  --%s %d  (--%s %s, %s)\n", numF, nums[it], idF, it.ID, categoryPath(it))
 			}
 			return nil, &cliError{exitAmbiguous, b.String()}
 		}
