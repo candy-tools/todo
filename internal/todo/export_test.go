@@ -13,13 +13,5 @@ type (
 	DiskSubtask  = diskSubtask
 )
 
-var (
-	ToDisk   = toDisk
-	FromDisk = fromDisk
-)
-
-// FileVersion is the on-disk format version.
-const FileVersion = fileVersion
-
 // ValidateDisk runs the validation of l.
 func ValidateDisk(l *DiskList) error { return l.validate() }

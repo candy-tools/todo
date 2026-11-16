@@ -1,12 +1,12 @@
 package todo_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,143 +14,182 @@ import (
 	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
-// encodeDisk encodes l the way the store does.
-func encodeDisk(t *testing.T, l todo.DiskList) []byte {
+// readFile returns the content of path, failing the test on error.
+func readFile(t *testing.T, path string) string {
 	t.Helper()
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(l); err != nil {
+	b, err := os.ReadFile(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return buf.Bytes()
+	return string(b)
 }
 
-// roundTrip encodes d, decodes and validates it, and returns the rebuilt tree.
-func roundTrip(t *testing.T, d *todo.Document) *todo.Document {
+// loadList loads the list at path, failing the test on error.
+func loadList(t *testing.T, path string) *todo.Document {
 	t.Helper()
-	b := encodeDisk(t, todo.ToDisk(d))
-	var l todo.DiskList
-	if err := json.Unmarshal(b, &l); err != nil {
-		t.Fatalf("unmarshal: %v\n%s", err, b)
+	doc, _, err := todo.NewStore(path).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := todo.ValidateDisk(&l); err != nil {
-		t.Fatalf("validate: %v\n%s", err, b)
-	}
-	return todo.FromDisk(l)
+	return doc
 }
 
+// The example list written by the store loads back as it was imported, with
+// every item linked to its parent and listed among its parent's children.
 func TestDiskRoundTripExample(t *testing.T) {
 	md, err := os.ReadFile("../../example.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, _, err := todo.ImportMarkdown(md)
+	want, _, err := todo.ImportMarkdown(md)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.FlattenSubtasks()
-	d.AssignIDs()
-	got := roundTrip(t, d)
-	if todotest.Render(got) != todotest.Render(d) {
-		t.Errorf("render differs:\n%s\nwant:\n%s", todotest.Render(got), todotest.Render(d))
+	want.FlattenSubtasks()
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	if _, _, err := todo.ImportFile(path, "../../example.md", false); err != nil {
+		t.Fatal(err)
+	}
+	got := loadList(t, path)
+	if todotest.Render(got) != todotest.Render(want) {
+		t.Errorf("render differs:\n%s\nwant:\n%s", todotest.Render(got), todotest.Render(want))
 	}
 	for _, it := range got.Enumerate() {
-		if it.Parent != nil && it.Parent.Children[indexOf(it.Parent.Children, it)] != it {
-			t.Errorf("bad parent for %q", it.Title)
+		siblings := got.Roots
+		if it.Parent != nil {
+			siblings = it.Parent.Children
+		}
+		if !slices.Contains(siblings, it) {
+			t.Errorf("%q is not among its parent's children", it.Title)
 		}
 	}
 }
 
-func indexOf(list []*todo.Item, it *todo.Item) int {
-	for i, x := range list {
-		if x == it {
-			return i
-		}
+// The store writes the list in one fixed form: two-space indented, keys in
+// field order, categories before tasks, subtasks inline, empty optional
+// fields left out and a trailing newline.
+func TestDiskFileFormat(t *testing.T) {
+	path := todotest.SeedJSON(t, `{"version":3,"categories":[{"id":"c000000","title":"A"},`+
+		`{"id":"c000001","title":"B","parent":"c000000"}],"tasks":[{"id":"t000001","category":"c000000",`+
+		`"title":"one","status":"review","plan":"docs/p.md","description":"d","subtasks":[{"id":"s000001","title":"sub","done":true}]}]}`)
+	s := todo.NewStore(path)
+	if _, err := s.Edit(context.Background(), "c000001", todo.Changes{Title: new("B2")}); err != nil {
+		t.Fatal(err)
 	}
-	return -1
+	const want = `{
+  "version": 3,
+  "categories": [
+    {
+      "id": "c000000",
+      "title": "A"
+    },
+    {
+      "id": "c000001",
+      "title": "B2",
+      "parent": "c000000"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t000001",
+      "category": "c000000",
+      "title": "one",
+      "status": "review",
+      "plan": "docs/p.md",
+      "description": "d",
+      "subtasks": [
+        {
+          "id": "s000001",
+          "title": "sub",
+          "done": true
+        }
+      ]
+    }
+  ]
+}
+`
+	if got := readFile(t, path); got != want {
+		t.Errorf("file =\n%s\nwant\n%s", got, want)
+	}
 }
 
+// Loading a list the store wrote and writing it again gives the same bytes.
 func TestDiskEncodingStable(t *testing.T) {
-	d := todotest.Parse(t, "# A\n\n- [ ] one\n  - [x] sub\n")
-	d.FlattenSubtasks()
-	d.AssignIDs()
-	a := encodeDisk(t, todo.ToDisk(d))
-	b := encodeDisk(t, todo.ToDisk(d))
-	if !bytes.Equal(a, b) {
-		t.Error("encoding is not stable")
+	path := todotest.Seed(t, "# A\n\n- [ ] one\n  desc\n  - [x] sub\n\n## B\n\n- [/] two\n")
+	before := readFile(t, path)
+	s := todo.NewStore(path)
+	id := find(loadList(t, path), "one").ID
+	for _, title := range []string{"changed", "one"} {
+		if _, err := s.Edit(context.Background(), id, todo.Changes{Title: new(title)}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	s := string(a)
-	ci, ti := strings.Index(s, `"categories": [`), strings.Index(s, `"tasks": [`)
-	if ci < 0 || ti < 0 || ci > ti {
-		t.Errorf("categories must come before tasks:\n%s", s)
+	if after := readFile(t, path); after != before {
+		t.Errorf("rewritten file =\n%s\nwant the bytes it was loaded from\n%s", after, before)
 	}
 }
 
+// A list left empty is written with empty arrays, not nulls.
 func TestDiskEmptyListArrays(t *testing.T) {
-	b := encodeDisk(t, todo.ToDisk(&todo.Document{}))
-	var c bytes.Buffer
-	if err := json.Compact(&c, b); err != nil {
+	path := todotest.Seed(t, "# A\n")
+	s := todo.NewStore(path)
+	if _, err := s.Delete(context.Background(), find(loadList(t, path), "A").ID); err != nil {
 		t.Fatal(err)
 	}
-	if want := `{"version":3,"categories":[],"tasks":[]}`; c.String() != want {
-		t.Errorf("got %s, want %s", c.String(), want)
+	if got, want := readFile(t, path), "{\n  \"version\": 3,\n  \"categories\": [],\n  \"tasks\": []\n}\n"; got != want {
+		t.Errorf("file = %q, want %q", got, want)
 	}
 }
 
+// Special characters are written literally (no HTML escaping, no \u escapes
+// for non-ASCII) and load back unchanged; a tab in a description is written
+// as JSON's \t.
 func TestDiskSpecialCharactersRoundTrip(t *testing.T) {
-	for _, s := range []string{`a<b>&"c"`, "ñandú 🚀"} {
-		d := &todo.Document{}
-		cat := &todo.Item{Kind: todo.Category, Level: 1, Title: s}
-		task := todo.NewTask(s, s, false)
-		task.Plan = s
-		sub := todo.NewTask(s, s, true)
-		sub.Plan = s
-		task.AppendChild(sub)
-		cat.AppendChild(task)
-		d.AppendRoot(cat)
-		d.AssignIDs()
-		b := encodeDisk(t, todo.ToDisk(d))
-		if !bytes.Contains(b, []byte(s[:1])) || (strings.Contains(s, "<") && !bytes.Contains(b, []byte("a<b>&"))) {
-			t.Errorf("not written literally: %s", b)
+	ctx := context.Background()
+	for _, tc := range []struct{ text, written string }{
+		{`a<b>&"c"`, `"a<b>&\"c\""`},
+		{"ñandú 🚀", `"ñandú 🚀"`},
+		{"tab\tsep", `"tab\tsep"`},
+	} {
+		title := strings.ReplaceAll(tc.text, "\t", " ") // titles may not hold a tab
+		s := todo.NewStore(filepath.Join(t.TempDir(), ".todo.json"))
+		c, _, err := s.AppendCategory(ctx, title, "")
+		if err != nil {
+			t.Fatal(err)
 		}
-		got := roundTrip(t, d)
-		gt := got.Roots[0].Children[0]
-		if got.Roots[0].Title != s || gt.Title != s || gt.Description != s || gt.Plan != s ||
-			gt.Children[0].Title != s || gt.Children[0].Description != s || gt.Children[0].Plan != s {
-			t.Errorf("round trip changed %q", s)
+		f := todo.Fields{Title: title, Description: tc.text, Plan: tc.text}
+		task, _, err := s.AppendTask(ctx, f, todo.Open, c)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	// A description with a tab round-trips (titles may not hold one).
-	d := &todo.Document{}
-	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "C"}
-	cat.AppendChild(todo.NewTask("T", "tab\tsep", false))
-	d.AppendRoot(cat)
-	d.AssignIDs()
-	if got := roundTrip(t, d).Roots[0].Children[0].Description; got != "tab\tsep" {
-		t.Errorf("description = %q", got)
+		sub, _, err := s.AppendTask(ctx, f, todo.Done, task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file := readFile(t, s.Path())
+		if want := `"description": ` + tc.written; strings.Count(file, want) != 2 {
+			t.Errorf("file holds %q %d times, want twice (task and subtask):\n%s", want, strings.Count(file, want), file)
+		}
+		doc := loadList(t, s.Path())
+		for _, id := range []string{task, sub} {
+			it, _ := doc.ByID(id)
+			if it.Title != title || it.Description != tc.text || it.Plan != tc.text {
+				t.Errorf("%q loaded back as title %q, description %q, plan %q", tc.text, it.Title, it.Description, it.Plan)
+			}
+		}
+		if cat, _ := doc.ByID(c); cat.Title != title {
+			t.Errorf("category title %q loaded back as %q", title, cat.Title)
+		}
 	}
 }
 
+// A category's tasks load before its subcategories, whatever the file order.
 func TestDiskTaskOrderBeforeSubcategories(t *testing.T) {
-	l := todo.DiskList{
-		Version: 3,
-		Categories: []todo.DiskCategory{
-			{ID: "aaaaaaa", Title: "A"},
-			{ID: "bbbbbbb", Title: "B", Parent: "aaaaaaa"},
-		},
-		Tasks: []todo.DiskTask{
-			{ID: "ccccccc", Category: "bbbbbbb", Title: "tB", Status: "open"},
-			{ID: "ddddddd", Category: "aaaaaaa", Title: "tA", Status: "open"},
-		},
-	}
-	if err := todo.ValidateDisk(&l); err != nil {
-		t.Fatal(err)
-	}
-	got := todotest.Render(todo.FromDisk(l))
-	want := "# A\n\n- [ ] tA\n\n## B\n\n- [ ] tB\n"
-	if got != want {
+	path := todotest.SeedJSON(t, `{"version": 3, "categories": [
+		{"id": "aaaaaaa", "title": "A"}, {"id": "bbbbbbb", "title": "B", "parent": "aaaaaaa"}], "tasks": [
+		{"id": "ccccccc", "category": "bbbbbbb", "title": "tB", "status": "open"},
+		{"id": "ddddddd", "category": "aaaaaaa", "title": "tA", "status": "open"}]}`)
+	if got, want := todotest.Render(loadList(t, path)), "# A\n\n- [ ] tA\n\n## B\n\n- [ ] tB\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
