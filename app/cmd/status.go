@@ -13,20 +13,18 @@ import (
 // write's result.
 type statusWrite func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.WriteResult, error)
 
-// setStatus resolves the selector to a task, writes its new state through
-// write, and prints a confirmation with the state the write left.
+// setStatus resolves the selector to an item, writes its new state through
+// write (the store refuses a category), and prints a confirmation with the
+// state the write left.
 func setStatus(cmd *cobra.Command, verb string, write statusWrite) error {
 	return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 		it, err := resolveSelector(cmd, doc, "")
 		if err != nil {
 			return err
 		}
-		if !it.IsTask() {
-			return wrongKind("set the status of", it, "task")
-		}
 		res, err := write(ctx, s, it)
 		if err != nil {
-			return err
+			return wrongKindIn(err, "set the status of", it)
 		}
 		if now, ok := res.Doc.ByID(it.ID); ok {
 			it = now

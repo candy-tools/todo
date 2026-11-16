@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -52,6 +53,17 @@ func categoryPath(it *todo.Item) string {
 		return todo.Printable(c.Title)
 	}
 	return ""
+}
+
+// wrongKindIn names the action and the item a store ErrWrongKind refused, as
+// in `cannot nest a category under "a": <the store's rule>`, so the message
+// says which item was of the wrong kind; it returns any other error
+// unchanged. The store decides the rule; storeErr maps the class.
+func wrongKindIn(err error, action string, it *todo.Item) error {
+	if errors.Is(err, todo.ErrWrongKind) {
+		return fmt.Errorf("cannot %s %q: %w", action, it.Title, err)
+	}
+	return err
 }
 
 func wrongKind(action string, it *todo.Item, want string) error {

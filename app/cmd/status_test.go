@@ -375,3 +375,19 @@ func TestDoneHintCountsTheWrittenList(t *testing.T) {
 		t.Errorf("hint = %q, want %q", hint.String(), want)
 	}
 }
+
+// The store decides that only a task has a status: every status command on a
+// category fails with the wrong-kind exit, naming the item and the rule.
+func TestStatusOnCategoryIsWrongKind(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	for _, args := range [][]string{{"done"}, {"progress"}, {"defer"}, {"reopen"}, {"status", "--to", "ready"}} {
+		_, err := runCmd(t, append(args, "--file", path, "--title", "Work")...)
+		if codeOf(t, err) != exitWrongKind {
+			t.Errorf("%v on a category = %v, want wrong-kind", args, err)
+			continue
+		}
+		if want := `cannot set the status of "Work": ` + todo.ErrNotTask.Error(); err.Error() != want {
+			t.Errorf("%v: message = %q, want %q", args, err, want)
+		}
+	}
+}
