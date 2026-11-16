@@ -28,3 +28,22 @@ func SetOpenWait(t testing.TB, d time.Duration) {
 // SeedV1 exposes seedV1 to the external test package: a schema-1 store, which
 // opening has to migrate.
 var SeedV1 = seedV1
+
+// The JSON list format, exposed to the external test package.
+type (
+	DiskList     = diskList
+	DiskCategory = diskCategory
+	DiskTask     = diskTask
+	DiskSubtask  = diskSubtask
+)
+
+var (
+	ToDisk   = toDisk
+	FromDisk = fromDisk
+)
+
+// FileVersion is the on-disk format version.
+const FileVersion = fileVersion
+
+// ValidateDisk runs the validation of l.
+func ValidateDisk(l *DiskList) error { return l.validate() }

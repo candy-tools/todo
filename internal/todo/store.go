@@ -24,7 +24,7 @@ const schemaVersion = 2
 // ErrNewerSchema is returned when the store was written by a newer todo, whose
 // schema this binary does not know and must not read or write. It is wrapped
 // with the version found.
-var ErrNewerSchema = errors.New("database was created by a newer todo")
+var ErrNewerSchema = errors.New("list was written by a newer todo")
 
 // ErrFileReplaced is returned when the store file was removed, or another file
 // was moved in at its path, since the store was opened. SQLite keeps using the

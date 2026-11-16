@@ -58,7 +58,7 @@ func TestOpenStoreRefusesNewerSchema(t *testing.T) {
 		_ = s2.Close()
 		t.Fatal("OpenStore on a newer schema succeeded; want an error")
 	}
-	want := fmt.Sprintf("database was created by a newer todo (schema %d); upgrade todo", schemaVersion+1)
+	want := fmt.Sprintf("list was written by a newer todo (schema %d); upgrade todo", schemaVersion+1)
 	if !strings.Contains(err.Error(), want) {
 		t.Errorf("err = %q; want it to contain %q", err, want)
 	}
