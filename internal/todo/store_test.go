@@ -239,6 +239,35 @@ func TestStoreRefusedValueIsNotAnInvalidFile(t *testing.T) {
 	}
 }
 
+// A store from Existing refuses every write while the list file is missing,
+// with ErrListMissing and without creating the file, even a write that would
+// change nothing; once the file exists, its writes go through.
+func TestStoreExistingRefusesMissingFile(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	for name, w := range everyWrite(s.Existing(), "aaaaaaa", "bbbbbbb") {
+		if err := w(); !errors.Is(err, ErrListMissing) {
+			t.Errorf("%s on a missing file = %v, want ErrListMissing", name, err)
+		}
+		if b := fileBytes(t, s.Path()); b != nil {
+			t.Fatalf("%s created the list file:\n%s", name, b)
+		}
+	}
+	if _, _, err := s.Existing().Prune(ctx); !errors.Is(err, ErrListMissing) {
+		t.Errorf("Prune of nothing on a missing file = %v, want ErrListMissing", err)
+	}
+
+	c := mustID(t)(s.AppendCategory(ctx, "C", ""))
+	id, res, err := s.Existing().AppendTask(ctx, Fields{Title: "t"}, Open, c)
+	if err != nil || !res.Written {
+		t.Fatalf("Existing AppendTask on an existing file = %q, %+v, %v; want it written", id, res, err)
+	}
+	item(t, load(t, s), id)
+	if s.Existing().Path() != s.Path() {
+		t.Errorf("Existing().Path() = %q, want %q", s.Existing().Path(), s.Path())
+	}
+}
+
 // everyWrite returns one call of every write method, on category cat and task
 // task.
 func everyWrite(s *Store, cat, task string) map[string]func() error {

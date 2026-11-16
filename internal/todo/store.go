@@ -69,17 +69,24 @@ type WriteResult struct {
 	Written bool
 }
 
+// ErrListMissing is returned by a write through a store from Existing when
+// the list file does not exist: it was removed since the caller read it.
+var ErrListMissing = errors.New("the list file does not exist")
+
 // Store is a TODO list kept in one JSON file. Every write is one locked
 // read-modify-write of the file as it is now (see write), so several Stores, in
 // one process or many, may share a path. Reads take no lock. A Store is safe
 // for concurrent use.
 type Store struct {
 	file *jsonfile.Store[diskList]
+	// mustExist makes every write fail with ErrListMissing on a missing file
+	// (see Existing).
+	mustExist bool
 }
 
-// NewStore returns a store for the list file at path. It does no I/O and holds no
-// open file, so there is nothing to close: a missing file reads as an empty
-// list, and the first write creates it.
+// NewStore returns a store for the list file at path. It does no I/O and
+// holds no open file, so there is nothing to close: a missing file reads as an
+// empty list, and the first write creates it.
 func NewStore(path string, opts ...Option) *Store {
 	var cfg storeCfg
 	for _, o := range opts {
@@ -95,6 +102,19 @@ func NewStore(path string, opts ...Option) *Store {
 
 // Path returns the path of the list file.
 func (s *Store) Path() string { return s.file.Path() }
+
+// Existing returns a store on the same file whose writes require the file to
+// exist: on a missing file each write, even one that would change nothing,
+// fails with ErrListMissing and writes nothing (it does not create the list
+// file; the lock file next to it may be). The check is made under the write's
+// lock, before the write looks at the list. A caller that has read the file
+// writes through Existing so that a file removed since is not silently
+// recreated as a new list.
+func (s *Store) Existing() *Store {
+	c := *s
+	c.mustExist = true
+	return &c
+}
 
 // Load reads the whole list and the fingerprint of the bytes it came from,
 // without taking the lock. A missing file is an empty Document and the zero
@@ -118,12 +138,15 @@ func (s *Store) Changed(_ context.Context, since Fingerprint) (bool, Fingerprint
 
 // write runs fn as one store write: a single jsonfile Update that holds the
 // lock, reads the file as it is now into a Document (an empty one for a
-// missing file) and runs fn on it. When fn reports a change, the Document is
+// missing file, or ErrListMissing for a store from Existing) and runs fn on it. When fn reports a change, the Document is
 // written back, validated first; when it reports none, or fails, nothing is
 // written. It returns the write's result, the zero one on error. Errors are
 // mapped as mapErr does.
 func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, err error)) (WriteResult, error) {
-	res, err := s.file.Update(ctx, func(l *diskList, _ jsonfile.Snapshot) (bool, error) {
+	res, err := s.file.Update(ctx, func(l *diskList, cur jsonfile.Snapshot) (bool, error) {
+		if s.mustExist && !cur.Exists {
+			return false, ErrListMissing
+		}
 		d := fromDisk(*l)
 		changed, err := fn(d)
 		if err != nil || !changed {
