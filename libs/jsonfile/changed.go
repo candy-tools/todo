@@ -22,6 +22,12 @@ func (s *Store[T]) Changed(since Fingerprint) (changed bool, now Fingerprint, er
 	if err != nil {
 		return false, since, err
 	}
+	// On Windows the file ID SameFile compares is loaded lazily, from the path,
+	// on first use: comparing a cached FileInfo later would load the ID of
+	// whatever file is at the path then, so a replaced file would always match.
+	// Comparing info with itself now pins the ID of the file just stat'ed. On
+	// other systems the ID comes with the stat and this costs nothing.
+	_ = os.SameFile(info, info)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
