@@ -618,7 +618,7 @@ func TestOpPruneKeepsDoneTaskWithOpenSubtask(t *testing.T) {
 // --- all-or-nothing ---
 
 func TestOpErrorsLeaveDocumentUnchanged(t *testing.T) {
-	const md = "# A\n\n- [/] x\n  old\n  - [ ] s\n- [ ] y\n\n## B\n\n### C\n\n# D\n"
+	const md = "# A\n\n- [/] x\n  old\n  - [x] s\n- [ ] y\n\n## B\n\n### C\n\n# D\n"
 	str := func(s string) *string { return &s }
 	cases := []struct {
 		name string

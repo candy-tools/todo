@@ -50,8 +50,9 @@ func (s *Store) Complete(ctx context.Context, id string, cascade bool) (WriteRes
 // Reopen sets task id to st, in one write, and treats its subtasks as o says:
 // o.Cascade opens them all (see CascadeStatus), o.Restore gives them their
 // snapshot states back (see ReopenStates), and with neither they keep theirs.
-// A task in o.Restore deleted since the snapshot is left out; task id itself
-// missing fails the write with ErrNotFound. Setting both fails with
+// A task in o.Restore deleted since the snapshot, or no longer Done (changed
+// since the complete it undoes), is left out (see Document.Reopen); task id
+// itself missing fails the write with ErrNotFound. Setting both fails with
 // ErrRestoreAndCascade, writing nothing. A category fails it with ErrNotTask,
 // and a subtask given a state other than Open or Done with ErrSubtaskStatus.
 func (s *Store) Reopen(ctx context.Context, id string, st Status, o ReopenOptions) (WriteResult, error) {

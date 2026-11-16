@@ -132,6 +132,26 @@ func TestReopenRestore(t *testing.T) {
 	}
 }
 
+// An undo restores only what the complete left: a subtask another writer
+// changed since (here, reopened) keeps that writer's state, while the rest go
+// back to their snapshot states.
+func TestReopenRestoreSkipsSubtaskChangedSince(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	ids := addTaskTree(t, s, Working)
+	sub2 := mustID(t)(s.AddTask(ctx, Fields{Title: "sub2"}, Open, ids.task, ids.sub))
+	mustOK(t)(s.SetStatuses(ctx, DoneStates{ids.sub: Done}))
+	snapshot := SnapshotDone(item(t, load(t, s), ids.task)) // task Working, sub Done, sub2 Open
+	mustOK(t)(s.Complete(ctx, ids.task, true))
+
+	mustOK(t)(NewStore(s.Path()).SetStatuses(ctx, DoneStates{ids.sub: Open})) // another writer
+	mustOK(t)(s.Reopen(ctx, ids.task, Working, ReopenOptions{Restore: snapshot}))
+
+	if got, want := statuses(t, s, ids.task, ids.sub, sub2), []Status{Working, Open, Open}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("task, sub, sub2 after the undo = %v, want %v (sub as the other writer left it)", got, want)
+	}
+}
+
 func TestReopenCascade(t *testing.T) {
 	s := newStore(t)
 	ids, sub2 := doneTaskTree(t, s)

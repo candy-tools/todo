@@ -348,10 +348,12 @@ func (d *Document) Complete(id string, cascade bool) error {
 
 // Reopen sets task id to st and treats its subtasks as o says: o.Cascade opens
 // them all (see CascadeStatus), o.Restore gives them their snapshot states back
-// (see ReopenStates), and with neither they keep theirs. Entries of o.Restore
-// for items d no longer holds are skipped. Setting both fails with
-// ErrRestoreAndCascade before anything else is checked; otherwise it fails as
-// SetStatuses or CascadeStatus does.
+// (see ReopenStates), and with neither they keep theirs. o.Restore undoes a
+// complete, so it gives back only what that complete left: an entry is
+// applied only to an item that is still Done, and skipped for one d no longer
+// holds or whose state changed since (say, another writer reopened it).
+// Setting both fails with ErrRestoreAndCascade before anything else is
+// checked; otherwise it fails as SetStatuses or CascadeStatus does.
 func (d *Document) Reopen(id string, st Status, o ReopenOptions) error {
 	if o.Restore != nil && o.Cascade {
 		return ErrRestoreAndCascade
@@ -362,7 +364,7 @@ func (d *Document) Reopen(id string, st Status, o ReopenOptions) error {
 	ix := d.index()
 	restore := make(DoneStates, len(o.Restore))
 	for rid, rst := range o.Restore {
-		if ix.taken(rid) {
+		if it, ok := ix[rid]; ok && it.Status == Done {
 			restore[rid] = rst
 		}
 	}
