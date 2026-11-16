@@ -184,7 +184,6 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 			prevID = r.item.ID
 		}
 	}
-	m.doc.Remove(it)
 	// A structural change ends the accidental-complete undo window.
 	m.snapshots = map[string]todo.DoneStates{}
 	id := it.ID
