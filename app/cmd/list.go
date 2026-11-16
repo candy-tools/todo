@@ -34,7 +34,7 @@ func listCmd() *cobra.Command {
 				if !ok {
 					return usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
 				}
-				visible = doc.ColumnMatches(col, filter) // search within the column, as the TUI tab does
+				visible = doc.ColumnMatches(filter, col) // search within the column, as the TUI tab does
 			}
 			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
 				return writeListJSON(cmd.OutOrStdout(), doc, visible)
@@ -70,7 +70,7 @@ func writeListTable(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool
 			st = it.Status.String()
 		}
 		indent := strings.Repeat("  ", depthOf(it))
-		_, _ = fmt.Fprintf(w, "%3d %5d  %-9s %s%s\n", i+1, it.ID, st, indent, it.Title)
+		_, _ = fmt.Fprintf(w, "%3d %5d  %-9s %s%s\n", i+1, it.ID, st, indent, todo.Printable(it.Title))
 	}
 	return nil
 }

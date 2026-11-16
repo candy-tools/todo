@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 // runSplit runs the root command capturing stdout and stderr separately.
@@ -133,5 +136,120 @@ func TestAddCategoryAutoImportsFirst(t *testing.T) {
 	}
 	if out != "add-category: ## Sub\n" || !contains(errOut, "imported") {
 		t.Errorf("out=%q err=%q", out, errOut)
+	}
+}
+
+// A tree rule the store enforces itself (one a race got past the command's own
+// kind checks) surfaces as the CLI's wrong-kind error.
+func TestStoreTreeRuleIsWrongKind(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, want := range []error{todo.ErrWrongParent, todo.ErrNotTask} {
+		c := newRootCommand()
+		err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return want })
+		if codeOf(t, err) != exitWrongKind || err.Error() != want.Error() {
+			t.Errorf("withStore with %v = %v, want a wrong-kind error with its message", want, err)
+		}
+	}
+}
+
+// A store conflict (the tree changed under the command since it read it)
+// surfaces as the CLI's conflict error with the store's message.
+func TestStoreConflictIsConflict(t *testing.T) {
+	t.Chdir(t.TempDir())
+	c := newRootCommand()
+	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrConflict })
+	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrConflict.Error() {
+		t.Errorf("withStore with ErrConflict = %v, want a conflict error with its message", err)
+	}
+}
+
+// A store invalid move (an item placed into its own subtree) surfaces as the
+// CLI's usage error with the store's message, not a conflict: re-running the
+// command would fail the same way.
+func TestStoreInvalidMoveIsUsage(t *testing.T) {
+	t.Chdir(t.TempDir())
+	c := newRootCommand()
+	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrInvalidMove })
+	if codeOf(t, err) != exitUsage || err.Error() != todo.ErrInvalidMove.Error() {
+		t.Errorf("withStore with ErrInvalidMove = %v, want a usage error with its message", err)
+	}
+}
+
+// A busy store (another process held the writer lock past the busy timeout)
+// surfaces as the CLI's conflict error with the store's message: re-running
+// the command is the fix for both.
+func TestStoreBusyIsConflict(t *testing.T) {
+	t.Chdir(t.TempDir())
+	c := newRootCommand()
+	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrBusy })
+	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
+		t.Errorf("withStore with ErrBusy = %v, want a conflict error with its message", err)
+	}
+}
+
+// A store that is busy when a command opens it (another process holds the
+// writer lock while the open needs it) fails every command, the TUI start
+// included, with the conflict error and the message a busy write shows.
+func TestOpenBusyIsConflict(t *testing.T) {
+	for _, args := range [][]string{
+		{"list"},
+		{"done", "--title", "a"},
+		nil, // the TUI
+	} {
+		t.Run(fmt.Sprint(args), func(t *testing.T) {
+			db := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+			orig := openDB
+			openDB = func(string, ...todo.Option) (*todo.Store, error) { return nil, todo.ErrBusy }
+			t.Cleanup(func() { openDB = orig })
+			_, err := runCmd(t, append(args, "-f", db)...)
+			if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
+				t.Errorf("%v with a busy open = %v, want a conflict error with ErrBusy's message", args, err)
+			}
+		})
+	}
+}
+
+// Reading commands work while another process holds the writer lock on a store
+// already on the current schema: opening it writes nothing.
+func TestListWhileAnotherProcessWrites(t *testing.T) {
+	db := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	todotest.HoldWriteLock(t, db)
+	out, err := runCmd(t, "list", "-f", db)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !contains(out, "a") || !contains(out, "Work") {
+		t.Errorf("list output misses the items:\n%s", out)
+	}
+}
+
+// Each write command opens the database once and writes through the handle it
+// loaded from, rather than reopening it for the write.
+func TestWriteCommandsOpenTheStoreOnce(t *testing.T) {
+	for _, args := range [][]string{
+		{"done", "--title", "a"},
+		{"status", "--title", "a", "--to", "review"},
+		{"add", "--parent-title", "Work", "--title", "c"},
+		{"add-category", "--title", "Other"},
+		{"edit", "--title", "a", "--set-title", "A"},
+		{"rm", "--title", "b"},
+		{"prune"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			db := todotest.Seed(t, "# Work\n\n- [ ] a\n- [x] b\n")
+			opens := 0
+			orig := openDB
+			openDB = func(path string, opts ...todo.Option) (*todo.Store, error) {
+				opens++
+				return orig(path, opts...)
+			}
+			t.Cleanup(func() { openDB = orig })
+			if _, err := runCmd(t, append(args, "-f", db)...); err != nil {
+				t.Fatalf("%v: %v", args, err)
+			}
+			if opens != 1 {
+				t.Errorf("%v opened the store %d times, want 1", args, opens)
+			}
+		})
 	}
 }

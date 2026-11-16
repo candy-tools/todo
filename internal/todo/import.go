@@ -29,6 +29,9 @@ type ImportReport struct {
 	// Skipped is set by ImportFile when nothing was imported because another
 	// process created the store first; the report is otherwise empty.
 	Skipped bool
+	// Backup is the path of the copy ImportFile took of a store that held
+	// items before replacing them; it is empty when nothing was replaced.
+	Backup string
 }
 
 // ImportMarkdown parses a TODO.md leniently for import. It fails only when src
@@ -80,10 +83,30 @@ func count(it *Item, rep *ImportReport) {
 // Import writes doc into the store in one transaction. It returns ErrNotEmpty
 // when the store holds items and replace is false; with replace, the existing
 // items are deleted first. doc is flattened first, in place (see
-// Document.FlattenSubtasks), since the store keeps subtasks one level deep.
+// Document.FlattenSubtasks), since the store keeps subtasks one level deep. A
+// title CleanTitle refuses fails the import with ErrInvalidTitle; ImportMarkdown
+// never yields one. As one large, deliberate write, an import waits at least
+// DefaultBusyTimeout for another process's writer lock, even on a store opened
+// with a shorter WithBusyTimeout.
 func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
+	return s.importDoc(ctx, doc, replace, nil)
+}
+
+// importDoc is Import that, when expect is set, first checks in its write
+// transaction that the store is still at revision *expect, and otherwise
+// returns ErrConflict and writes nothing.
+func (s *Store) importDoc(ctx context.Context, doc *Document, replace bool, expect *int64) error {
 	doc.FlattenSubtasks()
-	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
+	return s.writeWaiting(ctx, DefaultBusyTimeout, func(tx *gorm.DB, tree *closuretree.Tree) error {
+		if expect != nil {
+			rev, err := revisionIn(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if rev != *expect {
+				return ErrConflict
+			}
+		}
 		existing, err := loadDocument(ctx, tx)
 		if err != nil {
 			return err
@@ -107,7 +130,11 @@ func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
 func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, parentID uint) error {
 	var afterID uint
 	for _, it := range items {
-		row := &dbItem{Kind: int(it.Kind), Title: it.Title, Status: int(it.Status), Description: it.Description, Plan: it.Plan}
+		title, err := CleanTitle(it.Title)
+		if err != nil {
+			return err
+		}
+		row := &dbItem{Kind: int(it.Kind), Title: title, Status: int(it.Status), Description: it.Description, Plan: it.Plan}
 		if it.Kind == Category {
 			row.Status, row.Description, row.Plan = 0, "", ""
 		}
@@ -128,9 +155,14 @@ func insertItems(ctx context.Context, tree *closuretree.Tree, items []*Item, par
 // then linked (or, without hard links, renamed) into place, so dbPath never holds a half-done import and a failed
 // import leaves no trace. When another process creates dbPath first, that
 // store is kept and opened instead, and the report comes back empty with
-// Skipped set. On success the open store is returned.
-func ImportFile(dbPath, mdPath string, replace bool) (*Store, ImportReport, error) {
-	return importFile(context.Background(), dbPath, mdPath, replace)
+// Skipped set. Replacing a store that holds items first copies it to the next
+// free BackupPath, named in the report's Backup; a write by another process
+// after that copy fails the replace with ErrConflict, writing nothing. When the
+// replace writes nothing, for that or any other error, the backup it took is
+// removed again. On success the open store is returned, opened at dbPath with
+// opts.
+func ImportFile(dbPath, mdPath string, replace bool, opts ...Option) (*Store, ImportReport, error) {
+	return importFile(context.Background(), dbPath, mdPath, replace, opts...)
 }
 
 // storeExists is the existence check importFile runs on the target. It is a
@@ -142,9 +174,14 @@ var storeExists = StoreExists
 // variable so a test can stand in for a filesystem without hard links.
 var linkFile = os.Link
 
+// importAfterBackup, when set by a test, runs in importFile between the backup
+// of the existing store and the import that replaces it, so a test can land a
+// write from another handle there.
+var importAfterBackup func()
+
 // importFile is ImportFile with the context of the store write, so a test can
 // make the import fail after a store file was created.
-func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Store, ImportReport, error) {
+func importFile(ctx context.Context, dbPath, mdPath string, replace bool, opts ...Option) (*Store, ImportReport, error) {
 	existed, err := storeExists(dbPath)
 	if err != nil {
 		return nil, ImportReport{}, err
@@ -158,17 +195,59 @@ func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Stor
 		return nil, ImportReport{}, fmt.Errorf("%s: %w", mdPath, err)
 	}
 	if !existed {
-		return importNew(ctx, dbPath, doc, rep)
+		return importNew(ctx, dbPath, doc, rep, opts...)
 	}
-	s, err := OpenStore(dbPath)
+	s, err := OpenStore(dbPath, opts...)
 	if err != nil {
 		return nil, ImportReport{}, err
 	}
-	if err := s.Import(ctx, doc, replace); err != nil {
+	// A replace pins the revision the backup reflects, so a write landing
+	// after it (which the backup would miss) fails the import with ErrConflict
+	// instead of being deleted by it.
+	var expect *int64
+	if replace {
+		var rev int64
+		if rep.Backup, rev, err = s.backupIfNotEmpty(ctx); err != nil {
+			_ = s.Close()
+			return nil, ImportReport{}, err
+		}
+		expect = &rev
+	}
+	if importAfterBackup != nil {
+		importAfterBackup()
+	}
+	if err := s.importDoc(ctx, doc, replace, expect); err != nil {
 		_ = s.Close()
+		// The store is unchanged, so the backup this run took (always a new
+		// file: backup never reuses a name) only guards data still in place.
+		if rep.Backup != "" {
+			if rmErr := os.Remove(rep.Backup); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+				return nil, ImportReport{}, fmt.Errorf("%w (backup %s left in place: %v)", err, rep.Backup, rmErr)
+			}
+		}
 		return nil, ImportReport{}, err
 	}
 	return s, rep, nil
+}
+
+// backupIfNotEmpty copies a store that holds items to the next free
+// BackupPath (see backup) and returns that path, or "" for an empty store,
+// with the revision the emptiness check read. It runs outside any
+// transaction, since VACUUM INTO cannot run inside one, and only reads the
+// live file, which stays the one the store opened.
+func (s *Store) backupIfNotEmpty(ctx context.Context) (string, int64, error) {
+	doc, rev, err := s.Load(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	if len(doc.Roots) == 0 {
+		return "", rev, nil
+	}
+	path, err := s.backup()
+	if err != nil {
+		return "", 0, fmt.Errorf("back up %s: %w", s.path, err)
+	}
+	return path, rev, nil
 }
 
 // importNew imports doc into a new store at dbPath. It fills a temporary store
@@ -179,7 +258,7 @@ func importFile(ctx context.Context, dbPath, mdPath string, replace bool) (*Stor
 // fails for another reason (a filesystem without hard links), the temporary
 // store is renamed into place instead (see placeStore). The temporary files are
 // removed either way.
-func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportReport) (*Store, ImportReport, error) {
+func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportReport, opts ...Option) (*Store, ImportReport, error) {
 	f, err := os.CreateTemp(filepath.Dir(dbPath), ".todo-import-*.db")
 	if err != nil {
 		return nil, ImportReport{}, err
@@ -213,7 +292,7 @@ func importNew(ctx context.Context, dbPath string, doc *Document, rep ImportRepo
 	if !placed {
 		rep = ImportReport{Skipped: true}
 	}
-	s, err = OpenStore(dbPath)
+	s, err = OpenStore(dbPath, opts...)
 	if err != nil {
 		return nil, ImportReport{}, err
 	}

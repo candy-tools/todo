@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -65,4 +67,138 @@ func padBody(body string, pad int) string {
 		}
 	}
 	return "\n" + strings.Join(lines, "\n") + "\n"
+}
+
+// confirmAction records what the open confirm dialog should do when confirmed.
+type confirmAction int
+
+const (
+	confirmDelete    confirmAction = iota // delete the selected item (m.deleting)
+	confirmClearDone                      // remove every completed task
+)
+
+// openDelete opens the confirm dialog for the selected item (focused on the
+// safe Cancel button). A no-op when nothing is selected; a category outside
+// Backlog is refused with a footer hint.
+func (m model) openDelete() (tea.Model, tea.Cmd) {
+	sel := m.focused().selected()
+	if sel == nil || m.focused().onPlaceholder() {
+		return m, nil
+	}
+	if m.categoryLocked(sel) {
+		m.status = msgCategoriesInBacklog
+		return m, nil
+	}
+	m.deleting = sel
+	m.confirmOnDelete = false
+	m.confirmAction = confirmDelete
+	m.mode = modeConfirm
+	return m, nil
+}
+
+// openClearDone opens the confirm dialog for removing every completed task
+// (focused on the safe Cancel button). A no-op with a status hint when there is
+// nothing to remove.
+func (m model) openClearDone() (tea.Model, tea.Cmd) {
+	if m.doc.RemovableDone() == 0 {
+		m.status = "No completed tasks to remove."
+		return m, nil
+	}
+	m.deleting = nil
+	m.confirmOnDelete = false
+	m.confirmAction = confirmClearDone
+	m.mode = modeConfirm
+	return m, nil
+}
+
+// updateConfirm handles the confirm dialog: y/enter-on-Delete confirms, n/esc
+// cancels, tab/arrows toggle the focused button.
+func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		return m.doConfirm()
+	case "n", "N", "esc":
+		m.mode = modeMain
+		return m, nil
+	case "left", "right", "tab", "shift+tab":
+		m.confirmOnDelete = !m.confirmOnDelete
+		return m, nil
+	case "enter", " ":
+		if m.confirmOnDelete {
+			return m.doConfirm()
+		}
+		m.mode = modeMain
+		return m, nil
+	}
+	return m, nil
+}
+
+// doConfirm runs the confirmed action for the open dialog.
+func (m model) doConfirm() (tea.Model, tea.Cmd) {
+	if m.confirmAction == confirmClearDone {
+		return m.doClearDone()
+	}
+	return m.doDelete()
+}
+
+// doClearDone removes every completed task from the store (which works out the
+// fully-done subtrees itself, as they are at write time), reloads, and keeps
+// the selection on the previously selected item when it survived (otherwise the
+// top row). Like a delete, it ends the accidental-complete undo window.
+func (m model) doClearDone() (tea.Model, tea.Cmd) {
+	m.mode = modeMain
+	var focus uint
+	if sel := m.focused().selected(); sel != nil && !m.focused().onPlaceholder() {
+		focus = sel.ID
+	}
+	m.snapshots = map[uint]todo.DoneStates{}
+	var removed int
+	var pruneErr error
+	m.commit(focus, func(ctx context.Context) error {
+		removed, pruneErr = m.store.Prune(ctx)
+		return pruneErr
+	})
+	if sel := m.focused().selected(); focus != 0 && (sel == nil || sel.ID != focus) {
+		m.focused().selectTop() // sel was removed
+	}
+	if pruneErr == nil {
+		m.status = fmt.Sprintf("Removed %d completed task(s).", removed)
+	}
+	return m, nil
+}
+
+// doDelete removes the confirmed item (and its subtree) from the store,
+// reloads, and moves the selection to a sensible neighbour — the row above the
+// deleted item, which is never one of its descendants.
+func (m model) doDelete() (tea.Model, tea.Cmd) {
+	it := m.deleting
+	m.deleting = nil
+	m.mode = modeMain
+	if it == nil {
+		return m, nil
+	}
+	// In the sidebar no neighbour is picked: the deleted category's place
+	// falls back to All (see adoptAll).
+	var prevID uint
+	if t := m.focused(); t.cursor > 0 && t.pane != paneCategories {
+		if r := t.rows[t.cursor-1]; r.kind == rowItem {
+			prevID = r.item.ID
+		}
+	}
+	m.doc.Remove(it)
+	// A structural change ends the accidental-complete undo window.
+	m.snapshots = map[uint]todo.DoneStates{}
+	id := it.ID
+	m.commit(prevID, func(ctx context.Context) error {
+		return m.store.Delete(ctx, id)
+	})
+	return m, nil
+}
+
+// confirmQuestion phrases the prompt for the open confirm dialog.
+func (m model) confirmQuestion() string {
+	if m.confirmAction == confirmClearDone {
+		return fmt.Sprintf("Remove %d completed task(s)?", m.doc.RemovableDone())
+	}
+	return deletionQuestion(m.deleting)
 }

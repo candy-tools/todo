@@ -1,0 +1,172 @@
+package tui
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"unicode"
+
+	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// hostile is a title holding terminal escapes (a colour, an OSC window-title
+// set ended by BEL, a screen clear) that an older version could have stored.
+const hostile = "evil\x1b[31m\x1b]0;pwn\x07\x1b[2J"
+
+// assertNoEscapes fails when s carries any piece of the hostile title's escapes.
+func assertNoEscapes(t *testing.T, what, s string) {
+	t.Helper()
+	for _, bad := range []string{"\x1b[31m", "\x1b]0;", "\x07", "\x1b[2J"} {
+		if strings.Contains(s, bad) {
+			t.Errorf("%s carries the stored escape %q: %q", what, bad, s)
+		}
+	}
+}
+
+func TestStoredControlCharactersAreNotDrawn(t *testing.T) {
+	path := todotest.Seed(t, "# Cat\n\n- [ ] task\n")
+	db := openRaw(t, path)
+	if err := db.Exec("UPDATE items SET title = title || ?", hostile).Error; err != nil {
+		t.Fatalf("store raw titles: %v", err)
+	}
+	st, err := todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	m, err := newModel(st, "")
+	if err != nil {
+		t.Fatalf("newModel: %v", err)
+	}
+	if !strings.Contains(m.doc.Roots[0].Title, "\x1b") {
+		t.Fatal("the raw update should have stored an escape in the title")
+	}
+	for _, pane := range []paneKind{paneMixed, paneTasks} {
+		tr := newTree(m.doc, newViewState())
+		tr.setPane(pane)
+		for i, r := range tr.rows {
+			for _, sel := range []bool{false, true} {
+				assertNoEscapes(t, "a tree row", tr.rowString(r, sel))
+			}
+			if i == 0 && pane == paneTasks && r.kind != rowHeader {
+				t.Errorf("the task pane should start with the category header, got kind %v", r.kind)
+			}
+		}
+	}
+}
+
+// Legacy field values holding control and bidi characters an older version or
+// another tool could have stored, and what the edit form shows for each.
+const (
+	legacyTitle     = "task\u202e\u2066gnp.exe\u2069\ufeff\x1b[2J"
+	legacyDesc      = "one\u202e\r\ntwo\x1b[31m\u2028\n\tthree\u2066"
+	legacyPlan      = "plan\u202e.md\x07"
+	cleanLegacyTit  = "taskgnp.exe[2J"
+	cleanLegacyDesc = "one\ntwo[31m\n    three"
+	cleanLegacyPlan = "plan.md"
+)
+
+// newLegacyModel is newTestModel on a store whose task "task" holds the legacy
+// title, description and plan, written past the store's checks.
+func newLegacyModel(t *testing.T) (model, string) {
+	t.Helper()
+	path := todotest.Seed(t, "# Cat\n\n- [ ] task\n")
+	db := openRaw(t, path)
+	if err := db.Exec("UPDATE items SET title = ?, description = ?, plan = ? WHERE title = 'task'",
+		legacyTitle, legacyDesc, legacyPlan).Error; err != nil {
+		t.Fatalf("store raw fields: %v", err)
+	}
+	st, err := todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	m, err := newModel(st, "")
+	if err != nil {
+		t.Fatalf("newModel: %v", err)
+	}
+	m = send(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = selectTitle(t, m, legacyTitle)
+	m = press(m, "e")
+	if m.mode != modeForm {
+		t.Fatalf("e should open the edit form, status %q", m.status)
+	}
+	return m, path
+}
+
+// unsafeIn returns the runes of s that must not reach the terminal: control
+// characters other than the newline, bidi controls, line and paragraph
+// separators and the byte order mark.
+func unsafeIn(s string) []rune {
+	var bad []rune
+	for _, r := range s {
+		if r != '\n' && (unicode.IsControl(r) || r >= '\u202a' && r <= '\u202e' || r >= '\u2066' && r <= '\u2069' ||
+			r == '\u2028' || r == '\u2029' || r == '\ufeff') {
+			bad = append(bad, r)
+		}
+	}
+	return bad
+}
+
+func TestEditFormShowsNoStoredControlCharacters(t *testing.T) {
+	m, _ := newLegacyModel(t)
+	title, desc, plan := m.form.values()
+	for what, v := range map[string]string{"title": title, "description": desc, "plan": plan} {
+		if bad := unsafeIn(v); len(bad) > 0 {
+			t.Errorf("the form's %s %q holds unsafe runes %q", what, v, bad)
+		}
+	}
+	if title != cleanLegacyTit || desc != cleanLegacyDesc || plan != cleanLegacyPlan {
+		t.Errorf("form values = %q, %q, %q; want %q, %q, %q", title, desc, plan, cleanLegacyTit, cleanLegacyDesc, cleanLegacyPlan)
+	}
+	// The rendered form carries lipgloss styling escapes, so look for the stored
+	// characters other than ESC.
+	for _, bad := range unsafeIn(m.form.view()) {
+		if bad != '\x1b' {
+			t.Errorf("the rendered form holds the unsafe rune %q", bad)
+		}
+	}
+}
+
+func TestEditUntouchedLegacyItemWritesNothing(t *testing.T) {
+	m, _ := newLegacyModel(t)
+	before, err := m.store.Revision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "enter")
+	if m.mode != modeMain {
+		t.Fatalf("enter should close the form, mode %v", m.mode)
+	}
+	after, err := m.store.Revision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Errorf("saving an untouched legacy item moved the revision from %d to %d", before, after)
+	}
+}
+
+func TestEditLegacyItemWritesOnlyTheEditedField(t *testing.T) {
+	m, path := newLegacyModel(t)
+	m = press(m, "tab") // the description
+	m = typeText(m, "x")
+	_, want, _ := m.form.values()
+	if want == cleanLegacyDesc {
+		t.Fatal("typing should have changed the description")
+	}
+	m = press(m, "tab", "tab", "enter") // past the plan to Save
+	if m.mode != modeMain {
+		t.Fatalf("Save should close the form, mode %v", m.mode)
+	}
+	// Found by its stored title, so the untouched title was not rewritten.
+	it := storedItem(t, path, legacyTitle)
+	if it.Description != want {
+		t.Errorf("stored description = %q, want %q", it.Description, want)
+	}
+	if it.Plan != legacyPlan {
+		t.Errorf("the untouched plan was rewritten: %q, want %q", it.Plan, legacyPlan)
+	}
+}

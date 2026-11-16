@@ -348,3 +348,23 @@ func TestMoveModeCrossIntoCollapsedCategoryFollows(t *testing.T) {
 		t.Error("the cursor should follow b into the revealed subcategory")
 	}
 }
+
+func TestGrabIgnoresModeKeys(t *testing.T) {
+	m, _ := newTestModel(t, splitDoc)
+	m = press(m, "v") // the split view, keys on the sidebar
+	m = sideSelect(t, m, "Home")
+	m = press(m, "m")
+	if !m.sideFocus || !m.side.grabbed {
+		t.Fatalf("precondition: m should grab Home in the sidebar: sideFocus %v, grabbed %v", m.sideFocus, m.side.grabbed)
+	}
+	m = press(m, "/", "?", "t", "e", "x")
+	if !m.side.grabbed {
+		t.Error("keys outside the move set must leave the item grabbed")
+	}
+	if m.mode != modeMain {
+		t.Errorf("keys must not open a mode while grabbed: mode %v, want modeMain", m.mode)
+	}
+	if !m.sideFocus {
+		t.Error("x must not switch panes while grabbed")
+	}
+}

@@ -11,7 +11,7 @@ import (
 func rowTitles(tr tree) []string {
 	var out []string
 	for _, r := range tr.rows {
-		if r.placeholder {
+		if r.kind != rowItem {
 			continue
 		}
 		out = append(out, r.item.Title)
@@ -64,8 +64,8 @@ func TestHighlightPreservesOriginalCase(t *testing.T) {
 
 func TestTreeFilterHidesNonMatches(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n  - [ ] Buy supplies\n- [ ] Task B\n\n# Home\n\n- [ ] Groceries\n")
-	tr := newTree(d)
-	tr.setFilter("cat")
+	tr := newTree(d, newViewState())
+	setTreeFilter(&tr, "cat")
 	got := rowTitles(tr)
 	want := []string{"Work", "Task A", "Explore catacombs"}
 	if !equalStrings(got, want) {
@@ -75,9 +75,9 @@ func TestTreeFilterHidesNonMatches(t *testing.T) {
 
 func TestTreeFilterShowsMatchInsideCollapsedParent(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n")
-	tr := newTree(d)
+	tr := newTree(d, newViewState())
 	tr.collapsed[find(d, "Task A").ID] = true // collapse the parent of the match
-	tr.setFilter("cat")
+	setTreeFilter(&tr, "cat")
 	if got := rowTitles(tr); !contains(got, "Explore catacombs") {
 		t.Errorf("filtering should reveal matches inside a collapsed parent, got %v", got)
 	}
@@ -85,10 +85,10 @@ func TestTreeFilterShowsMatchInsideCollapsedParent(t *testing.T) {
 
 func TestTreeFilterHidesPlaceholder(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] catnip\n")
-	tr := newTree(d)
-	tr.setFilter("cat")
+	tr := newTree(d, newViewState())
+	setTreeFilter(&tr, "cat")
 	for _, r := range tr.rows {
-		if r.placeholder {
+		if r.kind != rowItem {
 			t.Errorf("the + new category placeholder should be hidden while filtering")
 		}
 	}
@@ -96,10 +96,10 @@ func TestTreeFilterHidesPlaceholder(t *testing.T) {
 
 func TestTreeClearFilterRestoresTree(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n  - [ ] Buy supplies\n")
-	tr := newTree(d)
+	tr := newTree(d, newViewState())
 	before := len(tr.rows)
-	tr.setFilter("cat")
-	tr.setFilter("") // clear
+	setTreeFilter(&tr, "cat")
+	setTreeFilter(&tr, "") // clear
 	if len(tr.rows) != before {
 		t.Errorf("clearing the filter should restore all rows: got %d, want %d", len(tr.rows), before)
 	}
@@ -107,8 +107,8 @@ func TestTreeClearFilterRestoresTree(t *testing.T) {
 
 func TestTreeRowHighlightsMatch(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] Explore catacombs\n")
-	tr := newTree(d)
-	tr.setFilter("cat")
+	tr := newTree(d, newViewState())
+	setTreeFilter(&tr, "cat")
 	got := tr.rowString(treeRow{item: find(d, "Explore catacombs")}, false)
 	if !strings.Contains(got, matchStyle.Render("cat")) {
 		t.Errorf("a filtered row should highlight the matched substring, got %q", got)

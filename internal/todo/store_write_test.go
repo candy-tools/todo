@@ -118,8 +118,8 @@ func TestEditKeepsKind(t *testing.T) {
 	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
 	task := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Deferred, c, 0))
 
-	mustOK(t, s.Edit(ctx, c, Fields{Title: "C2", Description: "x"}))
-	mustOK(t, s.Edit(ctx, task, Fields{Title: "t2", Description: "desc"}))
+	mustOK(t, s.Edit(ctx, c, Changes{Title: new("C2"), Description: new("x")}))
+	mustOK(t, s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("desc")}))
 
 	doc := load(t, s)
 	if got := item(t, doc, c); got.Kind != Category || got.Title != "C2" || got.Description != "" {
@@ -128,7 +128,7 @@ func TestEditKeepsKind(t *testing.T) {
 	if got := item(t, doc, task); got.Kind != Task || got.Title != "t2" || got.Description != "desc" || got.Status != Deferred {
 		t.Fatalf("task after Edit = %+v; want deferred task t2 described desc", got)
 	}
-	if err := s.Edit(ctx, 999, Fields{Title: "x"}); !errors.Is(err, ErrNotFound) {
+	if err := s.Edit(ctx, 999, Changes{Title: new("x")}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Edit(999) = %v, want ErrNotFound", err)
 	}
 }
@@ -136,9 +136,10 @@ func TestEditKeepsKind(t *testing.T) {
 func TestSetStatusesBackToOpen(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "desc"}, Done, 0, 0))
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "desc"}, Done, c, 0))
 
-	mustOK(t, s.SetStatuses(ctx, map[uint]Status{id: Open, 999: Done}))
+	mustOK(t, s.SetStatuses(ctx, map[uint]Status{id: Open}))
 
 	got := item(t, load(t, s), id)
 	if got.Status != Open || got.Title != "t" || got.Description != "desc" {
@@ -146,10 +147,32 @@ func TestSetStatusesBackToOpen(t *testing.T) {
 	}
 }
 
+// TestSetStatusesRejectsMissingID: a write naming an item the store does not
+// hold, such as one another process deleted since the caller's read, fails
+// whole with ErrNotFound instead of reporting success for 0 rows.
+func TestSetStatusesRejectsMissingID(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Done, c, 0))
+	gone := mustID(t)(s.AddTask(ctx, Fields{Title: "gone"}, Open, c, id))
+	mustOK(t, s.Delete(ctx, gone))
+
+	rejects(t, s, ErrNotFound, func() error { return s.SetStatuses(ctx, map[uint]Status{gone: Working}) })
+	rejects(t, s, ErrNotFound, func() error { return s.SetStatuses(ctx, map[uint]Status{id: Open, 999: Done}) })
+	rejects(t, s, ErrNotFound, func() error { return s.Complete(ctx, gone, false) })
+	rejects(t, s, ErrNotFound, func() error { return s.Reopen(ctx, gone, Working, ReopenOptions{}) })
+
+	if got := item(t, load(t, s), id); got.Status != Done {
+		t.Fatalf("task after rejected writes = %+v; want it still done", got)
+	}
+}
+
 func TestCascadeDoneAndReopen(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	p := mustID(t)(s.AddTask(ctx, Fields{Title: "p"}, Review, 0, 0))
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	p := mustID(t)(s.AddTask(ctx, Fields{Title: "p"}, Review, c, 0))
 	c1 := mustID(t)(s.AddTask(ctx, Fields{Title: "c1"}, Open, p, 0))
 	c2 := mustID(t)(s.AddTask(ctx, Fields{Title: "c2"}, Done, p, c1))
 
@@ -218,15 +241,16 @@ func TestMoveMissingIsNotFound(t *testing.T) {
 func TestDeleteSubtree(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	p := mustID(t)(s.AddTask(ctx, Fields{Title: "p"}, Open, 0, 0))
+	cat := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	p := mustID(t)(s.AddTask(ctx, Fields{Title: "p"}, Open, cat, 0))
 	c := mustID(t)(s.AddTask(ctx, Fields{Title: "c"}, Open, p, 0))
-	mustID(t)(s.AddTask(ctx, Fields{Title: "keep"}, Open, 0, p))
+	mustID(t)(s.AddTask(ctx, Fields{Title: "keep"}, Open, cat, p))
 
 	mustOK(t, s.Delete(ctx, p))
 
 	doc := load(t, s)
-	if got, want := titles(doc.Roots), []string{"keep"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("roots after Delete = %v, want %v", got, want)
+	if got, want := titles(item(t, doc, cat).Children), []string{"keep"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("C's children after Delete = %v, want %v", got, want)
 	}
 	if _, ok := doc.ByID(c); ok {
 		t.Fatal("subtask of the deleted parent is still there")
@@ -304,10 +328,19 @@ func TestEveryWriteBumpsRevision(t *testing.T) {
 	}{
 		{"AddCategory", func() (err error) { c, err = s.AddCategory(ctx, "C", 0, 0); return err }},
 		{"AddTask", func() (err error) { task, err = s.AddTask(ctx, Fields{Title: "t"}, Open, c, 0); return err }},
-		{"Edit", func() error { return s.Edit(ctx, task, Fields{Title: "t2", Description: "d"}) }},
+		{"AppendCategory", func() error { _, err := s.AppendCategory(ctx, "D", c); return err }},
+		{"AppendTask", func() error { _, err := s.AppendTask(ctx, Fields{Title: "u"}, Open, c); return err }},
+		{"Edit", func() error { return s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("d")}) }},
 		{"SetStatuses", func() error { return s.SetStatuses(ctx, map[uint]Status{task: Done}) }},
 		{"CascadeStatus", func() error { return s.CascadeStatus(ctx, task, Done) }},
-		{"Move", func() error { return s.Move(ctx, task, 0, c) }},
+		{"Reopen", func() error { return s.Reopen(ctx, task, Working, ReopenOptions{}) }},
+		{"Complete", func() error { return s.Complete(ctx, task, false) }},
+		{"Reopen restore", func() error {
+			return s.Reopen(ctx, task, Working, ReopenOptions{Restore: DoneStates{task: Done}})
+		}},
+		{"Complete cascade", func() error { return s.Complete(ctx, task, true) }},
+		{"Reopen cascade", func() error { return s.Reopen(ctx, task, Working, ReopenOptions{Cascade: true}) }},
+		{"Move", func() error { return s.Move(ctx, task, c, 0) }},
 		{"Prune", func() error { _, err := s.Prune(ctx); return err }},
 		{"Delete", func() error { return s.Delete(ctx, c) }},
 	}
@@ -393,9 +426,48 @@ func TestPlanRoundTrip(t *testing.T) {
 		t.Fatalf("task after AddTask = %+v; want plan docs/p.md, description d", got)
 	}
 
-	mustOK(t, s.Edit(ctx, id, Fields{Title: "t2", Description: "d2"}))
+	mustOK(t, s.Edit(ctx, id, Changes{Title: new("t2"), Description: new("d2"), Plan: new("")}))
 	if got := item(t, load(t, s), id); got.Plan != "" || got.Title != "t2" || got.Description != "d2" || got.Status != Ready {
 		t.Fatalf("task after Edit = %+v; want ready task t2 described d2 with no plan", got)
+	}
+}
+
+// An edit naming only the title must not touch a description or plan another
+// process wrote since the caller read the task.
+func TestEditKeepsFieldsItDoesNotName(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "d", Plan: "docs/old.md"}, Ready, c, 0))
+	mustOK(t, s.Edit(ctx, id, Changes{Description: new("d2"), Plan: new("docs/new.md")}))
+
+	mustOK(t, s.Edit(ctx, id, Changes{Title: new("t2")}))
+
+	if got := item(t, load(t, s), id); got.Title != "t2" || got.Description != "d2" || got.Plan != "docs/new.md" {
+		t.Fatalf("task after title-only Edit = %+v; want t2 described d2 with plan docs/new.md", got)
+	}
+	mustOK(t, s.Edit(ctx, id, Changes{}))
+	if got := item(t, load(t, s), id); got.Title != "t2" || got.Description != "d2" || got.Plan != "docs/new.md" {
+		t.Fatalf("task after empty Edit = %+v; want it unchanged", got)
+	}
+}
+
+// An Edit naming no field is a no-op: it opens no write, so the revision
+// stays put and pollers see no change.
+func TestEmptyEditKeepsRevision(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Open, c, 0))
+	before, err := s.Revision(ctx)
+	mustOK(t, err)
+
+	mustOK(t, s.Edit(ctx, id, Changes{}))
+
+	after, err := s.Revision(ctx)
+	mustOK(t, err)
+	if after != before {
+		t.Fatalf("an empty Edit moved the revision from %d to %d", before, after)
 	}
 }
 
@@ -404,10 +476,39 @@ func TestEditCategoryIgnoresPlan(t *testing.T) {
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
 
-	mustOK(t, s.Edit(ctx, c, Fields{Title: "C2", Description: "x", Plan: "docs/p.md"}))
+	mustOK(t, s.Edit(ctx, c, Changes{Title: new("C2"), Description: new("x"), Plan: new("docs/p.md")}))
 
 	if got := item(t, load(t, s), c); got.Title != "C2" || got.Description != "" || got.Plan != "" {
 		t.Fatalf("category after Edit = %+v; want C2 with no description or plan", got)
+	}
+}
+
+// An Edit of a category that names only the fields a category ignores changes
+// nothing it stores, so it must not bump the revision (the TUI reads a bump as an
+// external change), and a missing item is still ErrNotFound.
+func TestEditCategoryIgnoredFieldsKeepRevision(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	c := mustID(t)(s.AddCategory(ctx, "C", 0, 0))
+	for name, ch := range map[string]Changes{
+		"description": {Description: new("x")},
+		"plan":        {Plan: new("docs/p.md")},
+		"both":        {Description: new("x"), Plan: new("docs/p.md")},
+	} {
+		before, err := s.Revision(ctx)
+		mustOK(t, err)
+		mustOK(t, s.Edit(ctx, c, ch))
+		after, err := s.Revision(ctx)
+		mustOK(t, err)
+		if after != before {
+			t.Fatalf("%s: a category Edit of ignored fields moved the revision from %d to %d", name, before, after)
+		}
+		if err := s.Edit(ctx, c+100, ch); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("%s: Edit of a missing item = %v; want ErrNotFound", name, err)
+		}
+	}
+	if got := item(t, load(t, s), c); got.Title != "C" || got.Description != "" || got.Plan != "" {
+		t.Fatalf("category after Edit = %+v; want C with no description or plan", got)
 	}
 }
 
@@ -526,4 +627,205 @@ func TestCascadeOnSubtaskWithBoardStateRejected(t *testing.T) {
 	if got := item(t, load(t, s), ids.sub); got.Status != Done {
 		t.Fatalf("sub status = %v, want done", got.Status)
 	}
+}
+
+func TestAddCategoryUnderTaskIsWrongParent(t *testing.T) {
+	s := newStore(t)
+	ids := addTaskTree(t, s, Open)
+	rejects(t, s, ErrWrongParent, func() error {
+		_, err := s.AddCategory(context.Background(), "X", ids.task, 0)
+		return err
+	})
+	rejects(t, s, ErrWrongParent, func() error {
+		_, err := s.AddCategory(context.Background(), "X", ids.sub, 0)
+		return err
+	})
+}
+
+func TestAddTaskAtRootIsWrongParent(t *testing.T) {
+	s := newStore(t)
+	rejects(t, s, ErrWrongParent, func() error {
+		_, err := s.AddTask(context.Background(), Fields{Title: "loose"}, Open, 0, 0)
+		return err
+	})
+}
+
+func TestMoveCategoryUnderTaskIsWrongParent(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addTaskTree(t, s, Open)
+	other := mustID(t)(s.AddCategory(ctx, "D", 0, ids.C))
+
+	rejects(t, s, ErrWrongParent, func() error { return s.Move(ctx, other, ids.task, 0) })
+	rejects(t, s, ErrWrongParent, func() error { return s.Move(ctx, other, ids.sub, 0) })
+	// A category may still move under a category or to the root.
+	mustOK(t, s.Move(ctx, other, ids.C, ids.task))
+	mustOK(t, s.Move(ctx, other, 0, ids.C))
+}
+
+func TestMoveTaskToRootIsWrongParent(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addTaskTree(t, s, Open)
+
+	rejects(t, s, ErrWrongParent, func() error { return s.Move(ctx, ids.task, 0, ids.C) })
+	rejects(t, s, ErrWrongParent, func() error { return s.Move(ctx, ids.sub, 0, ids.C) })
+}
+
+func TestStatusOnCategoryIsNotTask(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addTaskTree(t, s, Open)
+
+	rejects(t, s, ErrNotTask, func() error { return s.SetStatuses(ctx, map[uint]Status{ids.C: Done}) })
+	rejects(t, s, ErrNotTask, func() error { return s.SetStatuses(ctx, map[uint]Status{ids.task: Done, ids.C: Working}) })
+	rejects(t, s, ErrNotTask, func() error { return s.CascadeStatus(ctx, ids.C, Done) })
+	if got := item(t, load(t, s), ids.task); got.Status != Open {
+		t.Fatalf("task status after the rejected writes = %v, want open", got.Status)
+	}
+}
+
+// An add whose sibling was moved away by another process since the caller
+// read the tree is a conflict, not a raw closure-tree error.
+func TestAddAfterMovedSiblingIsConflict(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addSample(t, s)
+	mustOK(t, s.Move(ctx, ids.t2, ids.B, 0)) // another process moves t2 away
+
+	rejects(t, s, ErrConflict, func() error {
+		_, err := s.AddTask(ctx, Fields{Title: "t3"}, Open, ids.A, ids.t2)
+		return err
+	})
+	rejects(t, s, ErrConflict, func() error {
+		_, err := s.AddCategory(ctx, "C", ids.A, ids.t2)
+		return err
+	})
+	rejects(t, s, ErrConflict, func() error { return s.Move(ctx, ids.t1, ids.A, ids.t2) })
+}
+
+// Moving a category under its own descendant is an invalid move, not a
+// conflict: reloading and retrying would fail the same way.
+func TestMoveUnderOwnDescendantIsInvalidMove(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addSample(t, s)
+	rejects(t, s, ErrInvalidMove, func() error { return s.Move(ctx, ids.A, ids.B, 0) })
+	if err := s.Move(ctx, ids.A, ids.B, 0); errors.Is(err, ErrConflict) {
+		t.Fatalf("Move under own descendant = %v, want no ErrConflict", err)
+	}
+}
+
+// AppendTask places the task after the last task child of its parent, before
+// any subcategory, as the tree is at write time.
+func TestAppendTaskPlacesAfterLastTask(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addSample(t, s)
+	mustOK(t, s.Move(ctx, ids.t2, ids.B, 0)) // another process moves t2 away
+
+	t3 := mustID(t)(s.AppendTask(ctx, Fields{Title: "t3", Description: "d3", Plan: "p3"}, Working, ids.A))
+	doc := load(t, s)
+	if got, want := titles(item(t, doc, ids.A).Children), []string{"t1", "t3", "B"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("A's children = %v, want %v", got, want)
+	}
+	if got := item(t, doc, t3); got.Status != Working || got.Description != "d3" || got.Plan != "p3" {
+		t.Fatalf("t3 = %+v; want working task described d3 with plan p3", got)
+	}
+
+	// Only a subcategory: the task goes first. No children: it is the only one.
+	mustID(t)(s.AppendTask(ctx, Fields{Title: "u"}, Open, mustID(t)(s.AddCategory(ctx, "D", 0, ids.A))))
+	c := mustID(t)(s.AddCategory(ctx, "E", 0, 0))
+	sub := mustID(t)(s.AddCategory(ctx, "Esub", c, 0))
+	mustID(t)(s.AppendTask(ctx, Fields{Title: "e1"}, Open, c))
+	// Under a task: a subtask, appended after the last one.
+	mustID(t)(s.AppendTask(ctx, Fields{Title: "s3"}, Done, ids.t1))
+	mustID(t)(s.AppendTask(ctx, Fields{Title: "s4"}, Open, ids.t1))
+
+	doc = load(t, s)
+	if got, want := titles(item(t, doc, c).Children), []string{"e1", "Esub"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("E's children = %v, want %v", got, want)
+	}
+	if item(t, doc, sub).Parent.ID != c {
+		t.Fatalf("Esub moved away from E")
+	}
+	if got, want := titles(item(t, doc, ids.t1).Children), []string{"s3", "s4"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("t1's children = %v, want %v", got, want)
+	}
+}
+
+// AppendTask keeps the store's tree rules.
+func TestAppendTaskRules(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	tt := addTaskTree(t, s, Open)
+	rejects(t, s, ErrWrongParent, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, 0)
+		return err
+	})
+	rejects(t, s, ErrTooDeep, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, tt.sub)
+		return err
+	})
+	rejects(t, s, ErrSubtaskStatus, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Working, tt.task)
+		return err
+	})
+	rejects(t, s, ErrNotFound, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, 999)
+		return err
+	})
+	rejects(t, s, ErrInvalidTitle, func() error {
+		_, err := s.AppendTask(ctx, Fields{Title: " "}, Open, tt.C)
+		return err
+	})
+}
+
+// AppendCategory places the category after the last child of its parent — after
+// its tasks and subcategories — as the tree is at write time: a last sibling
+// another process deleted since the caller read the tree does not matter.
+func TestAppendCategoryPlacesLast(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ids := addSample(t, s)
+	gone := mustID(t)(s.AddCategory(ctx, "Gone", 0, ids.A))
+	mustOK(t, s.Delete(ctx, gone)) // another process deletes the last root
+
+	x := mustID(t)(s.AppendCategory(ctx, " X ", 0))
+	c := mustID(t)(s.AppendCategory(ctx, "C", ids.A))
+	only := mustID(t)(s.AppendCategory(ctx, "Only", x))
+	doc := load(t, s)
+	if got, want := titles(doc.Roots), []string{"A", "X"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("roots = %v, want %v", got, want)
+	}
+	if got, want := titles(item(t, doc, ids.A).Children), []string{"t1", "t2", "B", "C"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("A's children = %v, want %v", got, want)
+	}
+	if got, want := titles(item(t, doc, x).Children), []string{"Only"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("X's children = %v, want %v", got, want)
+	}
+	for _, id := range []uint{x, c, only} {
+		if got := item(t, doc, id); got.Kind != Category {
+			t.Fatalf("%q kind = %v, want a category", got.Title, got.Kind)
+		}
+	}
+}
+
+// AppendCategory keeps the store's tree rules.
+func TestAppendCategoryRules(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	tt := addTaskTree(t, s, Open)
+	rejects(t, s, ErrWrongParent, func() error {
+		_, err := s.AppendCategory(ctx, "x", tt.task)
+		return err
+	})
+	rejects(t, s, ErrNotFound, func() error {
+		_, err := s.AppendCategory(ctx, "x", 999)
+		return err
+	})
+	rejects(t, s, ErrInvalidTitle, func() error {
+		_, err := s.AppendCategory(ctx, " ", tt.C)
+		return err
+	})
 }

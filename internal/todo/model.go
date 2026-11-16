@@ -38,6 +38,7 @@ const (
 	Ready    Status = 5
 	Review   Status = 6
 	Followup Status = 7
+	WontDo   Status = 8 // a Backlog task that will not be done; it never counts as complete
 )
 
 // Column is a kanban column: a group of statuses. Columns are derived from a
@@ -54,6 +55,7 @@ const (
 var statusNames = map[Status]string{
 	Open: "open", Working: "working", Deferred: "deferred", Done: "done",
 	New: "new", Ready: "ready", Review: "review", Followup: "followup",
+	WontDo: "wontdo",
 }
 
 // String returns the lowercase state name used by the CLI (JSON output and the
@@ -63,6 +65,15 @@ func (s Status) String() string {
 		return n
 	}
 	return fmt.Sprintf("status(%d)", int(s))
+}
+
+// Label returns the state's human-readable name for display, e.g. "won't do"
+// for WontDo; for every other state it is the same as String.
+func (s Status) Label() string {
+	if s == WontDo {
+		return "won't do"
+	}
+	return s.String()
 }
 
 // Marker returns the checkbox marker char for the status, e.g. "x" for Done, or
@@ -115,29 +126,6 @@ func (s Status) Column() Column {
 // only ever Open or Done. It does not limit which tasks hold subtasks; a task
 // in any state (Working, for one) may.
 func (s Status) SubtaskAllowed() bool { return s == Open || s == Done }
-
-// NextInColumn returns the next state within the same column, cycling:
-// open↔deferred, new↔ready, working→review→followup→working. Done and unknown
-// values map to themselves.
-func (s Status) NextInColumn() Status {
-	switch s {
-	case Open:
-		return Deferred
-	case Deferred:
-		return Open
-	case New:
-		return Ready
-	case Ready:
-		return New
-	case Working:
-		return Review
-	case Review:
-		return Followup
-	case Followup:
-		return Working
-	}
-	return s
-}
 
 // Columns returns the four columns in board order.
 func Columns() []Column { return []Column{ColBacklog, ColNext, ColInProgress, ColDone} }
@@ -192,7 +180,7 @@ func (c Column) States() []Status {
 	case ColDone:
 		return []Status{Done}
 	}
-	return []Status{Open, Deferred}
+	return []Status{Open, Deferred, WontDo}
 }
 
 // FirstState returns the state a task takes when it enters the column.
@@ -289,17 +277,46 @@ func (it *Item) AppendChild(c *Item) {
 // rules (crossUp/crossDown) and the displayed tree depend on. For a task
 // parent (a subtask) there are no category children, so it simply appends.
 func (it *Item) AppendTask(task *Item) {
-	task.Parent = it
-	pos := len(it.Children)
-	for i, c := range it.Children {
-		if c.Kind == Category {
+	insertBeforeCategories(it, task)
+}
+
+// insertBeforeCategories inserts c among parent's children just before the
+// first category child — after every direct task, or at the end when there is
+// no category child — and sets c.Parent. For a task c that is its last task;
+// for a category c it is its first subcategory.
+func insertBeforeCategories(parent, c *Item) {
+	c.Parent = parent
+	pos := len(parent.Children)
+	for i, ch := range parent.Children {
+		if ch.Kind == Category {
 			pos = i
 			break
 		}
 	}
-	it.Children = append(it.Children, nil)
-	copy(it.Children[pos+1:], it.Children[pos:])
-	it.Children[pos] = task
+	parent.Children = append(parent.Children, nil)
+	copy(parent.Children[pos+1:], parent.Children[pos:])
+	parent.Children[pos] = c
+}
+
+// Clone returns a deep copy of the document: every item is copied, with its
+// Parent pointing into the copy, so changing one never shows in the other.
+func (d *Document) Clone() *Document {
+	c := &Document{Roots: make([]*Item, len(d.Roots))}
+	for i, it := range d.Roots {
+		c.Roots[i] = it.clone(nil)
+	}
+	return c
+}
+
+// clone deep-copies it and its subtree under parent.
+func (it *Item) clone(parent *Item) *Item {
+	c := *it
+	c.Parent = parent
+	c.Children = make([]*Item, len(it.Children))
+	for i, ch := range it.Children {
+		c.Children[i] = ch.clone(&c)
+	}
+	return &c
 }
 
 // AppendRoot appends it as the last top-level item of the document.

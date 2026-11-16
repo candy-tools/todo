@@ -8,13 +8,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// newTestModel seeds a store from the markdown src, opens it into a model (closed
-// when the test ends), and sizes the view. It returns the model and the store
-// path so tests can assert on what was persisted.
+// newTestModel seeds a store from the markdown src, opens it with the TUI's
+// BusyTimeout into a model (closed when the test ends), and sizes the view. It
+// returns the model and the store path so tests can assert on what was
+// persisted.
 func newTestModel(t *testing.T, src string) (model, string) {
 	t.Helper()
 	path := todotest.Seed(t, src)
-	st, err := todo.OpenStore(path)
+	st, err := todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -31,7 +32,7 @@ func newTestModel(t *testing.T, src string) (model, string) {
 func newTestModelOn(t *testing.T, src string, c todo.Column) (model, string) {
 	t.Helper()
 	m, path := newTestModel(t, src)
-	m.tree.setColumn(c)
+	m.setColumn(c)
 	return m, path
 }
 
@@ -40,7 +41,7 @@ func newTestModelOn(t *testing.T, src string, c todo.Column) (model, string) {
 // that changed column (and so left the tab it was in).
 func showOn(t *testing.T, m model, c todo.Column, title string) model {
 	t.Helper()
-	m.tree.setColumn(c)
+	m.setColumn(c)
 	it := find(m.doc, title)
 	if it == nil || !m.tree.selectID(it.ID) {
 		t.Fatalf("%q is not shown on %s (rows %v)", title, c.Title(), rowTitles(m.tree))
@@ -132,4 +133,31 @@ func find(d *todo.Document, title string) *todo.Item {
 	}
 	walk(d.Roots)
 	return out
+}
+
+// pickState sets the selected task's state through the t dialog: it opens the
+// picker, puts the cursor on st and presses enter. It fails the test when the
+// dialog doesn't open or doesn't offer st.
+func pickState(t *testing.T, m model, st todo.Status) model {
+	t.Helper()
+	m = press(m, "t")
+	if m.mode != modeStatePick {
+		t.Fatalf("t should open the state dialog, mode = %v", m.mode)
+	}
+	for i, r := range m.pick.rows {
+		if r.header == "" && r.state == st {
+			m.pick.cursor = i
+			return press(m, "enter")
+		}
+	}
+	t.Fatalf("the state dialog doesn't offer %v", st)
+	return m
+}
+
+// setTreeFilter applies a search query to a bare tree (one built in a test
+// without a model), the way model.setFilter does.
+func setTreeFilter(tr *tree, q string) {
+	tr.vs.filter = q
+	tr.cursor = 0
+	tr.rebuild()
 }

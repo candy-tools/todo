@@ -4,32 +4,30 @@ import "strings"
 
 // guideMarker is the sentinel that opens the app-managed guide block that
 // earlier versions wrote at the top of TODO.md. Only a comment starting with
-// this exact prefix is treated as the managed guide (and so skipped on import);
-// a user's own HTML comment is left alone.
+// this exact prefix is treated as the managed guide (and so skipped silently on
+// import); a user's own HTML comment is reported like other dropped text.
 const guideMarker = "<!-- todo:guide"
 
-// guideRange reports the inclusive line range [start,end] of the managed guide
-// block within lines (0-based), or ok=false when there is none. It is the scan
-// parseMarkdown uses to skip the guide while keeping every other line's real
-// index: the block runs from the line beginning with guideMarker through the
-// next line containing the HTML-comment close.
-func guideRange(lines []string) (start, end int, ok bool) {
-	start = -1
-	for i, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), guideMarker) {
-			start = i
-			break
-		}
+// commentSpan reports whether lines[start] opens a block-level HTML comment (its
+// trimmed text starts with "<!--") and, if so, the index of the comment's last
+// line. The comment runs through the first line holding the "-->" close. An
+// unclosed comment (closed=false) is taken to end just before the next
+// top-level heading outside a fenced block (see nextHeading), or at EOF when
+// none follows: its content (the guide's
+// example `- [ ]` lines, say) is still not parsed, but the categories and tasks
+// after it are not lost to a missing "-->".
+func commentSpan(lines []string, start int) (end int, closed, ok bool) {
+	trimmed := strings.TrimSpace(lines[start])
+	if !strings.HasPrefix(trimmed, "<!--") {
+		return 0, false, false
 	}
-	if start == -1 {
-		return 0, 0, false
+	if strings.Contains(trimmed[len("<!--"):], "-->") {
+		return start, true, true
 	}
-	end = start
-	for j := start; j < len(lines); j++ {
+	for j := start + 1; j < len(lines); j++ {
 		if strings.Contains(lines[j], "-->") {
-			end = j
-			break
+			return j, true, true
 		}
 	}
-	return start, end, true
+	return nextHeading(lines, start) - 1, false, true
 }

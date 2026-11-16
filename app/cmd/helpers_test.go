@@ -25,3 +25,18 @@ func idOf(t *testing.T, dbPath, title string) uint {
 	}
 	return m[0].ID
 }
+
+// revOf returns the revision of the store at dbPath.
+func revOf(t *testing.T, dbPath string) int64 {
+	t.Helper()
+	s, err := todo.OpenStore(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	rev, err := s.Revision(context.Background())
+	if err != nil {
+		t.Fatalf("revision: %v", err)
+	}
+	return rev
+}

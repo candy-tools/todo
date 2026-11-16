@@ -56,8 +56,8 @@ An example tab, as the tree shows it:
 + new category
 ```
 
-A task's glyph shows its state: `○` open, `⏸` deferred, `◌` new, `◉` ready, `◐`
-working, `◑` review, `◒` followup, `●` done. `▾` / `▸` mark an expanded /
+A task's glyph shows its state: `○` open, `⏸` deferred, `⊘` won't do, `◌` new,
+`◉` ready, `◐` working, `◑` review, `◒` followup, `●` done. `▾` / `▸` mark an expanded /
 collapsed item, and a category shows how many of its tasks are done. A top-level
 task's row also names its state and, when it has subtasks, how many are done.
 
@@ -66,9 +66,9 @@ task's row also names its state and, when it has subtasks, how many are done.
 The board has four columns, shown as tabs (with a task count each): **Backlog**,
 **Next**, **In Progress** and **Done**. A task's column comes from its state:
 
-| Column | States (in `t` cycle order) |
-|--------|-----------------------------|
-| Backlog | `open`, `deferred` |
+| Column | States |
+|--------|--------|
+| Backlog | `open`, `deferred`, `wontdo` (shown as "won't do") |
 | Next | `new`, `ready` |
 | In Progress | `working`, `review`, `followup` |
 | Done | `done` |
@@ -86,13 +86,60 @@ The board has four columns, shown as tabs (with a task count each): **Backlog**,
 
 Moving a task between columns:
 
-- `]` / `[` move it to the next / previous column; it lands in that column's
-  first state. `t` cycles the state inside its column.
-- Moving a task out of Done with `[` sets it `working`. If you completed it in
+- `p` / `P` move it to the next / previous column; it lands in that column's
+  first state.
+- `t` opens a dialog listing every state, grouped by column; picking one sets it
+  (and moves the task when the state belongs to another column). It is the only
+  key that sets a state — completing and reopening included. For a subtask it
+  offers `open` and `done`.
+- Moving a task out of Done with `P` sets it `working`. If you completed it in
   this session, its subtasks get their previous states back; otherwise they keep
   their current ones.
 - `m` grabs a task to reorder it (see Keys); grab mode steps over tasks hidden in
   the tab, and moves a task at most one category per key press.
+
+## Views
+
+Two view toggles change how the board is laid out. They are independent, can
+be combined, and last for the session (todo always opens on the Backlog tab).
+
+**All states (`k`).** Hides the tabs and shows every task, whatever its state,
+in one tree; the tab bar becomes an `All states · N tasks` line. Press `k`
+again to get the board back, on the tab you were on. In this view:
+
+- categories can be added, renamed, moved and deleted, as in Backlog, since
+  every category is shown;
+- a new task starts `open`, as in Backlog;
+- `f` offers every state, and its selection is the view's own — the tabs' state
+  filters don't apply here and are untouched by it;
+- `tab`, `shift+tab` and `1`–`4` only remind you to press `k`.
+
+**Split by category (`v`).** Shows the categories as a tree in a left sidebar
+(**Categories**) and the tasks of the selected one in a list on the right
+(**Tasks**). Press `x` to move the keys between the two panes; `v` again goes
+back to the single tree, on the item that had focus.
+
+```text
+╭─ Categories ─────────╮╭─ Tasks ─────────────────────────╮
+│  All                 ││❯ ○ Ship v1.0 release open       │
+│❯ ▾ Work (2/5)        ││  ── Backend                     │
+│      Backend (0/1)   ││  ○ Migrate the database open    │
+│    Personal (0/2)    ││                                 │
+│  + new category      ││                                 │
+╰──────────────────────╯╰─────────────────────────────────╯
+```
+
+- The sidebar starts on **All**, which lists every task. Walking down the tree
+  narrows the list: a category shows its own tasks first, then each
+  subcategory's under a `── Backend` heading.
+- The list follows the current tab (or every state with `k`), and a search or
+  state filter narrows both panes: the sidebar keeps only categories with
+  matches. When the selected category disappears (switching tab, filtering,
+  deleting it) the sidebar falls back to All.
+- Categories are edited in the sidebar (`enter`/`e`, `c`, `d`, `m`) under the
+  usual rules; `n`/`N` there add a task to the selected category. In the list,
+  the task keys work as usual; `n` in an empty list adds to the selected
+  category.
 
 ## Scripting / for agents
 
@@ -128,7 +175,7 @@ Address an existing item three ways — exactly one, mutually exclusive:
 Common actions:
 
 ```sh
-todo add --title "Cut the tag" --parent-title "Ship v1.0" [--desc "…"] [--plan docs/plan.md] [--status open|working|deferred|done|new|ready|review|followup]
+todo add --title "Cut the tag" --parent-title "Ship v1.0" [--desc "…"] [--plan docs/plan.md] [--status open|working|deferred|done|new|ready|review|followup|wontdo]
 todo add-category --title "Backend" [--parent-title "Work"]
 todo status   --number 4 --to ready
 todo done     --title "Cut the tag" [--cascade]
@@ -141,10 +188,12 @@ todo prune                # drop every fully-completed task
 ```
 
 `status --to <state>` sets any state: `open`, `working`, `deferred`, `done`,
-`new`, `ready`, `review` or `followup` (`progress` is accepted for `working`).
+`new`, `ready`, `review`, `followup` or `wontdo` (`progress` is accepted for `working`).
 `add --status` defaults to `open`. `edit --set-plan ""` clears a task's plan.
-`reopen` sets a task `working`, or `open` for a subtask. `--cascade` on `done` /
-`reopen` applies the change to the task's subtasks too.
+`reopen` takes a done task back to `working` (a subtask to `open`); a task that
+is not done keeps its state and nothing is written (with `--cascade` its
+subtasks are reopened). `--cascade` on `done` / `reopen` applies the change to
+the task's subtasks too.
 
 Breaking the board's rules — a subtask under a subtask, or a board state on a
 subtask — exits with code `2`.
@@ -155,7 +204,9 @@ after any add/remove; `--title` is stable as long as it stays unique. Re-run
 `todo list` when you rely on `--number`.
 
 Exit codes: `0` ok, `2` usage, `3` not found, `4` ambiguous title, `5` wrong
-kind, `1` other. Errors go to stderr.
+kind, `6` conflict (the list changed while the command ran, or another todo
+kept it locked for writing for more than 5 seconds; re-run it), `1` other.
+Errors go to stderr.
 
 ## Keys
 
@@ -163,13 +214,13 @@ kind, `1` other. Errors go to stderr.
 |-----|--------|
 | `tab` / `shift+tab` | Next / previous board tab |
 | `1`–`4` | Jump to Backlog / Next / In Progress / Done |
-| `↑` / `↓` (or `w`/`s`, `k`/`j`) | Move the selection |
+| `↑` / `↓` (or `w`/`s`) | Move the selection |
 | `PgUp` / `PgDn` | Move the selection by 10 rows |
-| `←` / `→` (or `h`/`l`) | Collapse / expand (Left on a leaf jumps to the parent) |
+| `←` / `→` | Collapse / expand (Left on a leaf jumps to the parent) |
 | `enter` | Open the selected item's dialog — its column/state/progress plus its editable title, description & plan |
-| `]` / `[` | Move the task to the next / previous column (it takes that column's first state) |
-| `t` | Cycle the task's state within its column |
-| `x` / `space` | On a subtask, toggle done. On a task, complete it with its subtasks, or undo / reopen it. On a category, `space` folds / unfolds it |
+| `p` / `P` | Move the task to the next / previous column (it takes that column's first state) |
+| `t` | Open the state dialog to set the task's state, including done (`↑`/`↓`, `enter` sets, `esc` cancels) |
+| `space` | Fold / unfold the selected category |
 | `m` | Grab the task to reorder it (arrows move it, `enter`/`esc`/`m` drops it) |
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it) |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
@@ -179,8 +230,13 @@ kind, `1` other. Errors go to stderr.
 | `d` | Delete the selected item (and its subtree) — asks to confirm |
 | `D` | Remove every completed task (keeping any with unfinished sub-tasks) — asks to confirm |
 | `/` | Search / filter the list (see below) |
+| `f` | Filter the tab by state: tick states with `space`, `enter` applies, `esc` clears the filter |
+| `k` | Show every state in one list (tabs hidden) / back to the board — see Views |
+| `v` | Split view: categories sidebar + task list / back to the single tree — see Views |
+| `x` | In the split view, move the keys between the sidebar and the task list |
+| `?` | Show the shortcuts dialog (`↑`/`↓` scroll it on a short terminal; `?`, `esc`, `q` or `enter` closes it) |
 | `q` | Quit |
-| `esc` | Clear an active search, or quit when there is none |
+| `esc` | Clear an active search, then the state filter, or quit when there is neither |
 
 Tasks always live under a category — there are no root-level tasks. On the
 Backlog tab the tree always ends with a **`+ new category`** row: select it and
@@ -191,7 +247,7 @@ In the add/edit dialog: `tab` moves between fields (title, description, plan),
 `enter` saves (it inserts a newline while you're in the description box), `esc`
 cancels.
 
-Grab mode (`m`) is refused while a search is active.
+Grab mode (`m`) is refused while a search or state filter is active.
 
 ## Search
 
@@ -203,13 +259,25 @@ are hidden; the matched text is highlighted. `enter` keeps the filter and return
 you to navigating the results, `esc` clears it, and pressing `/` again refines
 the current query.
 
+## State filter
+
+Press `f` to pick which states the current tab shows: tick them with `space`
+(or `x`) and press `enter`. Only top-level tasks in a ticked state stay, with
+their subtasks and categories. Each tab keeps its own selection, the footer
+shows it, and it combines with a search. `esc` clears it; ticking nothing and
+pressing `enter` does too.
+
 ## Completing a parent
 
-Pressing `x` / `space` on a parent task completes it and **all** of its subtasks
-at once. If you did it by accident, press `x` again right away and the task's
-exact previous state and its subtasks' states are restored — that undo memory is
-kept in RAM for the session, so the database only ever records the current
-states. A done task with no undo history reopens to `working`.
+Setting a parent task to `done` (with `t`, or `p` into Done) completes it and
+**all** of its subtasks at once. If you did it by accident, press `t` again: the
+dialog opens on the task's previous state, so `enter` restores it and its
+subtasks' states exactly — that undo memory is kept in RAM for the session, so
+the database only ever records the current states. Without undo history the
+dialog opens on `done`, and the subtasks keep their states when you reopen it.
+The CLI's `todo done` completes only the task unless you pass `--cascade`, and
+it has no undo. When subtasks are left open it says so on stderr (`2 subtasks
+still open; --cascade completes them`); stdout is unchanged.
 
 ## Live reload
 

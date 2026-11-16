@@ -46,7 +46,7 @@ func storedItem(t *testing.T, path, title string) *todo.Item {
 func rowOf(t *testing.T, tr tree, title string) string {
 	t.Helper()
 	for _, r := range tr.rows {
-		if !r.placeholder && r.item.Title == title {
+		if r.kind == rowItem && r.item.Title == title {
 			return tr.rowString(r, false)
 		}
 	}
@@ -56,8 +56,8 @@ func rowOf(t *testing.T, tr tree, title string) string {
 
 func TestStartsOnBacklog(t *testing.T) {
 	m, _ := newTestModel(t, board)
-	if m.tree.column != todo.ColBacklog {
-		t.Fatalf("start column = %v, want backlog", m.tree.column)
+	if m.view.column != todo.ColBacklog {
+		t.Fatalf("start column = %v, want backlog", m.view.column)
 	}
 	got := rowTitles(m.tree)
 	for _, want := range []string{"A", "Empty", "B", "backlogTask"} {
@@ -88,8 +88,8 @@ func TestTabKeysSwitchColumns(t *testing.T) {
 	}
 	for _, s := range steps {
 		m = press(m, s.key)
-		if m.tree.column != s.want {
-			t.Fatalf("after %q column = %v, want %v", s.key, m.tree.column, s.want)
+		if m.view.column != s.want {
+			t.Fatalf("after %q column = %v, want %v", s.key, m.view.column, s.want)
 		}
 	}
 }
@@ -190,7 +190,7 @@ func TestTabBarCounts(t *testing.T) {
 func TestNewTaskTakesTabFirstState(t *testing.T) {
 	m, path := newTestModel(t, board)
 	m = setStatusExternally(t, m, path, "backlogTask", todo.New)
-	m.tree.setColumn(todo.ColNext)
+	m.setColumn(todo.ColNext)
 	if got := m.tree.selected().Title; got != "B" {
 		t.Fatalf("Next selection = %q, want B", got)
 	}
@@ -264,7 +264,7 @@ func TestCategoryKeysBacklogOnly(t *testing.T) {
 	}
 
 	// On In Progress the category B is selected: rename, delete and move are refused.
-	m.tree.setColumn(todo.ColInProgress)
+	m.setColumn(todo.ColInProgress)
 	for _, key := range []string{"e", "enter", "d", "m", "c"} {
 		got := press(m, key)
 		if got.mode != modeMain || got.tree.grabbed {
@@ -281,7 +281,7 @@ func TestCategoryKeysBacklogOnly(t *testing.T) {
 	}
 
 	// Back on Backlog the category keys work.
-	m.tree.setColumn(todo.ColBacklog)
+	m.setColumn(todo.ColBacklog)
 	if got := press(m, "c"); got.mode != modeForm {
 		t.Errorf("c on Backlog must open the form, mode = %v", got.mode)
 	}
@@ -292,11 +292,11 @@ func TestReadyWithoutPlanFlagged(t *testing.T) {
 	m = setStatusExternally(t, m, path, "r", todo.Ready)
 	m = setStatusExternally(t, m, path, "planned", todo.Ready)
 	planned := find(m.doc, "planned")
-	if err := m.store.Edit(context.Background(), planned.ID, todo.Fields{Title: "planned", Plan: "docs/plan.md"}); err != nil {
+	if err := m.store.Edit(context.Background(), planned.ID, todo.Changes{Plan: new("docs/plan.md")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
-	m.tree.setColumn(todo.ColNext)
+	m.setColumn(todo.ColNext)
 	if row := rowOf(t, m.tree, "r"); !strings.Contains(row, "ready") || !strings.Contains(row, "⚠ no plan") {
 		t.Errorf("a ready task without a plan must be flagged: %q", row)
 	}
@@ -308,7 +308,7 @@ func TestReadyWithoutPlanFlagged(t *testing.T) {
 func TestTaskRowGlyphsAndStateNames(t *testing.T) {
 	m, path := newTestModel(t, "# B\n- [ ] t\n  - [ ] s\n")
 	m = setStatusExternally(t, m, path, "t", todo.Review)
-	m.tree.setColumn(todo.ColInProgress)
+	m.setColumn(todo.ColInProgress)
 	if row := rowOf(t, m.tree, "t"); !strings.Contains(row, "◑ t") || !strings.Contains(row, "review") {
 		t.Errorf("review row = %q", row)
 	}
@@ -330,7 +330,7 @@ func TestCategoryWithNothingShownHasNoFold(t *testing.T) {
 	if m.tree.collapsed[find(m.doc, "A").ID] {
 		t.Errorf("a category with no shown children must not fold")
 	}
-	m.tree.setColumn(todo.ColInProgress)
+	m.setColumn(todo.ColInProgress)
 	if row := rowOf(t, m.tree, "A"); !strings.Contains(row, "▾") {
 		t.Errorf("on In Progress A shows its task and can fold: %q", row)
 	}
@@ -341,7 +341,7 @@ func TestCategoryCountsPerTab(t *testing.T) {
 	if row := rowOf(t, m.tree, "B"); !strings.Contains(row, "(1/4)") {
 		t.Errorf("Backlog category note keeps done/total: %q", row)
 	}
-	m.tree.setColumn(todo.ColInProgress)
+	m.setColumn(todo.ColInProgress)
 	if row := rowOf(t, m.tree, "B"); !strings.Contains(row, "B (1)") {
 		t.Errorf("In Progress category note counts its tasks in the tab: %q", row)
 	}
@@ -389,15 +389,15 @@ func TestSearchCarriesAcrossTabs(t *testing.T) {
 		t.Errorf("Backlog has no match for \"work\", rows = %v", got)
 	}
 	m = press(m, "3")
-	if m.tree.filter != "work" {
-		t.Fatalf("the filter must carry over, got %q", m.tree.filter)
+	if m.view.filter != "work" {
+		t.Fatalf("the filter must carry over, got %q", m.view.filter)
 	}
 	if got := rowTitles(m.tree); !contains(got, "working") {
 		t.Errorf("In Progress must show the match, rows = %v", got)
 	}
 	m = press(m, "esc")
-	if m.tree.filter != "" {
-		t.Errorf("esc must clear the filter, got %q", m.tree.filter)
+	if m.view.filter != "" {
+		t.Errorf("esc must clear the filter, got %q", m.view.filter)
 	}
 	if got, want := rowTitles(m.tree), []string{"B", "working", "sub"}; !equalStrings(got, want) {
 		t.Errorf("rows after clearing = %v, want %v", got, want)
@@ -407,7 +407,7 @@ func TestSearchCarriesAcrossTabs(t *testing.T) {
 func TestEditKeepsPlan(t *testing.T) {
 	m, path := newTestModel(t, "# B\n- [ ] a\n")
 	a := find(m.doc, "a")
-	if err := m.store.Edit(context.Background(), a.ID, todo.Fields{Title: "a", Plan: "docs/a.md"}); err != nil {
+	if err := m.store.Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/a.md")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
@@ -421,11 +421,29 @@ func TestEditKeepsPlan(t *testing.T) {
 	}
 }
 
+// An agent setting the plan while the edit form is open must survive the save:
+// the form writes only the fields the user changed.
+func TestEditKeepsPlanSetWhileFormOpen(t *testing.T) {
+	m, path := newTestModel(t, "# B\n- [ ] a\n")
+	a := find(m.doc, "a")
+	m.tree.selectID(a.ID)
+	m = press(m, "e")
+	if err := openSecond(t, path).Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/agent.md")}); err != nil {
+		t.Fatal(err)
+	}
+	m = pollOnce(t, m) // deferred: the form is open
+	m = typeText(m, "2")
+	m = press(m, "enter")
+	if it := storedItem(t, path, "a2"); it.Plan != "docs/agent.md" {
+		t.Errorf("an edit must keep a plan set while the form was open, got %q", it.Plan)
+	}
+}
+
 func TestEditSavesPlan(t *testing.T) {
 	m, path := newTestModelOn(t, "# B\n- [ ] a\n", todo.ColBacklog)
 	a := find(m.doc, "a")
 	m = setStatusExternally(t, m, path, "a", todo.Ready)
-	m.tree.setColumn(todo.ColNext)
+	m.setColumn(todo.ColNext)
 	m.tree.selectID(a.ID)
 	if row := rowOf(t, m.tree, "a"); !strings.Contains(row, "⚠ no plan") {
 		t.Fatalf("precondition: ready task without plan is flagged: %q", row)
@@ -438,7 +456,7 @@ func TestEditSavesPlan(t *testing.T) {
 	if it := storedItem(t, path, "a"); it.Plan != "docs/p.md" {
 		t.Errorf("plan = %q, want docs/p.md", it.Plan)
 	}
-	m.tree.setColumn(todo.ColNext)
+	m.setColumn(todo.ColNext)
 	if row := rowOf(t, m.tree, "a"); strings.Contains(row, "no plan") {
 		t.Errorf("flag should disappear once a plan is set: %q", row)
 	}

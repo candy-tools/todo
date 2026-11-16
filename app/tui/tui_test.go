@@ -1,12 +1,15 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/candy-tools/todo/app/metainfo"
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestNavigateAndSelect(t *testing.T) {
@@ -45,8 +48,8 @@ func TestEnterOpensEditDialog(t *testing.T) {
 }
 
 func TestToggleLeafPersists(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(m, "down", "space")
+	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
+	m = pickState(t, press(m, "down"), todo.Done)
 	if !find(m.doc, "a").IsDone() {
 		t.Errorf("task should be done in memory")
 	}
@@ -56,11 +59,11 @@ func TestToggleLeafPersists(t *testing.T) {
 }
 
 func TestCascadeCompleteAndRevert(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [x] c2\n")
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [x] c2\n", todo.ColInProgress)
 	m = press(m, "down") // select parent
 
 	// Mark the parent done: everything cascades to done.
-	m = press(m, "space")
+	m = pickState(t, m, todo.Done)
 	for _, tt := range []string{"parent", "c1", "c2"} {
 		if !find(m.doc, tt).IsDone() {
 			t.Fatalf("%s should be done after cascade", tt)
@@ -69,7 +72,7 @@ func TestCascadeCompleteAndRevert(t *testing.T) {
 
 	// Unmark the parent: children restore to the prior mixed state.
 	m = showOn(t, m, todo.ColDone, "parent")
-	m = press(m, "space")
+	m = press(m, "t", "enter") // t starts on the parent's prior state: enter undoes
 	if find(m.doc, "parent").IsDone() {
 		t.Errorf("parent should be undone")
 	}
@@ -82,15 +85,15 @@ func TestCascadeCompleteAndRevert(t *testing.T) {
 }
 
 func TestManualChildToggleInvalidatesSnapshot(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [ ] c2\n")
-	m = press(m, "down")  // parent
-	m = press(m, "space") // cascade all done (snapshot: all were false)
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n", todo.ColInProgress)
+	m = press(m, "down")           // parent
+	m = pickState(t, m, todo.Done) // cascade all done (snapshot: all were false)
 
-	m = showOn(t, m, todo.ColDone, "c1") // the done parent and its subtasks left Backlog
-	m = press(m, "space")                // manual toggle c1 off -> invalidates parent's snapshot
+	m = showOn(t, m, todo.ColDone, "c1") // the done parent and its subtasks left In Progress
+	m = pickState(t, m, todo.Open)       // manual toggle c1 off -> invalidates parent's snapshot
 
-	m = press(m, "up")    // parent
-	m = press(m, "space") // unmark parent (no snapshot now)
+	m = press(m, "up")                // parent
+	m = pickState(t, m, todo.Working) // unmark parent (no snapshot now)
 
 	if find(m.doc, "parent").IsDone() {
 		t.Errorf("parent should be undone")
@@ -121,9 +124,9 @@ func TestSpaceFoldsCategory(t *testing.T) {
 
 func TestCompleteCategoryIsNoOp(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(m, "x") // x still means "toggle done", which a category can't be
-	if m.status == "" {
-		t.Errorf("expected a status message explaining categories can't be completed")
+	m = press(m, "t") // a category has no state to set
+	if m.mode != modeMain || m.status == "" {
+		t.Errorf("expected a status message explaining categories have no state, mode %v", m.mode)
 	}
 }
 
@@ -517,10 +520,9 @@ func TestDeleteAfterCancelledClear(t *testing.T) {
 	}
 }
 
-func TestFooterShowsClearDoneHint(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [x] a\n")
-	if got := m.footer(200); !strings.Contains(got, "Clear") {
-		t.Errorf("footer should advertise the clear-done shortcut:\n%s", got)
+func TestHelpShowsClearDoneKey(t *testing.T) {
+	if got := ansi.Strip(helpModal(200, 60, 0)); !strings.Contains(got, "Remove every completed task") {
+		t.Errorf("help dialog should list the clear-done shortcut:\n%s", got)
 	}
 }
 
@@ -576,5 +578,87 @@ func TestEditDialogCombinesViewAndEdit(t *testing.T) {
 	}
 	if !strings.Contains(out, "Save") {
 		t.Errorf("dialog should offer Save:\n%s", out)
+	}
+}
+
+func TestVimAliasesRemoved(t *testing.T) {
+	const src = "# C\n- [ ] a\n  - [ ] s\n- [ ] b\n"
+	for _, k := range []string{"j", "k", "h", "l"} {
+		m, _ := newTestModel(t, src)
+		m = press(m, "down") // a, expanded with subtask s
+		if k == "l" {
+			m = press(m, "left") // fold a so l would have something to expand
+		}
+		cursor, rows := m.tree.cursor, len(m.tree.rows)
+		m = press(m, k)
+		if m.tree.cursor != cursor || len(m.tree.rows) != rows {
+			t.Errorf("%q changed the view: cursor %d->%d, rows %d->%d", k, cursor, m.tree.cursor, rows, len(m.tree.rows))
+		}
+	}
+	m, _ := newTestModel(t, src)
+	g := press(m, "down", "m", "j") // grab mode ignores j too
+	if got := g.tree.selected(); got == nil || got.Title != "a" || !g.tree.grabbed {
+		t.Errorf("j in grab mode moved or dropped the item")
+	}
+	if i := find(g.doc, "a"); i.Parent.Children[0] != i {
+		t.Errorf("j in grab mode reordered a")
+	}
+	h := press(send(m, tea.WindowSizeMsg{Width: 100, Height: 10}), "?", "j")
+	if h.helpOffset != 0 {
+		t.Errorf("j scrolled the help dialog to %d", h.helpOffset)
+	}
+}
+
+// A task added after another process moved the category's last task away still
+// lands after the category's last task: the store works the placement out when
+// it writes, not from the view's stale copy of the tree.
+func TestAddTaskAfterExternallyMovedSibling(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n\n## Sub\n")
+	other := openSecond(t, path)
+	doc, _, err := other.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Move(context.Background(), find(doc, "b").ID, find(doc, "Sub").ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "n") // Work is selected
+	m = typeText(m, "c")
+	m = press(m, "enter")
+	if m.err != nil {
+		t.Fatalf("add after an external move failed: %v", m.err)
+	}
+	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] a\n- [ ] c\n\n## Sub\n\n- [ ] b\n"; got != want {
+		t.Errorf("store:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A category added after another process deleted the last top-level category
+// still lands last: the store works the placement out when it writes, not from
+// the view's stale copy of the tree.
+func TestAddCategoryAfterExternallyDeletedSibling(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n# Home\n")
+	other := openSecond(t, path)
+	doc, _, err := other.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Delete(context.Background(), find(doc, "Home").ID); err != nil {
+		t.Fatal(err)
+	}
+	for !m.tree.onPlaceholder() {
+		m = press(m, "down")
+	}
+	m = press(m, "c")
+	m = typeText(m, "Later")
+	m = press(m, "enter")
+	if m.err != nil {
+		t.Fatalf("add after an external delete failed: %v (footer %q)", m.err, m.footer(200))
+	}
+	if got, want := todotest.Dump(t, path), "# Work\n\n# Later\n"; got != want {
+		t.Errorf("store:\n%s\nwant:\n%s", got, want)
+	}
+	if got := m.tree.selected(); got == nil || got.Title != "Later" || got.Kind != todo.Category {
+		t.Errorf("selected = %v, want the new category Later", got)
 	}
 }

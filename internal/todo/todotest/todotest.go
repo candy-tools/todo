@@ -3,6 +3,7 @@ package todotest
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,34 @@ func Dump(t testing.TB, dbPath string) string {
 		t.Fatalf("todotest.Dump: %v", err)
 	}
 	return Render(doc)
+}
+
+// HoldWriteLock takes the SQLite writer lock on the store at dbPath from a raw
+// connection of its own, standing in for another process in the middle of a
+// write (a sqlite3 shell with an open write transaction, a hung todo). The lock
+// is held, the transaction never committed, until the test ends.
+func HoldWriteLock(t testing.TB, dbPath string) {
+	t.Helper()
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("todotest.HoldWriteLock: %v", err)
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("todotest.HoldWriteLock: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		_ = conn.Close()
+		_ = db.Close()
+	})
+	for _, q := range []string{"BEGIN IMMEDIATE", "UPDATE meta SET revision = revision"} {
+		if _, err := conn.ExecContext(ctx, q); err != nil {
+			t.Fatalf("todotest.HoldWriteLock: %s: %v", q, err)
+		}
+	}
 }
 
 // Parse turns md into a Document through todo.ImportMarkdown, failing the test

@@ -8,10 +8,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// setStatus resolves the selector to a task, sets its status in the store, and
-// prints a confirmation. When cascade is true the whole subtree is set (only done and
-// reopen expose --cascade).
-func setStatus(cmd *cobra.Command, verb string, target func(*todo.Item) todo.Status, cascade bool) error {
+// statusWrite writes a new status for task it through s and returns the status
+// it set, for the confirmation line.
+type statusWrite func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error)
+
+// setStatus resolves the selector to a task, writes its new status through
+// write, and prints a confirmation.
+func setStatus(cmd *cobra.Command, verb string, write statusWrite) error {
 	return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
 		it, err := resolveSelector(cmd, doc, "")
 		if err != nil {
@@ -20,30 +23,43 @@ func setStatus(cmd *cobra.Command, verb string, target func(*todo.Item) todo.Sta
 		if !it.IsTask() {
 			return wrongKind("set the status of", it, "task")
 		}
-		st := target(it)
 		s, err := open()
 		if err != nil {
 			return err
 		}
-		if cascade {
-			err = s.CascadeStatus(ctx, it.ID, st)
-		} else {
-			err = s.SetStatuses(ctx, map[uint]todo.Status{it.ID: st})
-		}
+		st, err := write(ctx, s, it)
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, st.String(), it.Title, categoryPath(it))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, st.String(), todo.Printable(it.Title), categoryPath(it))
 		return nil
 	})
 }
 
 // statusNames lists the accepted state names for flag help and error messages.
-const statusNames = "open|working|deferred|done|new|ready|review|followup"
+const statusNames = "open|working|deferred|done|new|ready|review|followup|wontdo"
 
-// fixed is a target that does not depend on the item.
-func fixed(st todo.Status) func(*todo.Item) todo.Status {
-	return func(*todo.Item) todo.Status { return st }
+// set writes st for the task alone; its subtasks keep their states.
+func set(st todo.Status) statusWrite {
+	return func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
+		return st, s.SetStatuses(ctx, map[uint]todo.Status{it.ID: st})
+	}
+}
+
+// setThroughPolicy writes st for the task alone, through the store's complete
+// and reopen policy: into Done it completes the task, out of Done it reopens
+// it, and any other change is a plain state change. The subtasks keep their
+// states in all three.
+func setThroughPolicy(st todo.Status) statusWrite {
+	return func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
+		switch {
+		case st == todo.Done:
+			return st, s.Complete(ctx, it.ID, false)
+		case it.Status == todo.Done:
+			return st, s.Reopen(ctx, it.ID, st, todo.ReopenOptions{})
+		}
+		return set(st)(ctx, s, it)
+	}
 }
 
 func statusCmd() *cobra.Command {
@@ -57,12 +73,21 @@ func statusCmd() *cobra.Command {
 			if !ok {
 				return usageErr(fmt.Sprintf("invalid --to %q (%s)", name, statusNames))
 			}
-			return setStatus(cmd, "status", fixed(st), false)
+			return setStatus(cmd, "status", setThroughPolicy(st))
 		},
 	}
 	addSelectorFlags(c, "")
 	c.Flags().String("to", "", "the new state: "+statusNames+" (progress = working)")
 	return c
+}
+
+// openSubtasksHint is the stderr line `done` without --cascade prints when the
+// task it completed still has n subtasks that are not done.
+func openSubtasksHint(n int) string {
+	if n == 1 {
+		return "1 subtask still open; --cascade completes it"
+	}
+	return fmt.Sprintf("%d subtasks still open; --cascade completes them", n)
 }
 
 func doneCmd() *cobra.Command {
@@ -72,7 +97,16 @@ func doneCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cascade, _ := cmd.Flags().GetBool("cascade")
-			return setStatus(cmd, "done", fixed(todo.Done), cascade)
+			return setStatus(cmd, "done", func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
+				done, total := it.TaskCounts()
+				if err := s.Complete(ctx, it.ID, cascade); err != nil {
+					return todo.Done, err
+				}
+				if open := total - done; !cascade && open > 0 {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), openSubtasksHint(open))
+				}
+				return todo.Done, nil
+			})
 		},
 	}
 	addSelectorFlags(c, "")
@@ -86,7 +120,7 @@ func progressCmd() *cobra.Command {
 		Short: "mark a task in progress",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return setStatus(cmd, "progress", fixed(todo.Working), false)
+			return setStatus(cmd, "progress", set(todo.Working))
 		},
 	}
 	addSelectorFlags(c, "")
@@ -99,7 +133,7 @@ func deferCmd() *cobra.Command {
 		Short: "mark a task deferred",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return setStatus(cmd, "defer", fixed(todo.Deferred), false)
+			return setStatus(cmd, "defer", set(todo.Deferred))
 		},
 	}
 	addSelectorFlags(c, "")
@@ -109,20 +143,25 @@ func deferCmd() *cobra.Command {
 func reopenCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "reopen",
-		Short: "reopen a task: back to working (a subtask: open)",
-		Args:  cobra.NoArgs,
+		Short: "reopen a done task: back to working (a subtask: open)",
+		Long: "reopen takes a done task back to working (a subtask to open). A task that is\n" +
+			"not done keeps its state and nothing is written; with --cascade its subtasks\n" +
+			"are reopened.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cascade, _ := cmd.Flags().GetBool("cascade")
-			// A subtask can only be open or done, so reopening one opens it.
-			return setStatus(cmd, "reopen", func(it *todo.Item) todo.Status {
-				if it.IsSubtask() {
-					return todo.Open
+			return setStatus(cmd, "reopen", func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
+				st := it.Status
+				if st == todo.Done {
+					st = todo.ReopenTarget(it)
+				} else if !cascade {
+					return st, nil
 				}
-				return todo.Working
-			}, cascade)
+				return st, s.Reopen(ctx, it.ID, st, todo.ReopenOptions{Cascade: cascade})
+			})
 		},
 	}
 	addSelectorFlags(c, "")
-	c.Flags().Bool("cascade", false, "also open the subtasks")
+	c.Flags().Bool("cascade", false, "also open the subtasks (also on a task that is not done)")
 	return c
 }

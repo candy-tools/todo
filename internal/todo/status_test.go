@@ -9,7 +9,7 @@ import (
 func TestStatusNumbersArePinned(t *testing.T) {
 	want := map[todo.Status]int{
 		todo.Open: 0, todo.Working: 1, todo.Deferred: 2, todo.Done: 3,
-		todo.New: 4, todo.Ready: 5, todo.Review: 6, todo.Followup: 7,
+		todo.New: 4, todo.Ready: 5, todo.Review: 6, todo.Followup: 7, todo.WontDo: 8,
 	}
 	for s, n := range want {
 		if int(s) != n {
@@ -69,20 +69,6 @@ func TestStatusColumn(t *testing.T) {
 	for s, want := range cases {
 		if got := s.Column(); got != want {
 			t.Errorf("%v.Column() = %v, want %v", s, got, want)
-		}
-	}
-}
-
-func TestNextInColumn(t *testing.T) {
-	cases := []struct{ from, to todo.Status }{
-		{todo.Open, todo.Deferred}, {todo.Deferred, todo.Open},
-		{todo.New, todo.Ready}, {todo.Ready, todo.New},
-		{todo.Working, todo.Review}, {todo.Review, todo.Followup}, {todo.Followup, todo.Working},
-		{todo.Done, todo.Done}, {todo.Status(9), todo.Status(9)},
-	}
-	for _, c := range cases {
-		if got := c.from.NextInColumn(); got != c.to {
-			t.Errorf("%v.NextInColumn() = %v, want %v", c.from, got, c.to)
 		}
 	}
 }
@@ -176,5 +162,20 @@ func TestStatusAfterMove(t *testing.T) {
 		if got := todo.StatusAfterMove(c.cur, c.toSubtask, c.oldParent); got != c.want {
 			t.Errorf("StatusAfterMove(%v,%v,%v) = %v, want %v", c.cur, c.toSubtask, c.oldParent, got, c.want)
 		}
+	}
+}
+
+func TestWontDo(t *testing.T) {
+	if got := todo.WontDo.Column(); got != todo.ColBacklog {
+		t.Errorf("wontdo column = %v, want backlog", got)
+	}
+	if got, _ := todo.StatusFromName("wontdo"); got != todo.WontDo {
+		t.Errorf("StatusFromName(wontdo) = %v", got)
+	}
+	if got := todo.WontDo.Label(); got != "won't do" {
+		t.Errorf("label = %q", got)
+	}
+	if got := todo.Open.Label(); got != "open" {
+		t.Errorf("open label = %q", got)
 	}
 }

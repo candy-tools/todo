@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-bumbu/db/gormdb"
 	"github.com/go-bumbu/db/gormdb/sqlite"
@@ -113,5 +115,302 @@ func TestOpenStoreRejectsDirectoryPath(t *testing.T) {
 	if s, err := OpenStore(t.TempDir()); err == nil {
 		_ = s.Close()
 		t.Fatal("OpenStore on a directory succeeded; want an error")
+	}
+}
+
+// TestWriteRefusesReplacedFile removes the store file, or renames another store
+// over it, while s stays open: SQLite would keep writing to the unlinked inode,
+// so the check must report ErrFileReplaced and every write must be refused.
+func TestWriteRefusesReplacedFile(t *testing.T) {
+	replace := map[string]func(t *testing.T, path string){
+		"removed": func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"renamed over": func(t *testing.T, path string) {
+			other := newStore(t)
+			if err := other.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(other.Path(), path); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, fn := range replace {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			if err := s.CheckFile(); err != nil {
+				t.Fatalf("CheckFile on the open file = %v, want nil", err)
+			}
+			fn(t, s.Path())
+			if err := s.CheckFile(); !errors.Is(err, ErrFileReplaced) {
+				t.Fatalf("CheckFile = %v, want ErrFileReplaced", err)
+			}
+			if _, err := s.AddCategory(context.Background(), "C", 0, 0); !errors.Is(err, ErrFileReplaced) {
+				t.Fatalf("AddCategory = %v, want ErrFileReplaced", err)
+			}
+			// The writer connection reads the file the store holds; Load would
+			// refuse it, as a read may run on the file now at the path.
+			var count int64
+			if err := s.db.Clauses(gormdb.Write).Model(&dbItem{}).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatalf("the refused write reached the unlinked file: %d items", count)
+			}
+		})
+	}
+}
+
+// TestReadRefusesReplacedFile renames another store, holding other categories
+// and a higher revision, over the file of an open store, then holds the read
+// connection the store already has so the next read must open a new one,
+// which SQLite does by path. That read would see the other file while the
+// writes still go to the held one: Load and Revision must refuse it with
+// ErrFileReplaced rather than return the other file's data.
+func TestReadRefusesReplacedFile(t *testing.T) {
+	ctx := context.Background()
+	reads := map[string]func(s *Store) (string, error){
+		"Load": func(s *Store) (string, error) {
+			doc, rev, err := s.Load(ctx)
+			if err != nil {
+				return "", err
+			}
+			var titles []string
+			for _, r := range doc.Roots {
+				titles = append(titles, r.Title)
+			}
+			return fmt.Sprintf("roots %q at revision %d", strings.Join(titles, ","), rev), nil
+		},
+		"Revision": func(s *Store) (string, error) {
+			rev, err := s.Revision(ctx)
+			return fmt.Sprintf("revision %d", rev), err
+		},
+	}
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "t.db")
+			storeWithCategory(t, path, "A")
+			s, err := OpenStore(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			if _, err := read(s); err != nil {
+				t.Fatal(err)
+			}
+
+			other, err := OpenStore(filepath.Join(t.TempDir(), "other.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, title := range []string{"B", "C", "D"} {
+				if _, err := other.AppendCategory(ctx, title, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := other.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(other.Path(), path); err != nil {
+				t.Fatal(err)
+			}
+
+			hold := s.db.Clauses(gormdb.Read).Begin()
+			if err := hold.Error; err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { hold.Rollback() })
+			var n int64
+			if err := hold.Model(&dbItem{}).Count(&n).Error; err != nil {
+				t.Fatal(err)
+			}
+
+			if got, err := read(s); !errors.Is(err, ErrFileReplaced) {
+				t.Fatalf("%s after the file was replaced = %s, %v; want ErrFileReplaced", name, got, err)
+			}
+		})
+	}
+}
+
+// TestCloseAfterReplaceKeepsBothFiles writes to a store, moves its file away
+// and renames another store in at its path, then closes the first. Its write
+// must be in the file moved away, and the file now at the path must open with
+// its own content, not the closed store's WAL frames left next to it.
+func TestCloseAfterReplaceKeepsBothFiles(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if _, err := s.AppendCategory(ctx, "A", 0); err != nil {
+		t.Fatal(err)
+	}
+	other := newStore(t)
+	if _, err := other.AppendCategory(ctx, "B", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := s.Path()
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(other.Path(), path); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]string{path: "B", path + ".old": "A"} {
+		r, err := OpenStore(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc, _, err := r.Load(ctx)
+		_ = r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(doc.Roots) != 1 || doc.Roots[0].Title != want {
+			t.Errorf("%s holds %d roots, want only %s", filepath.Base(p), len(doc.Roots), want)
+		}
+	}
+}
+
+// TestOpenStoreFileReplacedWhileOpening renames another store, holding a
+// category B, over the path after OpenStore's final open and before it records
+// the file's identity. The store must not take the new file's identity for the
+// one its connections hold: its writes must land in the file at the path (next
+// to B), or OpenStore must fail with ErrFileReplaced.
+func TestOpenStoreFileReplacedWhileOpening(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name   string
+		exists bool
+		opts   []Option
+	}{
+		{name: "existing file", exists: true},
+		{name: "existing file, short busy timeout", exists: true, opts: []Option{WithBusyTimeout(100 * time.Millisecond)}},
+		{name: "new file"},
+		{name: "new file, short busy timeout", opts: []Option{WithBusyTimeout(100 * time.Millisecond)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "t.db")
+			if tc.exists {
+				storeWithCategory(t, path, "A")
+			}
+			openStoreBeforeIdentity = func() {
+				openStoreBeforeIdentity = nil
+				other := filepath.Join(t.TempDir(), "other.db")
+				storeWithCategory(t, other, "B")
+				if err := os.Rename(other, path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Cleanup(func() { openStoreBeforeIdentity = nil })
+
+			s, err := OpenStore(path, tc.opts...)
+			if err != nil {
+				if !errors.Is(err, ErrFileReplaced) {
+					t.Fatalf("OpenStore = %v, want success or ErrFileReplaced", err)
+				}
+				return
+			}
+			if _, err := s.AppendCategory(ctx, "C", 0); err != nil {
+				t.Fatalf("AppendCategory: %v", err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if got := rootTitles(t, path); got != "B,C" {
+				t.Fatalf("the file at the path holds %q, want \"B,C\": the write went to the replaced file", got)
+			}
+		})
+	}
+}
+
+// TestOpenStoreFileKeepsBeingReplaced removes the file at every attempt:
+// OpenStore must give up with ErrFileReplaced.
+func TestOpenStoreFileKeepsBeingReplaced(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.db")
+	storeWithCategory(t, path, "A")
+	openStoreBeforeIdentity = func() {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { openStoreBeforeIdentity = nil })
+	if s, err := OpenStore(path); !errors.Is(err, ErrFileReplaced) {
+		if err == nil {
+			_ = s.Close()
+		}
+		t.Fatalf("OpenStore = %v, want ErrFileReplaced", err)
+	}
+}
+
+// storeWithCategory creates a store at path holding one category, title, and
+// closes it.
+func storeWithCategory(t *testing.T, path, title string) {
+	t.Helper()
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendCategory(context.Background(), title, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// rootTitles opens the store at path and returns its root titles, joined by
+// commas in tree order.
+func rootTitles(t *testing.T, path string) string {
+	t.Helper()
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	doc, _, err := s.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var titles []string
+	for _, r := range doc.Roots {
+		titles = append(titles, r.Title)
+	}
+	return strings.Join(titles, ",")
+}
+
+func TestLoadRevisionMatchesTree(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	other, err := OpenStore(s.Path())
+	if err != nil {
+		t.Fatalf("OpenStore second handle: %v", err)
+	}
+	t.Cleanup(func() { _ = other.Close() })
+	before, err := s.Revision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	loadBetweenReads = func() {
+		loadBetweenReads = nil
+		if _, err := other.AppendCategory(ctx, "external", 0); err != nil {
+			t.Errorf("external write: %v", err)
+		}
+	}
+	t.Cleanup(func() { loadBetweenReads = nil })
+
+	doc, rev, err := s.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := len(doc.Roots); (rev == before) != (got == 0) {
+		t.Fatalf("Load = %d roots at revision %d (before the external write: %d); want the tree and revision from one snapshot", got, rev, before)
 	}
 }

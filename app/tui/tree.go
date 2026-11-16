@@ -7,12 +7,34 @@ import (
 	"github.com/candy-tools/todo/internal/todo"
 )
 
-// treeRow is one visible line of the task tree: an item and its nesting depth.
-// The placeholder flag marks the synthetic "+ new category" row.
+// rowKind tells a tree row backed by an item from the synthetic ones.
+type rowKind int
+
+const (
+	rowItem        rowKind = iota // a category or task of the document
+	rowNewCategory                // the "+ new category" row
+	rowAll                        // the sidebar's "All" row: no category picked
+	rowHeader                     // a category drawn as a group header in a task list
+)
+
+// paneKind is what a tree shows: today's mixed category/task tree, only the
+// categories (the split view's sidebar), or only the tasks of one category
+// with its subcategories as group headers (the split view's task list).
+type paneKind int
+
+const (
+	paneMixed      paneKind = iota // categories and tasks in one tree
+	paneCategories                 // the sidebar: All, the category tree, + new category
+	paneTasks                      // the task list of the scope category
+)
+
+// treeRow is one visible line of the task tree: an item and its nesting depth,
+// and what kind of row it is. label is a header row's text.
 type treeRow struct {
-	item        *todo.Item
-	depth       int
-	placeholder bool
+	item  *todo.Item
+	depth int
+	kind  rowKind
+	label string
 }
 
 // tree is the left-pane category/task tree: the document, the board column
@@ -24,17 +46,17 @@ type treeRow struct {
 // ever makes a subcategory, leaving no way to add a second root item).
 type tree struct {
 	doc *todo.Document
-	// column is the board tab shown: only its tasks (with their subtasks and
-	// category paths) are rows. See setColumn.
-	column todo.Column
-	// collapsed is the active tab's fold map; it is the same map as
-	// foldsByCol[column]. Each tab keeps its own folds and selection for the
-	// session: foldsByCol and selByCol (the selected item's ID) hold them per
-	// column.
+	// vs is what the tree shows the list through — the board tab, the
+	// search query and the state filter — shared with the model and every
+	// other tree (see viewState).
+	vs *viewState
+	// collapsed is the current view's fold map; it is the same map as
+	// foldsByKey[view.key()]. Each view keeps its own folds and selection for
+	// the session: foldsByKey and selByKey (the selected item's ID) hold them.
 	collapsed   map[uint]bool
-	foldsByCol  map[todo.Column]map[uint]bool
-	selByCol    map[todo.Column]uint
-	shown       map[*todo.Item]bool // the items the tab shows, set by rebuild (folds aside)
+	foldsByKey  map[viewKey]map[uint]bool
+	selByKey    map[viewKey]uint
+	shown       map[*todo.Item]bool // the items the view shows, set by rebuild (folds aside)
 	cursor      int
 	rows        []treeRow
 	placeholder *todo.Item // UI-only sentinel backing the "+ new category" row
@@ -46,35 +68,54 @@ type tree struct {
 	// viewHeight is how many rows the left-pane viewport can show, set from the
 	// terminal size. reconcileOffset needs it to know the window bounds.
 	viewHeight int
-	// filter is the active search query. It is kept across tab switches. When
-	// set, rebuild shows only the tab's items on a path to a match (see
-	// visibleItems), ignores the collapse state so matches inside collapsed
-	// parents surface, and drops the placeholder row.
-	filter string
+	// pane is what the tree shows (see paneKind); scope is the category whose
+	// tasks a paneTasks tree lists, with its subcategories' (0 = every
+	// category, the sidebar's All).
+	pane  paneKind
+	scope uint
 	// grabbed is true while the item under the cursor is "picked up" for moving:
 	// the arrow keys reorder/re-nest it instead of navigating, and its row is
 	// drawn with the grabbed marker (see rowString).
 	grabbed bool
 }
 
-// newTree builds the tree for doc on the Backlog tab, the one the app opens on.
-func newTree(doc *todo.Document) tree {
+// newTree builds the tree for doc, shown through v.
+func newTree(doc *todo.Document, v *viewState) tree {
 	folds := map[uint]bool{}
 	t := tree{
 		doc:         doc,
-		column:      todo.ColBacklog,
+		vs:          v,
 		collapsed:   folds,
-		foldsByCol:  map[todo.Column]map[uint]bool{todo.ColBacklog: folds},
-		selByCol:    map[todo.Column]uint{},
+		foldsByKey:  map[viewKey]map[uint]bool{v.key(): folds},
+		selByKey:    map[viewKey]uint{},
 		placeholder: &todo.Item{},
 	}
 	t.rebuild()
 	return t
 }
 
-// searching reports whether a search query filters the rows. A blank query
-// (spaces only) filters nothing, as in todo.VisibleItems.
-func (t *tree) searching() bool { return strings.TrimSpace(t.filter) != "" }
+// newSidebar builds the split view's sidebar for doc, shown through v.
+func newSidebar(doc *todo.Document, v *viewState) tree {
+	t := newTree(doc, v)
+	t.setPane(paneCategories)
+	t.selectTop()
+	return t
+}
+
+// useFolds makes the folds of view key k the tree's current ones.
+func (t *tree) useFolds(k viewKey) {
+	folds, ok := t.foldsByKey[k]
+	if !ok {
+		folds = map[uint]bool{}
+		t.foldsByKey[k] = folds
+	}
+	t.collapsed = folds
+}
+
+// filtering reports whether the rows are narrowed, by a search query or by
+// the state filter. A filtered view ignores folds and drops the placeholder
+// row.
+func (t *tree) filtering() bool { return t.vs.filtering() }
 
 // shownBefore counts the items the tab showed at the last rebuild that come
 // before it in document order. A move that changes the count has carried it
@@ -94,9 +135,19 @@ func (t *tree) shownBefore(it *todo.Item) int {
 
 // visibleItems returns the items the current tab shows: the column's items
 // and, while searching, only those on a path to a match that is itself in the
-// tab (see todo.Document.ColumnMatches).
+// tab (see todo.Document.ColumnMatches), narrowed to the state filter when it
+// is on for the tab (see todo.Document.KeepStates).
 func (t *tree) visibleItems() map[*todo.Item]bool {
-	return t.doc.ColumnMatches(t.column, t.filter)
+	cols := t.vs.columns()
+	vis := t.doc.ColumnMatches(t.vs.filter, cols...)
+	if active := t.vs.activeStates(); len(active) > 0 {
+		keep := map[todo.Status]bool{}
+		for _, st := range active {
+			keep[st] = true
+		}
+		vis = t.doc.KeepStates(vis, keep, cols...)
+	}
+	return vis
 }
 
 // foldable reports whether it has a child the tab shows (folded or not), so it
@@ -118,25 +169,18 @@ func (t *tree) foldable(it *todo.Item) bool {
 // change.
 func (t *tree) rebuild() {
 	t.rows = t.rows[:0]
-	t.shown = t.visibleItems()
-	searching := t.searching()
-	var walk func(items []*todo.Item, depth int)
-	walk = func(items []*todo.Item, depth int) {
-		for _, it := range items {
-			if !t.shown[it] {
-				continue
-			}
-			t.rows = append(t.rows, treeRow{item: it, depth: depth})
-			// While searching, descend regardless of collapse so a match inside a
-			// collapsed parent is still shown.
-			if len(it.Children) > 0 && (searching || !t.collapsed[it.ID]) {
-				walk(it.Children, depth+1)
-			}
+	vis := t.visibleItems()
+	switch t.pane {
+	case paneCategories:
+		t.rebuildCategories(vis)
+	case paneTasks:
+		t.rebuildTasks(vis)
+	default:
+		t.shown = vis
+		t.walk(t.doc.Roots, 0, nil)
+		if t.vs.editsCategories() && !t.filtering() {
+			t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, kind: rowNewCategory})
 		}
-	}
-	walk(t.doc.Roots, 0)
-	if t.column == todo.ColBacklog && !searching {
-		t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, placeholder: true})
 	}
 	if t.cursor >= len(t.rows) {
 		t.cursor = len(t.rows) - 1
@@ -144,37 +188,198 @@ func (t *tree) rebuild() {
 	if t.cursor < 0 {
 		t.cursor = 0
 	}
+	t.settle(1)
 	t.reconcileOffset()
 }
 
-// setFilter applies a search query (empty clears it) and rebuilds, resetting the
-// cursor to the first row so results start at the top.
-func (t *tree) setFilter(q string) {
-	t.filter = q
-	t.cursor = 0
+// walk appends a row for every shown item of items, at depth, descending into
+// unfolded ones — or every one while filtering, so a match inside a collapsed
+// parent is still shown. keep, when set, limits which items get a row (their
+// children are still walked when they are kept).
+func (t *tree) walk(items []*todo.Item, depth int, keep func(*todo.Item) bool) {
+	for _, it := range items {
+		if !t.shown[it] || (keep != nil && !keep(it)) {
+			continue
+		}
+		t.rows = append(t.rows, treeRow{item: it, depth: depth})
+		if len(it.Children) > 0 && (t.filtering() || !t.collapsed[it.ID]) {
+			t.walk(it.Children, depth+1, keep)
+		}
+	}
+}
+
+// rebuildCategories lays out the sidebar: the All row, the categories of the
+// visible set as a foldable tree, and — where categories are edited and
+// nothing is filtered — the "+ new category" row. Only categories count as
+// shown, so grab-moving a category steps past one shown category at a time.
+func (t *tree) rebuildCategories(vis map[*todo.Item]bool) {
+	t.shown = map[*todo.Item]bool{}
+	for it := range vis {
+		if it.Kind == todo.Category {
+			t.shown[it] = true
+		}
+	}
+	t.rows = append(t.rows, treeRow{kind: rowAll})
+	t.walk(t.doc.Roots, 0, nil)
+	if t.vs.editsCategories() && !t.filtering() {
+		t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, kind: rowNewCategory})
+	}
+}
+
+// scopeItem returns the scope category, or nil for All (or a scope that is no
+// longer in the document).
+func (t *tree) scopeItem() *todo.Item {
+	if t.scope == 0 {
+		return nil
+	}
+	it, ok := t.doc.ByID(t.scope)
+	if !ok || it.Kind != todo.Category {
+		return nil
+	}
+	return it
+}
+
+// rebuildTasks lays out the task list of the scope category: its own tasks,
+// then each subcategory (recursively) as a header row followed by its tasks.
+// A header's label is the category's path below the scope; a category with
+// no shown task in its subtree gets no header. Only items inside the scope
+// count as shown, so a task moved out of it has left the pane.
+func (t *tree) rebuildTasks(vis map[*todo.Item]bool) {
+	roots := t.doc.Roots
+	if sc := t.scopeItem(); sc != nil {
+		roots = sc.Children
+	}
+	t.shown = map[*todo.Item]bool{}
+	var mark func(items []*todo.Item)
+	mark = func(items []*todo.Item) {
+		for _, it := range items {
+			if vis[it] {
+				t.shown[it] = true
+			}
+			mark(it.Children)
+		}
+	}
+	mark(roots)
+	var lay func(items []*todo.Item, path []string)
+	lay = func(items []*todo.Item, path []string) {
+		for _, it := range items {
+			if !t.shown[it] {
+				continue
+			}
+			if it.Kind == todo.Category {
+				p := append(path[:len(path):len(path)], it.Title)
+				if t.holdsShownTask(it) {
+					t.rows = append(t.rows, treeRow{item: it, kind: rowHeader, label: strings.Join(p, " › ")})
+				}
+				lay(it.Children, p)
+				continue
+			}
+			t.walk([]*todo.Item{it}, 0, nil)
+		}
+	}
+	lay(roots, nil)
+}
+
+// holdsShownTask reports whether a task the tree shows sits anywhere under
+// category c.
+func (t *tree) holdsShownTask(c *todo.Item) bool {
+	for _, ch := range c.Children {
+		if (ch.Kind == todo.Task && t.shown[ch]) || (ch.Kind == todo.Category && t.holdsShownTask(ch)) {
+			return true
+		}
+	}
+	return false
+}
+
+// settle moves the cursor off a header row — headers are never selected —
+// onto the nearest other row in direction dir (±1), or the other way when
+// there is none that way.
+func (t *tree) settle(dir int) {
+	if t.cursor < 0 || t.cursor >= len(t.rows) || t.rows[t.cursor].kind != rowHeader {
+		return
+	}
+	for _, d := range []int{dir, -dir} {
+		for i := t.cursor; i >= 0 && i < len(t.rows); i += d {
+			if t.rows[i].kind != rowHeader {
+				t.cursor = i
+				return
+			}
+		}
+	}
+}
+
+// setPane switches what the tree shows and rebuilds.
+func (t *tree) setPane(p paneKind) {
+	t.pane = p
 	t.rebuild()
+}
+
+// setScope points a task-list tree at category id (0 = All) and rebuilds,
+// keeping the selected task when the new scope shows it, else selecting the
+// first task. A no-op when the scope is unchanged.
+func (t *tree) setScope(id uint) {
+	if id == t.scope {
+		return
+	}
+	sel := t.selectedID()
+	t.scope = id
+	t.rebuild()
+	if !t.selectID(sel) {
+		t.selectTop()
+	}
+}
+
+// refreshSidebar rebuilds the sidebar keeping the selected category (or the
+// "+ new category" row) when it is still shown, else falling back to All —
+// after a tab switch, a filter change or a reload took it away.
+func (t *tree) refreshSidebar() {
+	id, onPH := t.selectedID(), t.onPlaceholder()
+	t.rebuild()
+	if t.selectID(id) {
+		return
+	}
+	if onPH {
+		for i, r := range t.rows {
+			if r.kind == rowNewCategory {
+				t.cursor = i
+				t.reconcileOffset()
+				return
+			}
+		}
+	}
+	t.selectTop()
 }
 
 // selected returns the item under the cursor. On the placeholder row it returns
 // the sentinel — callers guard with onPlaceholder before treating it as a real
 // item.
+// The All and header rows have no selectable item: it returns nil there.
 func (t *tree) selected() *todo.Item {
 	if t.cursor < 0 || t.cursor >= len(t.rows) {
+		return nil
+	}
+	if r := t.rows[t.cursor]; r.kind == rowAll || r.kind == rowHeader {
 		return nil
 	}
 	return t.rows[t.cursor].item
 }
 
-// onPlaceholder reports whether the cursor is on the "+ new category" row.
-func (t *tree) onPlaceholder() bool {
-	return t.cursor >= 0 && t.cursor < len(t.rows) && t.rows[t.cursor].placeholder
+// onKind reports whether the cursor is on a row of kind k.
+func (t *tree) onKind(k rowKind) bool {
+	return t.cursor >= 0 && t.cursor < len(t.rows) && t.rows[t.cursor].kind == k
 }
+
+// onPlaceholder reports whether the cursor is on the "+ new category" row.
+func (t *tree) onPlaceholder() bool { return t.onKind(rowNewCategory) }
+
+// onAll reports whether the cursor is on the sidebar's "All" row.
+func (t *tree) onAll() bool { return t.onKind(rowAll) }
 
 // selectItem moves the cursor onto it, if it is currently visible, scrolling the
 // viewport as needed to keep it on screen.
 func (t *tree) selectItem(it *todo.Item) {
 	for i, r := range t.rows {
-		if r.item == it {
+		if r.kind == rowItem && r.item == it {
 			t.cursor = i
 			t.reconcileOffset()
 			return
@@ -190,7 +395,7 @@ func (t *tree) selectID(id uint) bool {
 		return false
 	}
 	for i, r := range t.rows {
-		if !r.placeholder && r.item.ID == id {
+		if r.kind == rowItem && r.item.ID == id {
 			t.cursor = i
 			t.reconcileOffset()
 			return true
@@ -211,7 +416,7 @@ func (t *tree) adopt(doc *todo.Document, focusID uint, onPlaceholder bool) {
 	for _, it := range doc.Enumerate() {
 		present[it.ID] = true
 	}
-	for _, folds := range t.foldsByCol {
+	for _, folds := range t.foldsByKey {
 		for id := range folds {
 			if !present[id] {
 				delete(folds, id)
@@ -222,9 +427,14 @@ func (t *tree) adopt(doc *todo.Document, focusID uint, onPlaceholder bool) {
 	if t.selectID(focusID) {
 		return
 	}
-	if onPlaceholder && !t.searching() {
-		t.cursor = len(t.rows) - 1
-		t.reconcileOffset()
+	if onPlaceholder && !t.filtering() {
+		for i, r := range t.rows {
+			if r.kind == rowNewCategory {
+				t.cursor = i
+				t.reconcileOffset()
+				return
+			}
+		}
 	}
 }
 
@@ -244,6 +454,7 @@ func (t *tree) revealItem(it *todo.Item) {
 // the top — the fallback when a prior selection no longer exists.
 func (t *tree) selectTop() {
 	t.cursor = 0
+	t.settle(1)
 	t.reconcileOffset()
 }
 
@@ -268,6 +479,11 @@ func (t *tree) moveBy(delta int) {
 	}
 	if t.cursor < 0 {
 		t.cursor = 0
+	}
+	if delta < 0 {
+		t.settle(-1)
+	} else {
+		t.settle(1)
 	}
 	t.reconcileOffset()
 }
@@ -346,11 +562,17 @@ func (t *tree) expand() {
 // <tab>" while a search finds nothing there.
 func (t *tree) view(width, height int) string {
 	if len(t.rows) == 0 {
-		empty := "nothing in "
-		if t.searching() {
-			empty = "no matches in "
+		empty := "nothing in " + t.vs.title()
+		if t.filtering() {
+			empty = "no matches in " + t.vs.title()
 		}
-		return "  " + helpTextStyle.Render(empty+t.column.Title())
+		if t.pane == paneTasks {
+			empty = "no tasks here"
+			if t.filtering() {
+				empty = "no matches here"
+			}
+		}
+		return "  " + helpTextStyle.Render(empty)
 	}
 	if height < 1 {
 		height = 1
@@ -388,7 +610,16 @@ func (t *tree) view(width, height int) string {
 // matching two-space gutter so columns line up. A task that has a description
 // carries a trailing "≡" marker.
 func (t *tree) rowString(r treeRow, selected bool) string {
-	if r.placeholder {
+	switch r.kind {
+	case rowAll:
+		if selected {
+			return selectedRowStyle.Render("❯ All")
+		}
+		return "  " + categoryStyle.Render("All")
+	case rowHeader:
+		return "  " + helpTextStyle.Render("── ") + categoryStyle.Render(todo.Printable(r.label))
+	}
+	if r.kind == rowNewCategory {
 		if selected {
 			return selectedRowStyle.Render("❯ + new category")
 		}
@@ -400,7 +631,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	if t.foldable(r.item) {
 		fold = "▾ "
 		// A filtered view expands everything, so never show a collapsed caret.
-		if t.collapsed[r.item.ID] && !t.searching() {
+		if t.collapsed[r.item.ID] && !t.filtering() {
 			fold = "▸ "
 		}
 	}
@@ -414,11 +645,11 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	}
 
 	if r.item.Kind == todo.Category {
-		title := r.item.Title
+		title := todo.Printable(r.item.Title)
 		// Backlog shows the category's overall progress; the other tabs count
 		// the category's tasks in that tab.
-		counts := fmt.Sprintf(" (%d)", r.item.CountInColumn(t.column))
-		if t.column == todo.ColBacklog {
+		counts := fmt.Sprintf(" (%d)", r.item.CountInColumn(t.vs.column))
+		if t.vs.editsCategories() {
 			counts = ""
 			if done, total := r.item.TaskCounts(); total > 0 {
 				counts = fmt.Sprintf(" (%d/%d)", done, total)
@@ -426,10 +657,10 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 		}
 		if selected {
 			return selStyle.Render(gutter+indent+fold) +
-				highlight(title, t.filter, selStyle) + selStyle.Render(counts)
+				highlight(title, t.vs.filter, selStyle) + selStyle.Render(counts)
 		}
 		return "  " + indent + helpTextStyle.Render(fold) +
-			highlight(title, t.filter, categoryStyle) + helpTextStyle.Render(counts)
+			highlight(title, t.vs.filter, categoryStyle) + helpTextStyle.Render(counts)
 	}
 
 	// Task. The glyph and its colour follow the status (see statusGlyph); a done
@@ -442,26 +673,31 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	if r.item.IsDone() {
 		titleStyle = doneTitleStyle
 	}
-	state := ""
-	if !subtask {
-		state = " " + r.item.Status.String()
-		if done, total := r.item.TaskCounts(); total > 0 {
+	state, warn, note := taskTrailer(r.item)
+	if selected {
+		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(todo.Printable(r.item.Title), t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
+	}
+	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(todo.Printable(r.item.Title), t.vs.filter, titleStyle) +
+		helpTextStyle.Render(state) + deferStyle.Render(warn) + helpTextStyle.Render(note)
+}
+
+// taskTrailer returns the unstyled pieces drawn after a task's title: the
+// state label and subtask progress (top-level tasks only), the no-plan warning,
+// and the ≡ marker. Each piece is empty or starts with a space.
+func taskTrailer(it *todo.Item) (state, warn, note string) {
+	if !it.IsSubtask() {
+		state = " " + it.Status.Label()
+		if done, total := it.TaskCounts(); total > 0 {
 			state += fmt.Sprintf(" (%d/%d)", done, total)
 		}
 	}
-	warn := ""
-	if r.item.NeedsPlan() {
+	if it.NeedsPlan() {
 		warn = " ⚠ no plan"
 	}
 	// A task with a description gets a trailing ≡ marker, so the single-panel list
 	// still shows at a glance which items have details to open (enter).
-	note := ""
-	if r.item.Description != "" {
+	if it.Description != "" {
 		note = " ≡"
 	}
-	if selected {
-		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(r.item.Title, t.filter, selStyle) + selStyle.Render(state+warn+note)
-	}
-	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(r.item.Title, t.filter, titleStyle) +
-		helpTextStyle.Render(state) + deferStyle.Render(warn) + helpTextStyle.Render(note)
+	return state, warn, note
 }

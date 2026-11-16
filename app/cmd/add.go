@@ -21,8 +21,8 @@ func addCmd() *cobra.Command {
 					return err
 				}
 				title, _ := cmd.Flags().GetString("title")
-				if strings.TrimSpace(title) == "" {
-					return usageErr("--title is required")
+				if title, err = todo.CleanTitle(title); err != nil {
+					return usageErr("--title: " + err.Error())
 				}
 				desc, _ := cmd.Flags().GetString("desc")
 				statusName, _ := cmd.Flags().GetString("status")
@@ -31,19 +31,14 @@ func addCmd() *cobra.Command {
 					return usageErr(fmt.Sprintf("invalid --status %q (%s)", statusName, statusNames))
 				}
 				plan, _ := cmd.Flags().GetString("plan")
-				task := &todo.Item{Kind: todo.Task, Title: title, Description: desc, Plan: plan, Status: st}
-				switch parent.Kind {
-				case todo.Category:
-					parent.AppendTask(task)
-				default: // Task
-					parent.AppendChild(task)
-				}
-				parentID, afterID := doc.Placement(task)
+				task := &todo.Item{Kind: todo.Task, Title: title, Status: st, Parent: parent}
 				s, err := open()
 				if err != nil {
 					return err
 				}
-				if _, err := s.AddTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parentID, afterID); err != nil {
+				// The store places the task after the parent's last task as the tree
+				// is when it writes, so a sibling changed meanwhile does not matter.
+				if _, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parent.ID); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), task.Title, categoryPath(task))
@@ -67,8 +62,9 @@ func addCategoryCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
 				title, _ := cmd.Flags().GetString("title")
-				if strings.TrimSpace(title) == "" {
-					return usageErr("--title is required")
+				title, err := todo.CleanTitle(title)
+				if err != nil {
+					return usageErr("--title: " + err.Error())
 				}
 				cat := &todo.Item{Kind: todo.Category, Title: title}
 				hasParent := cmd.Flags().Changed("parent-number") ||
@@ -85,12 +81,15 @@ func addCategoryCmd() *cobra.Command {
 				} else {
 					doc.AppendRoot(cat)
 				}
-				parentID, afterID := doc.Placement(cat)
+				// The store places the category last under its parent as it
+				// finds the tree when it writes, so a concurrent change cannot
+				// make the add fail.
+				parentID, _ := doc.Placement(cat)
 				s, err := open()
 				if err != nil {
 					return err
 				}
-				if _, err := s.AddCategory(ctx, title, parentID, afterID); err != nil {
+				if _, err := s.AppendCategory(ctx, title, parentID); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add-category: %s %s\n", strings.Repeat("#", depthOf(cat)+1), title)

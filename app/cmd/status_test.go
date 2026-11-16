@@ -212,3 +212,141 @@ func TestSubtaskBoardStateIsUsageError(t *testing.T) {
 		t.Error("the subtask must be unchanged")
 	}
 }
+
+func TestStatusToDoneDoesNotCascade(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] child\n")
+	if _, err := runCmd(t, "status", "--file", path, "--title", "parent", "--to", "done"); err != nil {
+		t.Fatal(err)
+	}
+	got := todotest.Dump(t, path)
+	if !strings.Contains(got, "- [x] parent") || !strings.Contains(got, "  - [ ] child") {
+		t.Errorf("status --to done must complete only the task:\n%s", got)
+	}
+}
+
+func TestReopenWithoutCascadeKeepsSubtasks(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [x] parent\n  - [x] child\n")
+	if _, err := runCmd(t, "reopen", "--file", path, "--title", "parent"); err != nil {
+		t.Fatal(err)
+	}
+	got := todotest.Dump(t, path)
+	if !strings.Contains(got, "- [/] parent") || !strings.Contains(got, "  - [x] child") {
+		t.Errorf("reopen without --cascade must leave the subtask done:\n%s", got)
+	}
+}
+
+func TestReopenNotDoneTaskKeepsItsState(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] parent\n  - [ ] child\n")
+	if _, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "new"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ title, line, confirm string }{
+		{"a", "- [new] a", "reopen: [new] a  (Work)"},
+		{"child", "  - [ ] child", "reopen: [open] child  (Work)"},
+	} {
+		before := revOf(t, path)
+		out, err := runCmd(t, "reopen", "--file", path, "--title", c.title)
+		if err != nil {
+			t.Fatalf("reopen %s: %v", c.title, err)
+		}
+		if !strings.Contains(out, c.confirm) {
+			t.Errorf("reopen %s: confirmation should show the real state %q, got %q", c.title, c.confirm, out)
+		}
+		if !strings.Contains(todotest.Dump(t, path), c.line) {
+			t.Errorf("reopen on %s, not done, must keep its state:\n%s", c.title, todotest.Dump(t, path))
+		}
+		if after := revOf(t, path); after != before {
+			t.Errorf("reopen on %s, not done, must write nothing: revision %d -> %d", c.title, before, after)
+		}
+	}
+}
+
+func TestReopenCascadeOnNotDoneTaskOpensSubtasks(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [x] child\n")
+	if _, err := runCmd(t, "status", "--file", path, "--title", "parent", "--to", "review"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runCmd(t, "reopen", "--file", path, "--title", "parent", "--cascade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "reopen: [review] parent  (Work)") {
+		t.Errorf("confirmation should show the task's real state: %q", out)
+	}
+	got := todotest.Dump(t, path)
+	if !strings.Contains(got, "- [review] parent") || !strings.Contains(got, "  - [ ] child") {
+		t.Errorf("reopen --cascade on a task that is not done keeps it and opens its subtasks:\n%s", got)
+	}
+}
+
+func TestStatusToOnDoneParentKeepsDoneSubtasks(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [x] parent\n  - [x] child\n")
+	out, err := runCmd(t, "status", "--file", path, "--title", "parent", "--to", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "status: [review] parent  (Work)") {
+		t.Errorf("unexpected confirmation: %q", out)
+	}
+	got := todotest.Dump(t, path)
+	if !strings.Contains(got, "- [review] parent") || !strings.Contains(got, "  - [x] child") {
+		t.Errorf("status --to review on a done parent must leave its subtasks done:\n%s", got)
+	}
+}
+
+func TestStatusToOnDoneSubtask(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [x] child\n")
+	_, err := runCmd(t, "status", "--file", path, "--title", "child", "--to", "review")
+	if codeOf(t, err) != exitUsage {
+		t.Errorf("a board state on a done subtask should be a usage error, got %v", err)
+	}
+	if !strings.Contains(todotest.Dump(t, path), "  - [x] child") {
+		t.Fatalf("the subtask must stay done:\n%s", todotest.Dump(t, path))
+	}
+	if _, err := runCmd(t, "status", "--file", path, "--title", "child", "--to", "open"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(todotest.Dump(t, path), "  - [ ] child") {
+		t.Errorf("status --to open should reopen the subtask:\n%s", todotest.Dump(t, path))
+	}
+}
+
+func TestStatusToDoneOnDoneTaskKeepsSubtasks(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [x] parent\n  - [ ] child\n")
+	if _, err := runCmd(t, "status", "--file", path, "--title", "parent", "--to", "done"); err != nil {
+		t.Fatal(err)
+	}
+	got := todotest.Dump(t, path)
+	if !strings.Contains(got, "- [x] parent") || !strings.Contains(got, "  - [ ] child") {
+		t.Errorf("status --to done on a done task must not touch its subtasks:\n%s", got)
+	}
+}
+
+func TestDoneHintsAtOpenSubtasks(t *testing.T) {
+	for _, c := range []struct {
+		name, md string
+		args     []string
+		hint     string
+	}{
+		{"two open", "- [ ] parent\n  - [ ] c1\n  - [ ] c2\n  - [x] c3\n", nil, "2 subtasks still open; --cascade completes them\n"},
+		{"one open", "- [ ] parent\n  - [ ] c1\n  - [x] c2\n", nil, "1 subtask still open; --cascade completes it\n"},
+		{"all done", "- [ ] parent\n  - [x] c1\n", nil, ""},
+		{"no subtasks", "- [ ] parent\n", nil, ""},
+		{"cascade", "- [ ] parent\n  - [ ] c1\n", []string{"--cascade"}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			path := todotest.Seed(t, "# Work\n\n"+c.md)
+			args := append([]string{"done", "--file", path, "--title", "parent"}, c.args...)
+			stdout, stderr, err := runSplit(t, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stdout != "done: [done] parent  (Work)\n" {
+				t.Errorf("stdout must be only the confirmation, got %q", stdout)
+			}
+			if stderr != c.hint {
+				t.Errorf("stderr: want %q, got %q", c.hint, stderr)
+			}
+		})
+	}
+}

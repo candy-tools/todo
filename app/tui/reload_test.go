@@ -4,11 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	"github.com/go-bumbu/db/gormdb"
+	"github.com/go-bumbu/db/gormdb/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // externalAddTask adds a task through a second store handle, standing in for a
@@ -59,13 +65,125 @@ func TestReloadCheckDetectsChange(t *testing.T) {
 	}
 }
 
-func TestReloadCheckErrorIsNil(t *testing.T) {
+func TestReloadCheckErrorIsReported(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	if err := m.store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if msg := reloadCheck(m.store, m.lastRev-1); msg != nil {
-		t.Errorf("an unreadable store must not trigger a reload, got %#v", msg)
+	msg := reloadCheck(m.store, m.lastRev-1)
+	if f, ok := msg.(reloadFailedMsg); !ok || f.err == nil {
+		t.Errorf("an unreadable store must be reported as a reloadFailedMsg, got %#v", msg)
+	}
+}
+
+// openRaw opens a plain database handle on the store file at path, bypassing
+// the store's checks; it is closed when the test ends.
+func openRaw(t *testing.T, path string) *gorm.DB {
+	t.Helper()
+	db, err := gormdb.Open(gormdb.Cfg{
+		Driver: gormdb.DriverSqlite,
+		Sqlite: gormdb.SqliteCfg{Path: path},
+		Logger: logger.Discard,
+	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+	if err != nil {
+		t.Fatalf("open raw handle: %v", err)
+	}
+	t.Cleanup(func() { _ = gormdb.Close(db) })
+	return db
+}
+
+// setSchemaVersion records schema version v in the store at path through a
+// second database handle, standing in for a newer todo that migrated the file
+// (or, set back, for the file becoming readable again) while the TUI runs.
+func setSchemaVersion(t *testing.T, path string, v int) {
+	t.Helper()
+	db := openRaw(t, path)
+	if err := db.Exec("UPDATE meta SET schema_version = ? WHERE id = 1", v).Error; err != nil {
+		t.Fatalf("set schema version: %v", err)
+	}
+}
+
+// schemaVersionOf reads the schema version recorded in the store at path.
+func schemaVersionOf(t *testing.T, path string) int {
+	t.Helper()
+	db := openRaw(t, path)
+	var v int
+	if err := db.Raw("SELECT schema_version FROM meta WHERE id = 1").Scan(&v).Error; err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	return v
+}
+
+// pollCmdOnce runs one poll the way the tick does and feeds its message, if
+// any, to the model.
+func pollCmdOnce(m model) model {
+	if msg := m.reloadCheckCmd()(); msg != nil {
+		return send(m, msg)
+	}
+	return m
+}
+
+// TestReloadFailureShownAndCleared upgrades the store under the running TUI:
+// the failing poll must put the error in the footer instead of dropping it,
+// and the next poll that succeeds must clear it again.
+func TestReloadFailureShownAndCleared(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := schemaVersionOf(t, path)
+	setSchemaVersion(t, path, v+1)
+
+	m = pollCmdOnce(m)
+	if !errors.Is(m.err, todo.ErrNewerSchema) {
+		t.Fatalf("m.err = %v, want the failed reload (ErrNewerSchema)", m.err)
+	}
+	if got := m.footer(200); !strings.Contains(got, "reload failed:") || !strings.Contains(got, "newer todo") {
+		t.Errorf("footer should report the failed reload, got %q", got)
+	}
+
+	setSchemaVersion(t, path, v)
+	m = pollCmdOnce(m)
+	if m.err != nil {
+		t.Errorf("a successful poll must clear the reload error, got %v", m.err)
+	}
+}
+
+// TestReloadFailureShownOnce has the same poll failure repeat: once shown it
+// must not be set again, so an unrelated error that replaced it (a failed
+// save) stays in the footer; a poll that succeeds must not clear that one.
+func TestReloadFailureShownOnce(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := schemaVersionOf(t, path)
+	setSchemaVersion(t, path, v+1)
+
+	m = pollCmdOnce(m)
+	if !errors.Is(m.err, todo.ErrNewerSchema) {
+		t.Fatalf("m.err = %v, want the failed reload", m.err)
+	}
+	saveErr := errors.New("save failed: boom")
+	m.err = saveErr
+	m = pollCmdOnce(m)
+	if !errors.Is(m.err, saveErr) {
+		t.Errorf("a repeated reload failure must not replace another error, got %v", m.err)
+	}
+
+	setSchemaVersion(t, path, v)
+	m = pollCmdOnce(m)
+	if !errors.Is(m.err, saveErr) {
+		t.Errorf("a successful poll must not clear an unrelated error, got %v", m.err)
+	}
+}
+
+// TestReloadFailureDistinctShown has the poll fail with a different error: it
+// replaces the one shown.
+func TestReloadFailureDistinctShown(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := schemaVersionOf(t, path)
+	setSchemaVersion(t, path, v+1)
+	m = pollCmdOnce(m)
+	m.err = errors.New("save failed: boom")
+	setSchemaVersion(t, path, v+2)
+	m = pollCmdOnce(m)
+	if got := m.footer(200); !strings.Contains(got, fmt.Sprintf("schema %d", v+2)) {
+		t.Errorf("a distinct reload failure must be shown, got %q", got)
 	}
 }
 
@@ -172,6 +290,48 @@ func TestReloadDeferredDuringModal(t *testing.T) {
 	}
 }
 
+func TestReloadAppliedWhileSearchBarOpen(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = press(m, "/")
+	m = typeText(m, "a")
+	externalAddTask(t, path, "ab", find(m.doc, "Work").ID, find(m.doc, "a").ID)
+	m = pollOnce(t, m)
+	if find(m.doc, "ab") == nil {
+		t.Errorf("a reload must be applied while the search bar is open")
+	}
+	if m.mode != modeSearch {
+		t.Errorf("a reload must leave the search bar open")
+	}
+	if m.view.filter != "a" || m.search.Value() != "a" {
+		t.Errorf("a reload must keep the query: filter %q, input %q", m.view.filter, m.search.Value())
+	}
+	if !hasRow(m, "ab") {
+		t.Errorf("the new task matches the query and must be shown, rows %v", rowTitles(m.tree))
+	}
+}
+
+func TestReloadDeferredWhileGrabbed(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = selectTitle(t, m, "a")
+	m = press(m, "m")
+	if !m.tree.grabbed {
+		t.Fatal("precondition: m should grab a")
+	}
+	externalAddTask(t, path, "b", find(m.doc, "Work").ID, find(m.doc, "a").ID)
+	m = pollOnce(t, m)
+	if find(m.doc, "b") != nil {
+		t.Errorf("a reload must be deferred while an item is grabbed")
+	}
+	if !m.tree.grabbed {
+		t.Errorf("a deferred reload must leave the item grabbed")
+	}
+	m = press(m, "m") // drop
+	m = pollOnce(t, m)
+	if find(m.doc, "b") == nil {
+		t.Errorf("the deferred reload must apply after the item is dropped")
+	}
+}
+
 func TestReloadIgnoresOwnRevision(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	m = send(m, storeReloadedMsg{doc: parseDoc(t, "# Work\n\n- [ ] zzz\n"), rev: m.lastRev})
@@ -183,7 +343,7 @@ func TestReloadIgnoresOwnRevision(t *testing.T) {
 func TestOwnWriteDoesNotReportReload(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	before := m.lastRev
-	m = press(m, "down", "space") // toggle a done -> a store write
+	m = pickState(t, press(m, "down"), todo.Done) // complete a -> a store write
 	if m.lastRev == before {
 		t.Fatalf("an own write must record the revision it produced")
 	}
@@ -223,38 +383,44 @@ func TestExternalWriteReloadsKeepingSelection(t *testing.T) {
 }
 
 func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [ ] c2\n")
+	m, path := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n", todo.ColInProgress)
 	m = press(m, "down") // parent
 
 	// Own writes: cascade-complete, then un-toggle restores the subtasks.
-	m = press(m, "space")
+	m = pickState(t, m, todo.Done)
 	if len(m.snapshots) != 1 {
 		t.Fatalf("the cascade must leave a snapshot across its own reload, got %d", len(m.snapshots))
 	}
-	m = showOn(t, m, todo.ColDone, "parent") // the done parent left Backlog
-	m = press(m, "space")
-	for _, title := range []string{"parent", "c1", "c2"} {
+	m = showOn(t, m, todo.ColDone, "parent") // the done parent left In Progress
+	m = press(m, "t", "enter")               // t starts on the prior state: enter undoes
+	if got := find(m.doc, "parent").Status; got != todo.Working {
+		t.Errorf("parent = %v after undo, want working", got)
+	}
+	for _, title := range []string{"c1", "c2"} {
 		if got := find(m.doc, title).Status; got != todo.Open {
 			t.Errorf("%s = %v after undo, want open", title, got)
 		}
 	}
-	if got, want := todotest.Dump(t, path), "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [ ] c2\n"; got != want {
+	if got, want := todotest.Dump(t, path), "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n"; got != want {
 		t.Errorf("the undo must be persisted:\n%s", got)
 	}
 
 	// Cascade again, then an external write lands: the snapshot is dropped, so
 	// the un-toggle reopens only the parent (the subtasks keep their status).
-	m = showOn(t, m, todo.ColBacklog, "parent")
-	m = press(m, "space")
+	m = showOn(t, m, todo.ColInProgress, "parent")
+	m = pickState(t, m, todo.Done)
 	externalAddTask(t, path, "other", find(m.doc, "Work").ID, find(m.doc, "parent").ID)
 	m = pollOnce(t, m)
 	if len(m.snapshots) != 0 {
 		t.Fatalf("an external reload must clear the snapshots, got %d", len(m.snapshots))
 	}
 	m = showOn(t, m, todo.ColDone, "parent")
-	m = press(m, "space")
+	if m2 := press(m, "t"); m2.pick.selected() != todo.Done {
+		t.Errorf("without a snapshot t must start on done, got %v", m2.pick.selected())
+	}
+	m = pickState(t, m, todo.Working)
 	if got := find(m.doc, "parent").Status; got != todo.Working {
-		t.Errorf("parent = %v after un-toggle without a snapshot, want working", got)
+		t.Errorf("parent = %v after reopening without a snapshot, want working", got)
 	}
 	for _, title := range []string{"c1", "c2"} {
 		if got := find(m.doc, title).Status; got != todo.Done {
@@ -268,8 +434,8 @@ func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
 // by more than its own bump, treat the reload as external and drop the undo
 // snapshots, so un-toggling the parent never writes old statuses over it.
 func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n  - [ ] c2\n- [ ] other\n")
-	m = press(m, "down", "space") // cascade-complete parent
+	m, path := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n- [ ] other\n", todo.ColInProgress)
+	m = pickState(t, press(m, "down"), todo.Done) // cascade-complete parent
 	if len(m.snapshots) != 1 {
 		t.Fatalf("precondition: the cascade must leave a snapshot, got %d", len(m.snapshots))
 	}
@@ -282,7 +448,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 
 	// An own, unrelated write: defer "other".
 	m = showOn(t, m, todo.ColBacklog, "other")
-	m = press(m, "t")
+	m = pickState(t, m, todo.Deferred)
 	if len(m.snapshots) != 0 {
 		t.Errorf("an own write that absorbed an external one must clear the snapshots, got %d", len(m.snapshots))
 	}
@@ -293,7 +459,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 	// Un-toggle the parent: it reopens to working, c1 keeps the agent's status,
 	// and c2 stays done because the dropped snapshot no longer restores it.
 	m = showOn(t, m, todo.ColDone, "parent")
-	m = press(m, "space")
+	m = pickState(t, m, todo.Working)
 	if got := find(m.doc, "c1").Status; got != todo.Open {
 		t.Errorf("c1 = %v after un-toggle, want open (the agent's change)", got)
 	}
@@ -303,28 +469,32 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 }
 
 func TestWriteErrorShowsAndReloads(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
 	if err := m.store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	m = press(m, "down", "space")
+	m = pickState(t, press(m, "down"), todo.Done)
 	if m.err == nil {
 		t.Fatal("a failed write must set m.err")
 	}
 	if got := m.footer(200); !strings.Contains(got, "save failed:") {
 		t.Errorf("footer should report the failed save, got %q", got)
 	}
-	// The in-memory toggle stays in view: a, now done, shows on the Done tab.
-	m.tree.setColumn(todo.ColDone)
-	if find(m.doc, "a") == nil || !hasRow(m, "a") {
-		t.Errorf("a failed reload must keep the current view")
+	// The write and the reload both failed: the unsaved toggle must not stay on
+	// screen as if saved, so a is still working on the In Progress tab.
+	if got := find(m.doc, "a").Status; got != todo.Working {
+		t.Errorf("a = %v after a failed save, want working (the unsaved change undone)", got)
+	}
+	if !hasRow(m, "a") || m.tree.selected() == nil || m.tree.selected().Title != "a" {
+		t.Errorf("a must stay shown and selected on In Progress, rows %v", rowTitles(m.tree))
 	}
 }
 
-// TestFailedWriteAndReloadRebuildsTree deletes an item while the store is
-// unreachable: the write and the reload both fail, so the view shows the
-// in-memory document — and its rows must be rebuilt from it, not left stale.
-func TestFailedWriteAndReloadRebuildsTree(t *testing.T) {
+// TestFailedWriteAndReloadRestoresTree deletes an item while the store is
+// unreachable: the write and the reload both fail, so the view goes back to the
+// document as last loaded — the item is still there, its rows rebuilt — and
+// the selection stays valid.
+func TestFailedWriteAndReloadRestoresTree(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	m = press(m, "down", "down") // b
 	if err := m.store.Close(); err != nil {
@@ -334,11 +504,39 @@ func TestFailedWriteAndReloadRebuildsTree(t *testing.T) {
 	if m.err == nil || !strings.Contains(m.footer(200), "save failed:") {
 		t.Errorf("footer should report the failed save, got %q", m.footer(200))
 	}
-	if hasRow(m, "b") {
-		t.Errorf("the tree rows must be rebuilt from the in-memory document after a failed reload")
+	if find(m.doc, "b") == nil || !hasRow(m, "b") {
+		t.Errorf("the unsaved delete must be undone in the view, rows %v", rowTitles(m.tree))
 	}
-	if got := m.tree.selected().Title; got != "a" {
-		t.Errorf("selection = %q, want a (the row above the deleted item)", got)
+	if sel := m.tree.selected(); sel == nil || sel.Title != "a" {
+		t.Errorf("selection = %v, want a (the row above the item whose delete failed)", sel)
+	}
+}
+
+// TestFailedWriteAndReloadRestoresEdit edits a task while the store is
+// unreachable: the edited title must not stay on screen as if saved, and a
+// second failed write must still restore the same, last loaded document.
+func TestFailedWriteAndReloadRestoresEdit(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	if err := m.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "down") // a
+	for range 2 {
+		m = press(m, "e")
+		if m.mode != modeForm {
+			t.Fatalf("e should open the edit form, mode = %v", m.mode)
+		}
+		m = typeText(m, "-edited")
+		m = press(m, "tab", "tab", "enter")
+		if m.err == nil || !strings.Contains(m.footer(200), "save failed:") {
+			t.Errorf("footer should report the failed save, got %q", m.footer(200))
+		}
+		if find(m.doc, "a-edited") != nil || find(m.doc, "a") == nil || !hasRow(m, "a") {
+			t.Errorf("the unsaved edit must be undone in the view, rows %v", rowTitles(m.tree))
+		}
+		if sel := m.tree.selected(); sel == nil || sel.Title != "a" {
+			t.Errorf("selection = %v, want a", sel)
+		}
 	}
 }
 
@@ -365,6 +563,100 @@ func TestReloadFailureAfterSavedWrite(t *testing.T) {
 	}
 	if got := todotest.Dump(t, path); strings.Contains(got, "b") {
 		t.Errorf("the delete must be saved:\n%s", got)
+	}
+}
+
+// TestOwnWriteWithFailedReloadNotExternal has an own add succeed while the
+// reload after it fails once. The next poll must load the list (the added task
+// gets its stored ID) as the app's own write: no external-reload notice, and
+// the undo snapshots kept.
+func TestOwnWriteWithFailedReloadNotExternal(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := schemaVersionOf(t, path)
+	work, a := find(m.doc, "Work"), find(m.doc, "a")
+	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
+	added := todo.NewTask("b", "", false)
+	work.AppendTask(added)
+	m.commit(0, func(ctx context.Context) error {
+		_, err := m.store.AppendTask(ctx, todo.Fields{Title: "b"}, todo.Open, work.ID)
+		setSchemaVersion(t, path, v+1) // the reload that follows fails
+		return err
+	})
+	if !strings.Contains(m.footer(200), "reload failed:") {
+		t.Fatalf("precondition: footer should report the failed reload, got %q", m.footer(200))
+	}
+	setSchemaVersion(t, path, v)
+
+	m = pollCmdOnce(m)
+	if m.status == "reloaded — list changed externally" {
+		t.Errorf("the app's own write must not be reported as an external change")
+	}
+	if len(m.snapshots) != 1 {
+		t.Errorf("the app's own write must keep the undo snapshots, got %d", len(m.snapshots))
+	}
+	if b := find(m.doc, "b"); b == nil || b.ID == 0 {
+		t.Errorf("the poll must load the list the write left, got b = %v", b)
+	}
+	if msg := reloadCheck(m.store, m.lastRev); msg != nil {
+		t.Errorf("once loaded, a poll must see no change, got %#v", msg)
+	}
+}
+
+// commitWithFailedReload has an own add of title succeed while the reload
+// after it fails (the schema is bumped by the write), and returns the schema
+// version to restore so the next reload works again.
+func commitWithFailedReload(t *testing.T, m *model, path, title string) int {
+	t.Helper()
+	v := schemaVersionOf(t, path)
+	work := find(m.doc, "Work")
+	work.AppendTask(todo.NewTask(title, "", false))
+	m.commit(0, func(ctx context.Context) error {
+		_, err := m.store.AppendTask(ctx, todo.Fields{Title: title}, todo.Open, work.ID)
+		setSchemaVersion(t, path, v+1)
+		return err
+	})
+	if !strings.Contains(m.footer(200), "reload failed:") {
+		t.Fatalf("precondition: footer should report the failed reload, got %q", m.footer(200))
+	}
+	return v
+}
+
+// TestOwnWriteFailedReloadClearedOnRecovery has an own write succeed while its
+// reload fails: once a poll reloads the list, the footer must no longer show
+// the reload error, whether the poll reads back the app's own write or an
+// external one that landed meanwhile.
+func TestOwnWriteFailedReloadClearedOnRecovery(t *testing.T) {
+	for _, external := range []bool{false, true} {
+		m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+		v := commitWithFailedReload(t, &m, path, "b")
+		setSchemaVersion(t, path, v)
+		if external {
+			externalAddTask(t, path, "c", find(m.doc, "Work").ID, 0)
+		}
+
+		m = pollCmdOnce(m)
+		if find(m.doc, "b") == nil || find(m.doc, "b").ID == 0 {
+			t.Fatalf("external=%v: the poll must load the list the write left", external)
+		}
+		if m.err != nil || strings.Contains(m.footer(200), "reload failed:") {
+			t.Errorf("external=%v: the recovered reload must clear the error, got m.err=%v footer %q",
+				external, m.err, m.footer(200))
+		}
+	}
+}
+
+// TestOwnWriteFailedReloadRecoveryKeepsLaterError has an own write's reload
+// fail, then a save be refused: the poll that recovers must clear only the
+// reload error, not the refused save shown since.
+func TestOwnWriteFailedReloadRecoveryKeepsLaterError(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	v := commitWithFailedReload(t, &m, path, "b")
+	m.commit(0, func(context.Context) error { return errors.New("refused") })
+	setSchemaVersion(t, path, v)
+
+	m = pollCmdOnce(m)
+	if got := m.footer(200); !strings.Contains(got, "save failed: refused") {
+		t.Errorf("the recovery must keep the refused save in the footer, got %q", got)
 	}
 }
 
@@ -401,4 +693,177 @@ func hasRow(m model, title string) bool {
 		}
 	}
 	return false
+}
+
+// TestReplacedFileShowsErrorAndRefusesWrite swaps another store in over the
+// open one by rename, as `git checkout` or a sync tool would: the poll must
+// report it, and a write must be refused rather than land in the unlinked file
+// and vanish when the TUI quits.
+func TestReplacedFileShowsErrorAndRefusesWrite(t *testing.T) {
+	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
+	// A second link keeps the file the store holds reachable once another is
+	// renamed over its path, so the end of the test can read it.
+	held := path + ".held"
+	if err := os.Link(path, held); err != nil {
+		t.Fatal(err)
+	}
+	other := todotest.Seed(t, "# Other\n")
+	if err := os.Rename(other, path); err != nil {
+		t.Fatal(err)
+	}
+
+	msg := reloadCheck(m.store, m.lastRev)
+	if msg == nil {
+		t.Fatal("the poll must report a replaced store file")
+	}
+	m = send(m, msg)
+	if m.err == nil || !errors.Is(m.err, todo.ErrFileReplaced) {
+		t.Fatalf("m.err = %v, want ErrFileReplaced", m.err)
+	}
+
+	m = pickState(t, press(m, "down"), todo.Done)
+	if !errors.Is(m.err, todo.ErrFileReplaced) || !strings.Contains(m.footer(200), "save failed:") {
+		t.Errorf("footer should report the refused save, got %q", m.footer(200))
+	}
+	if _, _, err := m.store.Load(context.Background()); !errors.Is(err, todo.ErrFileReplaced) {
+		t.Fatalf("Load = %v, want ErrFileReplaced (a read may run on the file now at the path)", err)
+	}
+	if err := m.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := todo.OpenStore(held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	doc, _, err := st.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := find(doc, "a").Status; got != todo.Working {
+		t.Errorf("a = %v in the unlinked file, want working (the write must be refused)", got)
+	}
+}
+
+// A status change while another process holds the writer lock fails fast with
+// the store's busy message in the footer, instead of freezing the UI for the
+// 5 s busy timeout, and leaves the task where it was.
+func TestStatusChangeWhileLockedShowsBusy(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m = selectTitle(t, m, "a")
+	todotest.HoldWriteLock(t, path)
+
+	start := time.Now()
+	m = press(m, "p")
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("the status change blocked the UI for %v", elapsed)
+	}
+	if got := m.footer(200); !strings.Contains(got, "save failed: "+todo.ErrBusy.Error()) {
+		t.Errorf("footer = %q, want the busy message", got)
+	}
+	if st := find(m.doc, "a").Status; st != todo.Open {
+		t.Errorf("a shows %v after the failed save, want open", st)
+	}
+}
+
+// statusIn reads the status of the item titled title from the store file at
+// path through a second handle.
+func statusIn(t *testing.T, path, title string) todo.Status {
+	t.Helper()
+	doc, _, err := openSecond(t, path).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := find(doc, title)
+	if it == nil {
+		t.Fatalf("%q is not in the store at %s", title, path)
+	}
+	return it.Status
+}
+
+// TestReplacedFileIsReopened renames another store in over the open one after
+// the TUI wrote to it: the next poll must reopen the store at the path, show
+// the new file's list as an external change, clear the error, and send the
+// writes that follow into the new file.
+func TestReplacedFileIsReopened(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = press(selectTitle(t, m, "a"), "p") // a write, so the old store has a WAL
+	other := todotest.Seed(t, "# Other\n\n- [ ] b\n")
+	if err := os.Rename(other, path); err != nil {
+		t.Fatal(err)
+	}
+	m = send(m, reloadCheck(m.store, m.lastRev))
+	if !errors.Is(m.err, todo.ErrFileReplaced) {
+		t.Fatalf("m.err = %v, want ErrFileReplaced", m.err)
+	}
+
+	m = pollCmdOnce(m)
+	t.Cleanup(func() { _ = m.store.Close() })
+	if m.err != nil {
+		t.Errorf("the reopen must clear the error, got %v", m.err)
+	}
+	if find(m.doc, "b") == nil || find(m.doc, "a") != nil || !hasRow(m, "b") {
+		t.Fatalf("the view must show the new file's list, rows %v", rowTitles(m.tree))
+	}
+	if !strings.Contains(m.status, "changed externally") {
+		t.Errorf("status = %q, want the external-change notice", m.status)
+	}
+
+	m = press(selectTitle(t, m, "b"), "p")
+	if m.err != nil {
+		t.Fatalf("a write after the reopen failed: %v", m.err)
+	}
+	if got := statusIn(t, path, "b"); got == todo.Open {
+		t.Errorf("b = %v in the file at the path, want the status change written there", got)
+	}
+}
+
+// TestRemovedFileIsNotRecreated removes the store file under the TUI: the
+// poll must keep reporting it and never create a new database at the path;
+// once a store file is put back, the next poll reopens it.
+func TestRemovedFileIsNotRecreated(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	if err := os.Rename(path, path+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		m = pollCmdOnce(m)
+		if !errors.Is(m.err, todo.ErrFileReplaced) {
+			t.Fatalf("m.err = %v, want ErrFileReplaced", m.err)
+		}
+		if ok, err := todo.StoreExists(path); err != nil || ok {
+			t.Fatalf("a store file exists at the path after the poll (%v, %v); none may be created", ok, err)
+		}
+	}
+
+	if err := os.Rename(todotest.Seed(t, "# Other\n\n- [ ] b\n"), path); err != nil {
+		t.Fatal(err)
+	}
+	m = pollCmdOnce(m)
+	t.Cleanup(func() { _ = m.store.Close() })
+	if m.err != nil || find(m.doc, "b") == nil {
+		t.Errorf("the file put back must be reopened: err %v, rows %v", m.err, rowTitles(m.tree))
+	}
+}
+
+// TestReopenDeferredWhileModal replaces the store file while a dialog is open:
+// the reopen must wait for plain navigation, so a dialog opened on the old
+// list never writes to the new file, whose IDs name other items.
+func TestReopenDeferredWhileModal(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = press(selectTitle(t, m, "a"), "t")
+	if err := os.Rename(todotest.Seed(t, "# Other\n\n- [ ] b\n"), path); err != nil {
+		t.Fatal(err)
+	}
+	old := m.store
+	m = pollCmdOnce(m)
+	if m.store != old || find(m.doc, "a") == nil {
+		t.Fatalf("the store must not be reopened while a dialog is open")
+	}
+	m = press(m, "esc")
+	m = pollCmdOnce(m)
+	t.Cleanup(func() { _ = m.store.Close() })
+	if m.store == old || find(m.doc, "b") == nil {
+		t.Errorf("back in navigation, the poll must reopen the store")
+	}
 }

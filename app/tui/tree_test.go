@@ -10,12 +10,12 @@ import (
 
 func TestTreeFlatten(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] a\n  - [ ] a1\n- [ ] b\n")
-	tr := newTree(d)
+	tr := newTree(d, newViewState())
 	// Four real rows plus the trailing placeholder.
 	if len(tr.rows) != 5 {
 		t.Fatalf("got %d rows, want 5 (incl. placeholder)", len(tr.rows))
 	}
-	if !tr.rows[4].placeholder {
+	if tr.rows[4].kind != rowNewCategory {
 		t.Errorf("the last row should be the placeholder")
 	}
 	want := []string{"Work", "a", "a1", "b"}
@@ -34,8 +34,8 @@ func TestTreeFlatten(t *testing.T) {
 }
 
 func TestTreePlaceholderAlwaysPresent(t *testing.T) {
-	tr := newTree(parseDoc(t, "# Work\n")) // rows: Work, placeholder
-	if len(tr.rows) != 2 || !tr.rows[1].placeholder {
+	tr := newTree(parseDoc(t, "# Work\n"), newViewState()) // rows: Work, placeholder
+	if len(tr.rows) != 2 || tr.rows[1].kind != rowNewCategory {
 		t.Fatalf("expected a trailing placeholder row, got %d rows", len(tr.rows))
 	}
 	tr.cursor = 1
@@ -50,7 +50,7 @@ func TestTreePlaceholderAlwaysPresent(t *testing.T) {
 
 func TestTreeCollapseJumpsToParentOnLeaf(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] a\n")
-	tr := newTree(d)
+	tr := newTree(d, newViewState())
 	tr.cursor = 1 // task a (a leaf)
 	tr.collapse()
 	if tr.selected().Title != "Work" {
@@ -60,8 +60,8 @@ func TestTreeCollapseJumpsToParentOnLeaf(t *testing.T) {
 
 func TestTreeCursorClampsAfterRebuild(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] a\n- [ ] b\n")
-	tr := newTree(d) // rows: Work, a, b, placeholder
-	tr.cursor = 2    // task b
+	tr := newTree(d, newViewState()) // rows: Work, a, b, placeholder
+	tr.cursor = 2                    // task b
 	tr.collapsed[d.Roots[0].ID] = true
 	tr.rebuild() // now: Work, placeholder
 	if tr.cursor != len(tr.rows)-1 {
@@ -71,7 +71,7 @@ func TestTreeCursorClampsAfterRebuild(t *testing.T) {
 
 func TestTreeRowRendering(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] open\n- [x] done\n")
-	tr := newTree(d)
+	tr := newTree(d, newViewState())
 	// Unselected done task shows a filled circle; open task shows an empty circle.
 	if got := tr.rowString(treeRow{item: find(d, "done")}, false); !strings.Contains(got, "●") {
 		t.Errorf("done row should contain ●, got %q", got)
@@ -92,7 +92,7 @@ func TestTreePageJumps(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		_, _ = fmt.Fprintf(&b, "- [ ] t%d\n", i)
 	}
-	tr := newTree(parseDoc(t, b.String()))
+	tr := newTree(parseDoc(t, b.String()), newViewState())
 	last := len(tr.rows) - 1
 
 	// pageDown advances a fixed navStep rows.
@@ -126,7 +126,7 @@ func TestTreeScrollDecoupledFromCursor(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		_, _ = fmt.Fprintf(&b, "- [ ] t%d\n", i)
 	}
-	tr := newTree(parseDoc(t, b.String()))
+	tr := newTree(parseDoc(t, b.String()), newViewState())
 	tr.viewHeight = 10
 
 	// Scroll down well past the first page.
@@ -168,7 +168,7 @@ func TestTreeScrollDecoupledFromCursor(t *testing.T) {
 }
 
 func TestTreeEmptyView(t *testing.T) {
-	tr := newTree(&todo.Document{})
+	tr := newTree(&todo.Document{}, newViewState())
 	if !strings.Contains(tr.view(40, 10), "new category") {
 		t.Errorf("an empty tree should still show the + new category placeholder")
 	}
@@ -176,11 +176,35 @@ func TestTreeEmptyView(t *testing.T) {
 
 func TestTreeDescriptionMarker(t *testing.T) {
 	d := parseDoc(t, "# Work\n\n- [ ] a\n  notes here\n- [ ] b\n")
-	tr := newTree(d)
+	tr := newTree(d, newViewState())
 	if got := tr.rowString(treeRow{item: find(d, "a")}, false); !strings.Contains(got, "≡") {
 		t.Errorf("a task with a description should carry the ≡ marker, got %q", got)
 	}
 	if got := tr.rowString(treeRow{item: find(d, "b")}, false); strings.Contains(got, "≡") {
 		t.Errorf("a task without a description must not carry the marker, got %q", got)
+	}
+}
+
+// TestTaskRowTrailer pins the exact text after a task's title (state, subtask
+// progress, the no-plan warning and the ≡ marker) on selected and unselected
+// rows, and its absence on a subtask row.
+func TestTaskRowTrailer(t *testing.T) {
+	d := parseDoc(t, "# Work\n\n- [ ] a\n  notes here\n  - [x] s1\n  - [ ] s2\n")
+	find(d, "a").Status = todo.Ready
+	tr := newTree(d, newViewState())
+	cases := []struct {
+		row      treeRow
+		selected bool
+		want     string
+	}{
+		{treeRow{item: find(d, "a")}, false, "    ◉ a ready (1/2) ⚠ no plan ≡"},
+		{treeRow{item: find(d, "a")}, true, "❯   ◉ a ready (1/2) ⚠ no plan ≡"},
+		{treeRow{item: find(d, "s1"), depth: 1}, false, "      ● s1"},
+		{treeRow{item: find(d, "s2"), depth: 1}, true, "❯     ○ s2"},
+	}
+	for _, c := range cases {
+		if got := tr.rowString(c.row, c.selected); got != c.want {
+			t.Errorf("rowString(%q, selected %v) = %q, want %q", c.row.item.Title, c.selected, got, c.want)
+		}
 	}
 }
