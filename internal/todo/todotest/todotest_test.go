@@ -40,11 +40,7 @@ func TestSeedDumpRoundTrip(t *testing.T) {
 // HoldWriteLock keeps every other writer out until the test that took it ends.
 func TestHoldWriteLock(t *testing.T) {
 	path := todotest.Seed(t, "# A\n")
-	s, err := todo.OpenStore(path, todo.WithBusyTimeout(50*time.Millisecond))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
+	s := todo.NewStore(path, todo.WithBusyTimeout(50*time.Millisecond))
 	ctx := context.Background()
 	t.Run("held", func(t *testing.T) {
 		todotest.HoldWriteLock(t, path)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -20,9 +21,23 @@ const (
 	legacyDBFile = ".todo.db"
 )
 
-// openDB opens an existing store or creates it; tests replace it to observe
-// how often a command opens the store.
-var openDB = todo.OpenStore
+// openDB returns the store on path; tests replace it to observe how often a
+// command opens the store.
+var openDB = func(path string, opts ...todo.Option) (*todo.Store, error) {
+	return todo.NewStore(path, opts...), nil
+}
+
+// fileExists reports whether a file exists at path.
+func fileExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
 
 // resolvePath returns the store a command operates on: the positional argument,
 // else the --file flag, else defaultFile. isDefault reports that none of them
@@ -56,11 +71,11 @@ func legacyImportable(path string, isDefault bool) (bool, error) {
 	if !isDefault {
 		return false, nil
 	}
-	exists, err := todo.StoreExists(path)
+	exists, err := fileExists(path)
 	if err != nil || exists {
 		return false, err
 	}
-	return todo.StoreExists(legacyFile)
+	return fileExists(legacyFile)
 }
 
 // legacyDBNotice returns the notice that a .todo.db an older todo left is not
@@ -70,11 +85,11 @@ func legacyDBNotice(path string, isDefault bool) (string, error) {
 	if !isDefault {
 		return "", nil
 	}
-	exists, err := todo.StoreExists(path)
+	exists, err := fileExists(path)
 	if err != nil || exists {
 		return "", err
 	}
-	old, err := todo.StoreExists(legacyDBFile)
+	old, err := fileExists(legacyDBFile)
 	if err != nil || !old {
 		return "", err
 	}
@@ -139,18 +154,15 @@ func openOrImport(path string, isDefault bool, opts ...todo.Option) (*todo.Store
 // nothing to import it returns an empty document. An automatic import notice,
 // and the .todo.db notice, are written to stderr.
 func openForRead(cmd *cobra.Command, path string, isDefault bool) (*todo.Document, error) {
-	s, doc, err := loadStore(cmd, path, isDefault)
-	if s != nil {
-		_ = s.Close()
-	}
+	_, doc, err := loadStore(cmd, path, isDefault)
 	return doc, err
 }
 
-// loadStore is openForRead that keeps the store open: it returns the open store
+// loadStore is openForRead that also returns the store: it returns the store
 // and its document, or a nil store and an empty document when there is no store
-// and nothing to import. The caller closes a non-nil store.
+// and nothing to import.
 func loadStore(cmd *cobra.Command, path string, isDefault bool) (*todo.Store, *todo.Document, error) {
-	exists, err := todo.StoreExists(path)
+	exists, err := fileExists(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -175,7 +187,6 @@ func loadStore(cmd *cobra.Command, path string, isDefault bool) (*todo.Store, *t
 	printNotice(cmd, notice)
 	doc, _, err := s.Load(storeCtx(cmd))
 	if err != nil {
-		_ = s.Close()
 		return nil, nil, listErr(err)
 	}
 	return s, doc, nil
@@ -191,7 +202,7 @@ type storeOpener func() (*todo.Store, error)
 // it. open returns the store the document was loaded from; only when there was
 // none does it create one, and fn calls open only once it is about to write, so
 // a command that fails earlier — a selector that matches nothing, a usage error
-// — never creates the store. The store is closed afterwards. A store
+// — never creates the store. A store
 // ErrNotFound becomes the CLI's not-found error, a store ErrTooDeep,
 // ErrSubtaskStatus or ErrInvalidMove its usage one, a store ErrWrongParent or
 // ErrNotTask its wrong-kind one, a store ErrConflict or ErrBusy its conflict
@@ -206,11 +217,6 @@ func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if s != nil {
-			_ = s.Close()
-		}
-	}()
 	open := func() (*todo.Store, error) {
 		if s != nil {
 			return s, nil

@@ -138,7 +138,7 @@ func prepareImport(doc *Document) error {
 
 // ImportFile imports the markdown file mdPath into the list at path, creating
 // the file when needed, in one write (see Import), and returns a store on path
-// opened with opts. It never writes mdPath. A list that holds items is
+// made with opts. It never writes mdPath. A list that holds items is
 // ErrNotEmpty without replace, with nothing written. With replace, the list
 // file is first copied to the first free BackupPath, named in the report's
 // Backup; when the import then fails, that copy is removed again.
@@ -151,10 +151,7 @@ func ImportFile(path, mdPath string, replace bool, opts ...Option) (*Store, Impo
 	if err != nil {
 		return nil, ImportReport{}, fmt.Errorf("%s: %w", mdPath, err)
 	}
-	s, err := OpenStore(path, opts...)
-	if err != nil {
-		return nil, ImportReport{}, err
-	}
+	s := NewStore(path, opts...)
 	if rep.Backup, err = s.importDoc(context.Background(), doc, replace, true); err != nil {
 		return nil, ImportReport{}, err
 	}

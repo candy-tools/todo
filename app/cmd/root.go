@@ -49,7 +49,6 @@ func newRootCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer func() { _ = st.Close() }()
 			return tui.Run(st, notice)
 		},
 	}

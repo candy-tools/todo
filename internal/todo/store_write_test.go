@@ -253,21 +253,13 @@ func TestDeleteSubtree(t *testing.T) {
 func TestPruneUsesFreshData(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), ".todo.json")
-	s1, err := OpenStore(path)
-	if err != nil {
-		t.Fatalf("OpenStore s1: %v", err)
-	}
-	t.Cleanup(func() { _ = s1.Close() })
+	s1 := NewStore(path)
 	a := mustID(t)(s1.AddCategory(ctx, "A", "", ""))
 	done := mustID(t)(s1.AddTask(ctx, Fields{Title: "done"}, Done, a, ""))
 	d1 := mustID(t)(s1.AddTask(ctx, Fields{Title: "d1"}, Done, done, ""))
 
 	// A second process adds an open subtask under done after s1 last looked.
-	s2, err := OpenStore(path)
-	if err != nil {
-		t.Fatalf("OpenStore s2: %v", err)
-	}
-	t.Cleanup(func() { _ = s2.Close() })
+	s2 := NewStore(path)
 	fresh := mustID(t)(s2.AddTask(ctx, Fields{Title: "fresh"}, Open, done, d1))
 
 	n, err := s1.Prune(ctx)
@@ -285,23 +277,12 @@ func TestPruneUsesFreshData(t *testing.T) {
 	}
 }
 
-func TestOpenStoreReopenKeepsData(t *testing.T) {
+func TestNewStoreKeepsData(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), ".todo.json")
-	s, err := OpenStore(path)
-	if err != nil {
-		t.Fatalf("OpenStore: %v", err)
-	}
-	id := mustID(t)(s.AddCategory(ctx, "kept", "", ""))
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	id := mustID(t)(NewStore(path).AddCategory(ctx, "kept", "", ""))
 
-	s, err = OpenStore(path)
-	if err != nil {
-		t.Fatalf("reopen: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
+	s := NewStore(path)
 	doc := load(t, s)
 	if len(doc.Roots) != 1 || doc.Roots[0].ID != id || doc.Roots[0].Title != "kept" || doc.Roots[0].Kind != Category {
 		t.Fatalf("roots after reopen = %v, want the one category kept", titles(doc.Roots))

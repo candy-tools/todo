@@ -84,11 +84,7 @@ func TestImportEmptyFile(t *testing.T) {
 
 func TestImportRefusesNonEmpty(t *testing.T) {
 	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
-	s, err := todo.OpenStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
+	s := todo.NewStore(path)
 	doc, _, _ := todo.ImportMarkdown([]byte("# B\n"))
 	if err := s.Import(context.Background(), doc, false); !errors.Is(err, todo.ErrNotEmpty) {
 		t.Fatalf("Import = %v; want ErrNotEmpty", err)
@@ -100,11 +96,7 @@ func TestImportRefusesNonEmpty(t *testing.T) {
 
 func TestImportReplace(t *testing.T) {
 	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
-	s, err := todo.OpenStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
+	s := todo.NewStore(path)
 	doc, _, _ := todo.ImportMarkdown([]byte("# B\n\n- [x] two\n  desc\n"))
 	if err := s.Import(context.Background(), doc, true); err != nil {
 		t.Fatal(err)
@@ -123,8 +115,7 @@ func TestImportFileFailureLeavesNoFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := filepath.Join(dir, ".todo.json")
-	if s, _, err := todo.ImportFile(list, md, false); err == nil {
-		_ = s.Close()
+	if _, _, err := todo.ImportFile(list, md, false); err == nil {
 		t.Fatal("ImportFile succeeded on invalid UTF-8")
 	}
 	if left, _ := filepath.Glob(filepath.Join(dir, ".todo*")); len(left) > 0 {
@@ -162,7 +153,6 @@ func TestImportFileCreatesList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s.Close() }()
 	if s.Path() != list || rep.Categories != 1 || rep.Tasks != 1 || rep.Backup != "" {
 		t.Fatalf("ImportFile = %s, %+v; want a store on %s and 1 category, 1 task, no backup", s.Path(), rep, list)
 	}
@@ -179,11 +169,7 @@ func TestImportFlattensDeepMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := todo.OpenStore(filepath.Join(t.TempDir(), ".todo.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
+	s := todo.NewStore(filepath.Join(t.TempDir(), ".todo.json"))
 	if err := s.Import(context.Background(), doc, false); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +213,6 @@ func TestImportFileReplaceBacksUpNonEmptyStore(t *testing.T) {
 	if _, err := s.AddCategory(context.Background(), "After", "", ""); err != nil {
 		t.Fatalf("write after the import: %v", err)
 	}
-	_ = s.Close()
 	if want := todo.BackupPath(db, 0); rep.Backup != want {
 		t.Fatalf("Backup = %q, want %q", rep.Backup, want)
 	}
@@ -248,11 +233,10 @@ func TestImportFileReplaceEmptyStoreTakesNoBackup(t *testing.T) {
 	if err := os.WriteFile(md, []byte("# New\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, rep, err := todo.ImportFile(db, md, true)
+	_, rep, err := todo.ImportFile(db, md, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = s.Close()
 	if rep.Backup != "" {
 		t.Fatalf("Backup = %q, want none", rep.Backup)
 	}

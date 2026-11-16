@@ -20,13 +20,10 @@ func writeMarkdown(t *testing.T, md string) string {
 	return p
 }
 
-// importMarkdown runs ImportFile of md into path, closing the store it returns.
+// importMarkdown runs ImportFile of md into path.
 func importMarkdown(t *testing.T, path, md string, replace bool) (ImportReport, error) {
 	t.Helper()
-	s, rep, err := ImportFile(path, writeMarkdown(t, md), replace)
-	if err == nil {
-		_ = s.Close()
-	}
+	_, rep, err := ImportFile(path, writeMarkdown(t, md), replace)
 	return rep, err
 }
 

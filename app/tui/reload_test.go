@@ -283,8 +283,8 @@ func TestRemovedFileKeepsView(t *testing.T) {
 	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
 		t.Errorf("rows = %v, want %v", got, rows)
 	}
-	if ok, err := todo.StoreExists(path); err != nil || ok {
-		t.Fatalf("a list file exists at the path after the polls (%v, %v); none may be created", ok, err)
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a list file exists at the path after the polls (stat err %v); none may be created", err)
 	}
 
 	// A save finds no task to change: it fails, and the view keeps the list
@@ -296,8 +296,8 @@ func TestRemovedFileKeepsView(t *testing.T) {
 	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
 		t.Errorf("after the failed save rows = %v, want %v", got, rows)
 	}
-	if ok, err := todo.StoreExists(path); err != nil || ok {
-		t.Fatalf("a list file exists at the path after the failed save (%v, %v)", ok, err)
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a list file exists at the path after the failed save (stat err %v)", err)
 	}
 
 	if _, err := openSecond(t, path).AppendCategory(context.Background(), "Back", ""); err != nil {
@@ -339,8 +339,8 @@ func TestNoOpWriteWhileFileRemovedKeepsView(t *testing.T) {
 	if m.lastFP != fp {
 		t.Errorf("lastFP moved to %x, want the last loaded %x", m.lastFP, fp)
 	}
-	if ok, err := todo.StoreExists(path); err != nil || ok {
-		t.Fatalf("a list file exists at the path after the no-op write (%v, %v)", ok, err)
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a list file exists at the path after the no-op write (stat err %v)", err)
 	}
 }
 

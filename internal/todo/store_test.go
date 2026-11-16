@@ -10,27 +10,10 @@ import (
 	"testing"
 )
 
-// newStore opens a store on a missing .todo.json in a temporary directory,
-// closed with the test.
+// newStore returns a store on a missing .todo.json in a temporary directory.
 func newStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := OpenStore(filepath.Join(t.TempDir(), ".todo.json"))
-	if err != nil {
-		t.Fatalf("OpenStore: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return s
-}
-
-// openAt opens a store on path, closed with the test.
-func openAt(t *testing.T, path string) *Store {
-	t.Helper()
-	s, err := OpenStore(path)
-	if err != nil {
-		t.Fatalf("OpenStore: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return s
+	return NewStore(filepath.Join(t.TempDir(), ".todo.json"))
 }
 
 // fileBytes returns the content of path, nil when it does not exist.
@@ -59,19 +42,6 @@ func TestLoadMissingFile(t *testing.T) {
 		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s after Load: stat err = %v, want it not created", filepath.Base(p), err)
 		}
-	}
-}
-
-func TestStoreExists(t *testing.T) {
-	s := newStore(t)
-	if ok, err := StoreExists(s.Path()); err != nil || ok {
-		t.Fatalf("StoreExists(missing) = %v, %v; want false, nil", ok, err)
-	}
-	if _, err := s.AppendCategory(context.Background(), "A", ""); err != nil {
-		t.Fatal(err)
-	}
-	if ok, err := StoreExists(s.Path()); err != nil || !ok {
-		t.Fatalf("StoreExists(written) = %v, %v; want true, nil", ok, err)
 	}
 }
 
@@ -160,7 +130,7 @@ func TestStoreStaleCallerOps(t *testing.T) {
 	if _, _, err := a.Load(ctx); err != nil {
 		t.Fatal(err)
 	}
-	b := openAt(t, a.Path())
+	b := NewStore(a.Path())
 	mustOK(t, b.Delete(ctx, tk))
 
 	want := fileBytes(t, a.Path())
@@ -183,7 +153,7 @@ func TestStorePruneSeesFreshFile(t *testing.T) {
 	if got := item(t, load(t, a), done); got.Status != Done {
 		t.Fatalf("done = %v", got.Status)
 	}
-	b := openAt(t, a.Path())
+	b := NewStore(a.Path())
 	sub := mustID(t)(b.AppendTask(ctx, Fields{Title: "sub"}, Open, done))
 
 	n, err := a.Prune(ctx)
@@ -311,31 +281,11 @@ func TestStoreChanged(t *testing.T) {
 }
 
 func TestStoreDirectoryPathFails(t *testing.T) {
-	s := openAt(t, t.TempDir())
+	s := NewStore(t.TempDir())
 	if _, _, err := s.Load(context.Background()); err == nil {
 		t.Fatal("Load of a directory succeeded; want an error")
 	}
 	if _, err := s.AppendCategory(context.Background(), "A", ""); err == nil {
 		t.Fatal("a write to a directory succeeded; want an error")
-	}
-}
-
-func TestOpenStoreBusyTimeout(t *testing.T) {
-	for _, tc := range []struct {
-		opts []Option
-		want string
-	}{
-		{nil, DefaultBusyTimeout.String()},
-		{[]Option{WithBusyTimeout(0)}, DefaultBusyTimeout.String()},
-		{[]Option{WithBusyTimeout(-1)}, DefaultBusyTimeout.String()},
-		{[]Option{WithBusyTimeout(750 * 1e6)}, "750ms"},
-	} {
-		s, err := OpenStore(filepath.Join(t.TempDir(), ".todo.json"), tc.opts...)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := s.busyTimeout.String(); got != tc.want {
-			t.Errorf("busy timeout = %s, want %s", got, tc.want)
-		}
 	}
 }

@@ -10,17 +10,13 @@ import (
 )
 
 // newTestModel seeds a store from the markdown src, opens it with the TUI's
-// BusyTimeout into a model (closed when the test ends), and sizes the view. It
+// BusyTimeout into a model, and sizes the view. It
 // returns the model and the store path so tests can assert on what was
 // persisted.
 func newTestModel(t *testing.T, src string) (model, string) {
 	t.Helper()
 	path := todotest.Seed(t, src)
-	st, err := todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
+	st := todo.NewStore(path, todo.WithBusyTimeout(BusyTimeout))
 	m, err := newModel(st, "")
 	if err != nil {
 		t.Fatalf("newModel: %v", err)
@@ -51,16 +47,10 @@ func showOn(t *testing.T, m model, c todo.Column, title string) model {
 }
 
 // openSecond opens another handle on the store at path, standing in for a second
-// process (a CLI command or an agent) writing to the same list. It is closed when
-// the test ends.
+// process (a CLI command or an agent) writing to the same list.
 func openSecond(t *testing.T, path string) *todo.Store {
 	t.Helper()
-	st, err := todo.OpenStore(path)
-	if err != nil {
-		t.Fatalf("open second store: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
+	return todo.NewStore(path)
 }
 
 // parseDoc parses the markdown src and numbers its items 1, 2, … in document

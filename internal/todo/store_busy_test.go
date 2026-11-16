@@ -14,16 +14,12 @@ import (
 // busy timeout, not the 5 s default, and reports ErrBusy; a read does not wait.
 func TestStoreBusy(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-	s, err := todo.OpenStore(path, todo.WithBusyTimeout(50*time.Millisecond))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
+	s := todo.NewStore(path, todo.WithBusyTimeout(50*time.Millisecond))
 	ctx := context.Background()
 	todotest.HoldWriteLock(t, path)
 
 	start := time.Now()
-	_, err = s.AppendCategory(ctx, "B", "")
+	_, err := s.AppendCategory(ctx, "B", "")
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Errorf("the write waited %v, want well under the 5 s default", elapsed)
 	}

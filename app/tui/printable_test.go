@@ -67,11 +67,7 @@ func newLegacyModel(t *testing.T) (model, string) {
 	t.Helper()
 	path := todotest.Seed(t, "# Cat\n\n- [ ] task\n")
 	setRawTaskFields(t, path, "task", legacyDesc, legacyPlan)
-	st, err := todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
+	st := todo.NewStore(path, todo.WithBusyTimeout(BusyTimeout))
 	m, err := newModel(st, "")
 	if err != nil {
 		t.Fatalf("newModel: %v", err)

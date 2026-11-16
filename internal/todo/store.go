@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +35,7 @@ type Fingerprint = jsonfile.Fingerprint
 // another process to release the write lock before failing with ErrBusy.
 const DefaultBusyTimeout = jsonfile.DefaultLockTimeout
 
-// Option configures OpenStore.
+// Option configures NewStore.
 type Option func(*storeCfg)
 
 // storeCfg holds the settings Options change.
@@ -74,49 +73,30 @@ type WriteResult struct {
 // write only while a single goroutine writes through the Store: with several,
 // it may be another goroutine's later write.
 type Store struct {
-	file        *jsonfile.Store[diskList]
-	busyTimeout time.Duration
+	file *jsonfile.Store[diskList]
 
 	mu   sync.Mutex
 	last WriteResult
 }
 
-// OpenStore returns a store for the list file at path. It does no I/O: a
-// missing file reads as an empty list, and the first write creates it.
-func OpenStore(path string, opts ...Option) (*Store, error) {
-	cfg := storeCfg{busyTimeout: DefaultBusyTimeout}
+// NewStore returns a store for the list file at path. It does no I/O and holds no
+// open file, so there is nothing to close: a missing file reads as an empty
+// list, and the first write creates it.
+func NewStore(path string, opts ...Option) *Store {
+	var cfg storeCfg
 	for _, o := range opts {
 		o(&cfg)
 	}
-	if cfg.busyTimeout <= 0 {
-		cfg.busyTimeout = DefaultBusyTimeout
-	}
 	file := jsonfile.New(jsonfile.Config[diskList]{
 		Path:        path,
-		LockTimeout: cfg.busyTimeout,
+		LockTimeout: cfg.busyTimeout, // jsonfile turns a non-positive one into the default
 		Validate:    func(l *diskList) error { return l.validate() },
 	})
-	return &Store{file: file, busyTimeout: cfg.busyTimeout}, nil
+	return &Store{file: file}
 }
-
-// Close releases nothing and always returns nil: a Store holds no open file
-// between calls. It is kept so callers need not change.
-func (s *Store) Close() error { return nil }
 
 // Path returns the path of the list file.
 func (s *Store) Path() string { return s.file.Path() }
-
-// StoreExists reports whether a list file exists at path.
-func StoreExists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
-}
 
 // Load reads the whole list and the fingerprint of the bytes it came from,
 // without taking the lock. A missing file is an empty Document and the zero

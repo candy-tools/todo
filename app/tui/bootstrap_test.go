@@ -12,11 +12,7 @@ import (
 // notice (e.g. the automatic TODO.md import summary) in the footer, and starts
 // from the fingerprint of the store's file.
 func TestNewModelShowsNoticeAndStoreName(t *testing.T) {
-	st, err := todo.OpenStore(filepath.Join(t.TempDir(), ".todo.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
+	st := todo.NewStore(filepath.Join(t.TempDir(), ".todo.json"))
 	notice := "imported 1 categories, 2 tasks from TODO.md"
 	m, err := newModel(st, notice)
 	if err != nil {

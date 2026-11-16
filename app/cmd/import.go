@@ -28,7 +28,7 @@ func importCmd() *cobra.Command {
 			}
 			printNotice(cmd, notice)
 			force, _ := cmd.Flags().GetBool("force")
-			s, rep, err := importFile(db, args[0], force)
+			_, rep, err := importFile(db, args[0], force)
 			if errors.Is(err, todo.ErrNotEmpty) {
 				return &cliError{exitGeneric, fmt.Sprintf("%s already has items; use --force to replace them", db)}
 			}
@@ -38,7 +38,6 @@ func importCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_ = s.Close()
 			if rep.Backup != "" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "backed up the replaced items to %s\n", rep.Backup)
 			}

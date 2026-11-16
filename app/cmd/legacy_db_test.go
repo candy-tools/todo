@@ -96,11 +96,10 @@ func TestLegacyDBNoticeDefaultPathOnly(t *testing.T) {
 func TestLegacyDBNoticeForTUI(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeOldDB(t)
-	s, notice, err := openOrImport(defaultFile, true)
+	_, notice, err := openOrImport(defaultFile, true)
 	if err != nil {
 		t.Fatalf("openOrImport: %v", err)
 	}
-	_ = s.Close()
 	if notice != wantDBNotice {
 		t.Errorf("notice = %q, want the .todo.db notice", notice)
 	}
@@ -108,11 +107,10 @@ func TestLegacyDBNoticeForTUI(t *testing.T) {
 	if err := os.WriteFile(legacyFile, []byte("# Work\n\n- [ ] alpha\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, notice, err = openOrImport(defaultFile, true)
+	_, notice, err = openOrImport(defaultFile, true)
 	if err != nil {
 		t.Fatalf("openOrImport with TODO.md: %v", err)
 	}
-	_ = s.Close()
 	if lines := strings.Split(notice, "\n"); len(lines) != 2 || lines[0] != wantDBNotice ||
 		lines[1] != "imported 1 categories, 1 tasks from TODO.md" {
 		t.Errorf("notice = %q, want the .todo.db notice and the import notice", notice)

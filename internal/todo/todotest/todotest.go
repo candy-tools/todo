@@ -22,12 +22,9 @@ func Seed(t testing.TB, md string) string {
 	if err := writeFile(mdPath, md); err != nil {
 		t.Fatalf("todotest.Seed: %v", err)
 	}
-	s, rep, err := todo.ImportFile(path, mdPath, false)
+	_, rep, err := todo.ImportFile(path, mdPath, false)
 	if err != nil {
 		t.Fatalf("todotest.Seed: %v", err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("todotest.Seed: close: %v", err)
 	}
 	if len(rep.Warnings) > 0 {
 		t.Fatalf("todotest.Seed: import warnings: %q", rep.Warnings)
@@ -35,15 +32,10 @@ func Seed(t testing.TB, md string) string {
 	return path
 }
 
-// Dump opens the list at path and returns its content as canonical markdown.
+// Dump reads the list at path and returns its content as canonical markdown.
 func Dump(t testing.TB, path string) string {
 	t.Helper()
-	s, err := todo.OpenStore(path)
-	if err != nil {
-		t.Fatalf("todotest.Dump: %v", err)
-	}
-	defer func() { _ = s.Close() }()
-	doc, _, err := s.Load(context.Background())
+	doc, _, err := todo.NewStore(path).Load(context.Background())
 	if err != nil {
 		t.Fatalf("todotest.Dump: %v", err)
 	}

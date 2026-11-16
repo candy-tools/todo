@@ -125,8 +125,7 @@ const BusyTimeout = 750 * time.Millisecond
 
 // Run loads the list from st and starts the interactive TUI. notice (e.g. the
 // automatic TODO.md import summary) is shown in the footer at start; it may be
-// empty. The caller owns st, opened with BusyTimeout, and closes it after Run
-// returns.
+// empty. The caller makes st with BusyTimeout.
 func Run(st *todo.Store, notice string) error {
 	m, err := newModel(st, notice)
 	if err != nil {
