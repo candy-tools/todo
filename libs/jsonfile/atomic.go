@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // tempAttempts bounds the search for an unused temp file name.
@@ -26,7 +27,9 @@ var afterTempWrite func(name string)
 // directory, renames it over path and, on Unix, fsyncs the directory. A new
 // file gets mode 0o666 less the umask; a replaced one keeps its mode. The temp
 // file is removed on any failure. path must not be a symlink (the rename would
-// replace the link): callers resolve it first (see resolveLinks).
+// replace the link): callers resolve it first (see resolveLinks). It must be
+// called under the lock: it first removes temp files a crashed writer left
+// (see sweepTemps).
 //
 // The directory fsync is best-effort: its errors are ignored, and it is
 // skipped on Windows, which cannot fsync a directory. The write has succeeded
@@ -42,7 +45,9 @@ func atomicWrite(path string, data []byte) (err error) {
 		return statErr
 	}
 
-	tmp, err := createTemp(dir, "."+base+".tmp-")
+	prefix := "." + base + ".tmp-"
+	sweepTemps(dir, prefix)
+	tmp, err := createTemp(dir, prefix)
 	if err != nil {
 		return err
 	}
@@ -85,6 +90,23 @@ func atomicWrite(path string, data []byte) (err error) {
 		}
 	}
 	return nil
+}
+
+// sweepTemps removes the files in dir whose names start with prefix: temp
+// files a writer left behind when it crashed between creating and renaming
+// one. It must only run under the lock: only the lock holder creates temp
+// files, so any found then are leftovers. It is best-effort, and errors are
+// ignored (a leftover only wastes space).
+func sweepTemps(dir, prefix string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), prefix) && e.Type().IsRegular() {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 // createTemp creates a new file named prefix plus a random suffix in dir, with

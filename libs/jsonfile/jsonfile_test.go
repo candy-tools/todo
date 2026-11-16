@@ -353,6 +353,31 @@ func TestNoTempFilesLeft(t *testing.T) {
 	}
 }
 
+// TestWriteSweepsStaleTempFiles leaves temp files behind as a crashed writer
+// would: the next write, holding the lock, removes them, and leaves other
+// files alone.
+func TestWriteSweepsStaleTempFiles(t *testing.T) {
+	path := tempPath(t)
+	dir := filepath.Dir(path)
+	stale := []string{".list.json.tmp-CRASHED1", ".list.json.tmp-CRASHED2"}
+	keep := []string{".other.json.tmp-X", "list.json.tmp-X", ".list.json.tmpX"}
+	for _, name := range append(append([]string{}, stale...), keep...) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("partial"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mustUpdate(t, jsonfile.New(jsonfile.Config[doc]{Path: path}), setN(1))
+	for _, name := range stale {
+		assertNotExist(t, filepath.Join(dir, name))
+	}
+	for _, name := range keep {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s was removed: %v", name, err)
+		}
+	}
+}
+
 // TestNoTempFileLeftOnWriteFailure makes the write itself fail: fn swaps the
 // file for a non-empty directory, so every rename attempt fails, and the temp
 // file must still be cleaned up.
