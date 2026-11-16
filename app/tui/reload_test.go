@@ -23,7 +23,7 @@ const halfWritten = `{"version":3,`
 // CLI command or an agent writing while the TUI runs.
 func externalAddTask(t *testing.T, path, title string, parentID, afterID string) string {
 	t.Helper()
-	id, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: title}, todo.Open, parentID, afterID)
+	id, _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: title}, todo.Open, parentID, afterID)
 	if err != nil {
 		t.Fatalf("external add: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestCommitAfterOutsideWriteIsExternal(t *testing.T) {
 		t.Fatalf("precondition: the complete must leave a snapshot, got %d", len(m.snapshots))
 	}
 	title := "b renamed"
-	if err := openSecond(t, path).Edit(context.Background(), find(m.doc, "b").ID, todo.Changes{Title: &title}); err != nil {
+	if _, err := openSecond(t, path).Edit(context.Background(), find(m.doc, "b").ID, todo.Changes{Title: &title}); err != nil {
 		t.Fatalf("external edit: %v", err)
 	}
 
@@ -300,7 +300,7 @@ func TestRemovedFileKeepsView(t *testing.T) {
 		t.Fatalf("a list file exists at the path after the failed save (stat err %v)", err)
 	}
 
-	if _, err := openSecond(t, path).AppendCategory(context.Background(), "Back", ""); err != nil {
+	if _, _, err := openSecond(t, path).AppendCategory(context.Background(), "Back", ""); err != nil {
 		t.Fatalf("write the file back: %v", err)
 	}
 	m = pollCmdOnce(m)
@@ -616,7 +616,7 @@ func TestReloadIgnoresOwnFingerprint(t *testing.T) {
 func TestProbeRacingOwnWriteIsIgnored(t *testing.T) {
 	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n- [/] b\n", todo.ColInProgress)
 	title := "b renamed"
-	if err := openSecond(t, path).Edit(context.Background(), find(m.doc, "b").ID, todo.Changes{Title: &title}); err != nil {
+	if _, err := openSecond(t, path).Edit(context.Background(), find(m.doc, "b").ID, todo.Changes{Title: &title}); err != nil {
 		t.Fatalf("external edit: %v", err)
 	}
 	late := reloadCheck(m.store, m.lastFP) // the probe started before the commit
@@ -756,7 +756,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 
 	// An agent reopens c1 through a second handle; no poll runs.
 	c1 := find(m.doc, "c1").ID
-	if err := openSecond(t, path).SetStatuses(context.Background(), map[string]todo.Status{c1: todo.Open}); err != nil {
+	if _, err := openSecond(t, path).SetStatuses(context.Background(), map[string]todo.Status{c1: todo.Open}); err != nil {
 		t.Fatalf("external write: %v", err)
 	}
 
@@ -857,10 +857,12 @@ func TestSavedWriteAdoptsWriteResult(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	a, b := find(m.doc, "a"), find(m.doc, "b")
 	m.doc.Remove(b)
-	saved := m.commit(a.ID, func(ctx context.Context) error {
-		err := m.store.Delete(ctx, b.ID)
+	var wrote todo.Fingerprint
+	saved := m.commit(a.ID, func(ctx context.Context) (todo.WriteResult, error) {
+		res, err := m.store.Delete(ctx, b.ID)
 		writeList(t, path, []byte(halfWritten)) // a read after the write fails
-		return err
+		wrote = res.Wrote
+		return res, err
 	})
 	if !saved || m.err != nil {
 		t.Fatalf("the write must succeed without error: saved %v, err %v", saved, m.err)
@@ -871,7 +873,7 @@ func TestSavedWriteAdoptsWriteResult(t *testing.T) {
 	if got := m.tree.selected().Title; got != "a" {
 		t.Errorf("selection = %q, want a", got)
 	}
-	if m.lastFP != m.store.LastWrite().Wrote {
+	if m.lastFP != wrote {
 		t.Errorf("lastFP must be the fingerprint the write left")
 	}
 }
@@ -882,7 +884,7 @@ func TestFailedWriteRevertsToStore(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	b := find(m.doc, "b")
 	m.doc.Remove(b)
-	m.commit(b.ID, func(context.Context) error { return errors.New("boom") })
+	m.commit(b.ID, func(context.Context) (todo.WriteResult, error) { return todo.WriteResult{}, errors.New("boom") })
 	if got := m.footer(200); !strings.Contains(got, "save failed: boom") {
 		t.Errorf("footer should report the failed save, got %q", got)
 	}
@@ -902,7 +904,7 @@ func TestFailedWriteReloadsOutsideChange(t *testing.T) {
 	a := find(m.doc, "a")
 	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
 	externalAddTask(t, path, "b", find(m.doc, "Work").ID, a.ID)
-	m.commit(a.ID, func(context.Context) error { return errors.New("boom") })
+	m.commit(a.ID, func(context.Context) (todo.WriteResult, error) { return todo.WriteResult{}, errors.New("boom") })
 	if find(m.doc, "b") == nil || !hasRow(m, "b") {
 		t.Errorf("the reload must show the outside change, rows %v", rowTitles(m.tree))
 	}
@@ -1012,13 +1014,13 @@ func TestCommitWithoutStoreWriteReloads(t *testing.T) {
 		m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 		if afterWrite {
 			m = press(selectTitle(t, m, "a"), "p")
-			if m.err != nil || m.store.LastWrite().Doc == nil {
+			if m.err != nil {
 				t.Fatalf("precondition: the write failed: %v", m.err)
 			}
 		}
 		b := find(m.doc, "b")
 		m.doc.Remove(b)
-		if !m.commit(b.ID, func(context.Context) error { return nil }) {
+		if !m.commit(b.ID, func(context.Context) (todo.WriteResult, error) { return todo.WriteResult{}, nil }) {
 			t.Fatalf("afterWrite=%v: the commit must report success", afterWrite)
 		}
 		if find(m.doc, "b") == nil || !hasRow(m, "b") {

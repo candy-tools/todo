@@ -619,7 +619,7 @@ func TestAddTaskAfterExternallyMovedSibling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := other.Move(context.Background(), find(doc, "b").ID, find(doc, "Sub").ID, ""); err != nil {
+	if _, err := other.Move(context.Background(), find(doc, "b").ID, find(doc, "Sub").ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	m = press(m, "n") // Work is selected
@@ -643,7 +643,7 @@ func TestAddCategoryAfterExternallyDeletedSibling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := other.Delete(context.Background(), find(doc, "Home").ID); err != nil {
+	if _, err := other.Delete(context.Background(), find(doc, "Home").ID); err != nil {
 		t.Fatal(err)
 	}
 	for !m.tree.onPlaceholder() {

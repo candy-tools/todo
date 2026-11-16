@@ -159,7 +159,7 @@ func TestSplitReloadKeepsScope(t *testing.T) {
 	m = press(m, "v")
 	m = sideSelect(t, m, "Backend")
 	backend := find(m.doc, "Backend").ID
-	if _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "ext"}, todo.Open, backend, ""); err != nil {
+	if _, _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "ext"}, todo.Open, backend, ""); err != nil {
 		t.Fatalf("external add: %v", err)
 	}
 	m = pollOnce(t, m)
@@ -175,7 +175,7 @@ func TestSplitReloadScopeDeleted(t *testing.T) {
 	m, path := newTestModel(t, actionsDoc)
 	m = press(m, "v")
 	m = sideSelect(t, m, "Home")
-	if err := openSecond(t, path).Delete(context.Background(), find(m.doc, "Home").ID); err != nil {
+	if _, err := openSecond(t, path).Delete(context.Background(), find(m.doc, "Home").ID); err != nil {
 		t.Fatalf("external delete: %v", err)
 	}
 	m = pollOnce(t, m)

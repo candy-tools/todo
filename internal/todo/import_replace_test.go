@@ -96,7 +96,7 @@ func TestImportReplaceRemovesBackupWhenWriteFails(t *testing.T) {
 	// An ID the format refuses fails the write's validation, after fn ran.
 	doc := &Document{}
 	doc.AppendRoot(&Item{ID: "not-an-id", Kind: Category, Title: "New"})
-	backup, err := s.importDoc(context.Background(), doc, true, true)
+	_, backup, err := s.importDoc(context.Background(), doc, true, true)
 	if !errors.Is(err, ErrInvalidList) {
 		t.Fatalf("importDoc = %v, want ErrInvalidList", err)
 	}
@@ -121,7 +121,7 @@ func TestImportCleansTitlesAndAssignsIDs(t *testing.T) {
 	cat := &Item{Kind: Category, Level: 1, Title: "  A  "}
 	doc.AppendRoot(cat)
 	cat.AppendChild(NewTask(" t ", "", false))
-	if err := s.Import(context.Background(), doc, false); err != nil {
+	if _, err := s.Import(context.Background(), doc, false); err != nil {
 		t.Fatal(err)
 	}
 	got := load(t, s)
@@ -136,5 +136,5 @@ func TestImportCleansTitlesAndAssignsIDs(t *testing.T) {
 
 	bad := &Document{}
 	bad.AppendRoot(&Item{Kind: Category, Level: 1, Title: " "})
-	rejects(t, s, ErrInvalidTitle, func() error { return s.Import(context.Background(), bad, true) })
+	rejects(t, s, ErrInvalidTitle, func() error { return errOf(s.Import(context.Background(), bad, true)) })
 }

@@ -86,7 +86,7 @@ func TestImportRefusesNonEmpty(t *testing.T) {
 	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
 	s := todo.NewStore(path)
 	doc, _, _ := todo.ImportMarkdown([]byte("# B\n"))
-	if err := s.Import(context.Background(), doc, false); !errors.Is(err, todo.ErrNotEmpty) {
+	if _, err := s.Import(context.Background(), doc, false); !errors.Is(err, todo.ErrNotEmpty) {
 		t.Fatalf("Import = %v; want ErrNotEmpty", err)
 	}
 	if got := todotest.Render(mustLoad(t, s)); !strings.Contains(got, "# A") || strings.Contains(got, "# B") {
@@ -98,7 +98,7 @@ func TestImportReplace(t *testing.T) {
 	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
 	s := todo.NewStore(path)
 	doc, _, _ := todo.ImportMarkdown([]byte("# B\n\n- [x] two\n  desc\n"))
-	if err := s.Import(context.Background(), doc, true); err != nil {
+	if _, err := s.Import(context.Background(), doc, true); err != nil {
 		t.Fatal(err)
 	}
 	want := "# B\n\n- [x] two\n  desc\n"
@@ -141,7 +141,7 @@ func TestImportFileNotEmptyKeepsExistingList(t *testing.T) {
 }
 
 // ImportFile creates the list file when it is missing, and returns a store on
-// it whose LastWrite is the import.
+// it.
 func TestImportFileCreatesList(t *testing.T) {
 	dir := t.TempDir()
 	md := filepath.Join(dir, "TODO.md")
@@ -156,9 +156,6 @@ func TestImportFileCreatesList(t *testing.T) {
 	if s.Path() != list || rep.Categories != 1 || rep.Tasks != 1 || rep.Backup != "" {
 		t.Fatalf("ImportFile = %s, %+v; want a store on %s and 1 category, 1 task, no backup", s.Path(), rep, list)
 	}
-	if got := todotest.Render(s.LastWrite().Doc); got != "# A\n\n- [ ] one\n" {
-		t.Fatalf("LastWrite().Doc renders:\n%s", got)
-	}
 	if got := todotest.Dump(t, list); got != "# A\n\n- [ ] one\n" {
 		t.Fatalf("list holds:\n%s", got)
 	}
@@ -170,7 +167,7 @@ func TestImportFlattensDeepMarkdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := todo.NewStore(filepath.Join(t.TempDir(), ".todo.json"))
-	if err := s.Import(context.Background(), doc, false); err != nil {
+	if _, err := s.Import(context.Background(), doc, false); err != nil {
 		t.Fatal(err)
 	}
 	got := mustLoad(t, s)
@@ -210,7 +207,7 @@ func TestImportFileReplaceBacksUpNonEmptyStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddCategory(context.Background(), "After", "", ""); err != nil {
+	if _, _, err := s.AddCategory(context.Background(), "After", "", ""); err != nil {
 		t.Fatalf("write after the import: %v", err)
 	}
 	if want := todo.BackupPath(db, 0); rep.Backup != want {

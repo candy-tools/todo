@@ -63,7 +63,7 @@ type Changes struct {
 // build an exact order); an afterID that is no longer a child of parentID
 // fails it with ErrConflict. A caller that only wants the category last uses
 // AppendCategory, which cannot conflict.
-func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID string) (string, error) {
+func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID string) (string, WriteResult, error) {
 	return s.add(ctx, func(d *Document) (string, error) { return d.AddCategory(title, parentID, afterID) })
 }
 
@@ -71,7 +71,7 @@ func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID
 // of parentID ("" for the root) — after its tasks and subcategories — as the
 // list is at write time: a sibling another process moved or deleted since the
 // caller read the list cannot make the add fail.
-func (s *Store) AppendCategory(ctx context.Context, title string, parentID string) (string, error) {
+func (s *Store) AppendCategory(ctx context.Context, title string, parentID string) (string, WriteResult, error) {
 	return s.add(ctx, func(d *Document) (string, error) { return d.AppendCategory(title, parentID) })
 }
 
@@ -85,7 +85,7 @@ func (s *Store) AppendCategory(ctx context.Context, title string, parentID strin
 // afterID that is no longer a child of parentID fails it with ErrConflict. A
 // caller that only wants the task after its last task sibling uses
 // AppendTask, which cannot conflict.
-func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afterID string) (string, error) {
+func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afterID string) (string, WriteResult, error) {
 	return s.add(ctx, func(d *Document) (string, error) { return d.AddTask(f, st, parentID, afterID) })
 }
 
@@ -93,27 +93,27 @@ func (s *Store) AddTask(ctx context.Context, f Fields, st Status, parentID, afte
 // parentID and before any subcategory, as the list is at write time: a
 // sibling another process moved or deleted since the caller read the list
 // cannot make the add fail.
-func (s *Store) AppendTask(ctx context.Context, f Fields, st Status, parentID string) (string, error) {
+func (s *Store) AppendTask(ctx context.Context, f Fields, st Status, parentID string) (string, WriteResult, error) {
 	return s.add(ctx, func(d *Document) (string, error) { return d.AppendTask(f, st, parentID) })
 }
 
 // add runs the Document add op as one write and returns the new item's ID.
-func (s *Store) add(ctx context.Context, op func(d *Document) (string, error)) (string, error) {
+func (s *Store) add(ctx context.Context, op func(d *Document) (string, error)) (string, WriteResult, error) {
 	var id string
-	err := s.write(ctx, func(d *Document) (bool, error) {
+	res, err := s.write(ctx, func(d *Document) (bool, error) {
 		var err error
 		id, err = op(d)
 		return err == nil, err
 	})
 	if err != nil {
-		return "", err
+		return "", WriteResult{}, err
 	}
-	return id, nil
+	return id, res, nil
 }
 
 // change runs op, a Document op that always changes the list when it
 // succeeds, as one write.
-func (s *Store) change(ctx context.Context, op func(d *Document) error) error {
+func (s *Store) change(ctx context.Context, op func(d *Document) error) (WriteResult, error) {
 	return s.write(ctx, func(d *Document) (bool, error) {
 		if err := op(d); err != nil {
 			return false, err
@@ -129,7 +129,7 @@ func (s *Store) change(ctx context.Context, op func(d *Document) error) error {
 // title CleanTitle refuses fails the edit with ErrInvalidTitle, and a missing
 // id with ErrNotFound. An edit that changes nothing (c names no field, only
 // fields the item ignores, or only values it already holds) writes nothing.
-func (s *Store) Edit(ctx context.Context, id string, c Changes) error {
+func (s *Store) Edit(ctx context.Context, id string, c Changes) (WriteResult, error) {
 	return s.write(ctx, func(d *Document) (bool, error) { return d.Edit(id, c) })
 }
 
@@ -138,7 +138,7 @@ func (s *Store) Edit(ctx context.Context, id string, c Changes) error {
 // read, fails the whole write with ErrNotFound; giving a subtask a state other
 // than Open or Done fails it with ErrSubtaskStatus, and naming a category with
 // ErrNotTask.
-func (s *Store) SetStatuses(ctx context.Context, states map[string]Status) error {
+func (s *Store) SetStatuses(ctx context.Context, states map[string]Status) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.SetStatuses(states) })
 }
 
@@ -147,7 +147,7 @@ func (s *Store) SetStatuses(ctx context.Context, states map[string]Status) error
 // never reaches a subtask. When id is itself a subtask, st must be Open or
 // Done, or the write fails with ErrSubtaskStatus. A category fails it with
 // ErrNotTask.
-func (s *Store) CascadeStatus(ctx context.Context, id string, st Status) error {
+func (s *Store) CascadeStatus(ctx context.Context, id string, st Status) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.CascadeStatus(id, st) })
 }
 
@@ -162,13 +162,13 @@ func (s *Store) CascadeStatus(ctx context.Context, id string, st Status) error {
 // into the item's own subtree fails with ErrInvalidMove. A task that becomes,
 // stays or stops being a subtask takes its status from StatusAfterMove; a task
 // moved between categories keeps its status.
-func (s *Store) Move(ctx context.Context, id, parentID, afterID string) error {
+func (s *Store) Move(ctx context.Context, id, parentID, afterID string) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.Move(id, parentID, afterID) })
 }
 
 // Delete removes item id together with its subtree as it is at write time. A
 // missing id is ErrNotFound.
-func (s *Store) Delete(ctx context.Context, id string) error {
+func (s *Store) Delete(ctx context.Context, id string) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.Delete(id) })
 }
 
@@ -176,14 +176,13 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 // returns how many tasks went. It finds them in the list as it is at write
 // time, not in the caller's copy, so a subtask another process just added
 // under a done task keeps that task. When nothing is done, nothing is written.
-func (s *Store) Prune(ctx context.Context) (int, error) {
-	removed := 0
-	err := s.write(ctx, func(d *Document) (bool, error) {
+func (s *Store) Prune(ctx context.Context) (removed int, res WriteResult, err error) {
+	res, err = s.write(ctx, func(d *Document) (bool, error) {
 		removed = d.Prune()
 		return removed > 0, nil
 	})
 	if err != nil {
-		return 0, err
+		return 0, WriteResult{}, err
 	}
-	return removed, nil
+	return removed, res, nil
 }

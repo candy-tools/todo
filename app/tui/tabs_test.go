@@ -21,7 +21,7 @@ func setStatusExternally(t *testing.T, m model, path, title string, st todo.Stat
 	if it == nil {
 		t.Fatalf("no item %q", title)
 	}
-	if err := openSecond(t, path).SetStatuses(context.Background(), map[string]todo.Status{it.ID: st}); err != nil {
+	if _, err := openSecond(t, path).SetStatuses(context.Background(), map[string]todo.Status{it.ID: st}); err != nil {
 		t.Fatalf("external set status: %v", err)
 	}
 	return pollOnce(t, m)
@@ -306,7 +306,7 @@ func TestReadyWithoutPlanFlagged(t *testing.T) {
 	m = setStatusExternally(t, m, path, "r", todo.Ready)
 	m = setStatusExternally(t, m, path, "planned", todo.Ready)
 	planned := find(m.doc, "planned")
-	if err := m.store.Edit(context.Background(), planned.ID, todo.Changes{Plan: new("docs/plan.md")}); err != nil {
+	if _, err := m.store.Edit(context.Background(), planned.ID, todo.Changes{Plan: new("docs/plan.md")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
@@ -421,7 +421,7 @@ func TestSearchCarriesAcrossTabs(t *testing.T) {
 func TestEditKeepsPlan(t *testing.T) {
 	m, path := newTestModel(t, "# B\n- [ ] a\n")
 	a := find(m.doc, "a")
-	if err := m.store.Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/a.md")}); err != nil {
+	if _, err := m.store.Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/a.md")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
@@ -442,7 +442,7 @@ func TestEditKeepsPlanSetWhileFormOpen(t *testing.T) {
 	a := find(m.doc, "a")
 	m.tree.selectID(a.ID)
 	m = press(m, "e")
-	if err := openSecond(t, path).Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/agent.md")}); err != nil {
+	if _, err := openSecond(t, path).Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/agent.md")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m) // deferred: the form is open

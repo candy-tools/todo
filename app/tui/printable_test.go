@@ -120,12 +120,13 @@ func TestEditFormShowsNoStoredControlCharacters(t *testing.T) {
 func TestEditUntouchedLegacyItemWritesNothing(t *testing.T) {
 	m, path := newLegacyModel(t)
 	before := readList(t, path)
+	todotest.HoldWriteLock(t, path) // a store write, even one changing nothing, fails
 	m = press(m, "enter")
 	if m.mode != modeMain {
 		t.Fatalf("enter should close the form, mode %v", m.mode)
 	}
-	if after := readList(t, path); !bytes.Equal(after, before) || m.store.LastWrite().Doc != nil {
-		t.Errorf("saving an untouched legacy item wrote the list:\n%s", after)
+	if after := readList(t, path); !bytes.Equal(after, before) || m.err != nil {
+		t.Errorf("saving an untouched legacy item wrote the list (err %v):\n%s", m.err, after)
 	}
 }
 

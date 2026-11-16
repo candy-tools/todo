@@ -42,7 +42,8 @@ const statusNames = "open|working|deferred|done|new|ready|review|followup|wontdo
 // set writes st for the task alone; its subtasks keep their states.
 func set(st todo.Status) statusWrite {
 	return func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
-		return st, s.SetStatuses(ctx, map[string]todo.Status{it.ID: st})
+		_, err := s.SetStatuses(ctx, map[string]todo.Status{it.ID: st})
+		return st, err
 	}
 }
 
@@ -54,9 +55,11 @@ func setThroughPolicy(st todo.Status) statusWrite {
 	return func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
 		switch {
 		case st == todo.Done:
-			return st, s.Complete(ctx, it.ID, false)
+			_, err := s.Complete(ctx, it.ID, false)
+			return st, err
 		case it.Status == todo.Done:
-			return st, s.Reopen(ctx, it.ID, st, todo.ReopenOptions{})
+			_, err := s.Reopen(ctx, it.ID, st, todo.ReopenOptions{})
+			return st, err
 		}
 		return set(st)(ctx, s, it)
 	}
@@ -99,7 +102,7 @@ func doneCmd() *cobra.Command {
 			cascade, _ := cmd.Flags().GetBool("cascade")
 			return setStatus(cmd, "done", func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
 				done, total := it.TaskCounts()
-				if err := s.Complete(ctx, it.ID, cascade); err != nil {
+				if _, err := s.Complete(ctx, it.ID, cascade); err != nil {
 					return todo.Done, err
 				}
 				if open := total - done; !cascade && open > 0 {
@@ -157,7 +160,8 @@ func reopenCmd() *cobra.Command {
 				} else if !cascade {
 					return st, nil
 				}
-				return st, s.Reopen(ctx, it.ID, st, todo.ReopenOptions{Cascade: cascade})
+				_, err := s.Reopen(ctx, it.ID, st, todo.ReopenOptions{Cascade: cascade})
+				return st, err
 			})
 		},
 	}

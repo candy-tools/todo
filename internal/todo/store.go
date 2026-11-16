@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/candy-tools/todo/libs/jsonfile"
@@ -52,11 +51,13 @@ func WithBusyTimeout(d time.Duration) Option {
 	return func(c *storeCfg) { c.busyTimeout = d }
 }
 
-// WriteResult is the outcome of a store write: the list it left and the
-// fingerprints of the file before and after it. A write that changed nothing
-// has Read == Wrote.
+// WriteResult is the outcome of a successful store write, returned by every
+// write method: the list it left and the fingerprints of the file before and
+// after it. A write that changed nothing has Written unset and Read == Wrote.
+// A failed write returns the zero WriteResult.
 type WriteResult struct {
 	// Doc is the list after the write, as a Load of the file would return it.
+	// It is the caller's own: the Store keeps no reference to it.
 	Doc *Document
 	// Read is the fingerprint of the file as the write found it under the
 	// lock. When it differs from the caller's last Load, someone else wrote in
@@ -64,19 +65,16 @@ type WriteResult struct {
 	Read Fingerprint
 	// Wrote is the fingerprint of the file the write left.
 	Wrote Fingerprint
+	// Written reports whether the write replaced the file.
+	Written bool
 }
 
 // Store is a TODO list kept in one JSON file. Every write is one locked
 // read-modify-write of the file as it is now (see write), so several Stores, in
 // one process or many, may share a path. Reads take no lock. A Store is safe
-// for concurrent reads and writes, but LastWrite describes the caller's own
-// write only while a single goroutine writes through the Store: with several,
-// it may be another goroutine's later write.
+// for concurrent use.
 type Store struct {
 	file *jsonfile.Store[diskList]
-
-	mu   sync.Mutex
-	last WriteResult
 }
 
 // NewStore returns a store for the list file at path. It does no I/O and holds no
@@ -118,23 +116,13 @@ func (s *Store) Changed(_ context.Context, since Fingerprint) (bool, Fingerprint
 	return s.file.Changed(since)
 }
 
-// LastWrite returns the result of this Store's last successful write,
-// including one that changed nothing (Read == Wrote). It is the zero
-// WriteResult before the first. It is "this write's" result only when one
-// goroutine writes through the Store (see Store).
-func (s *Store) LastWrite() WriteResult {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.last
-}
-
 // write runs fn as one store write: a single jsonfile Update that holds the
 // lock, reads the file as it is now into a Document (an empty one for a
 // missing file) and runs fn on it. When fn reports a change, the Document is
 // written back, validated first; when it reports none, or fails, nothing is
-// written. A successful write is recorded as LastWrite. Errors are mapped as
-// mapErr does.
-func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, err error)) error {
+// written. It returns the write's result, the zero one on error. Errors are
+// mapped as mapErr does.
+func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, err error)) (WriteResult, error) {
 	res, err := s.file.Update(ctx, func(l *diskList, _ jsonfile.Snapshot) (bool, error) {
 		d := fromDisk(*l)
 		changed, err := fn(d)
@@ -145,15 +133,11 @@ func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, e
 		return true, nil
 	})
 	if err != nil {
-		return s.mapErr(err)
+		return WriteResult{}, s.mapErr(err)
 	}
 	// The Document is rebuilt from what was written, so it matches what a
 	// Load of the file returns.
-	doc := fromDisk(res.Value)
-	s.mu.Lock()
-	s.last = WriteResult{Doc: doc, Read: res.Read, Wrote: res.Wrote}
-	s.mu.Unlock()
-	return nil
+	return WriteResult{Doc: fromDisk(res.Value), Read: res.Read, Wrote: res.Wrote, Written: res.Written}, nil
 }
 
 // mapErr turns jsonfile's errors into the package's: a lock timeout is

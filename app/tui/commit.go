@@ -12,7 +12,7 @@ import (
 // row index (clamped), now on the row that took the task's place, and the
 // footer says where the task went, e.g. "moved to Next — new". A failed write
 // or an external-reload notice takes the footer instead.
-func (m *model) commitStatus(id string, write func(ctx context.Context) error) {
+func (m *model) commitStatus(id string, write storeWrite) {
 	m.commit(id, write)
 	m.noteLeftTab(id)
 }
@@ -46,13 +46,17 @@ func (m *model) noteLeftTab(id string) bool {
 	return true
 }
 
+// storeWrite is one store write as commit runs it: it returns the write's
+// result, or the zero WriteResult when it succeeded without a store write.
+type storeWrite func(ctx context.Context) (todo.WriteResult, error)
+
 // commit runs write, one store write, and shows its result, so the view always
 // shows what the store holds. A write error is kept for the footer (a success
 // clears the last one). Either way the trees are rebuilt, keeping the folds of
 // the items that still exist, the viewport, the filter and the grab state, and
 // selecting focusID if present (else keeping the cursor index, clamped).
 //
-// On success the list is the one the write left (the store's LastWrite), read
+// On success the list is the one the write left (its WriteResult), read
 // under the write's lock, so the file is not read again; its fingerprint is
 // recorded, so the poll does not report the app's own write as an external
 // change. The undo snapshots are kept — unless the write found the file other
@@ -66,22 +70,19 @@ func (m *model) noteLeftTab(id string) bool {
 // tasks of the empty list a missing file reads as) is such a failure too.
 //
 // commit reports whether the write succeeded, so a caller can keep the user's
-// input to retry a failed save. write must run on the UI goroutine: LastWrite
-// is only this write's result while no other goroutine writes through the
-// store.
-func (m *model) commit(focusID string, write func(ctx context.Context) error) (saved bool) {
+// input to retry a failed save.
+func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 	ctx := context.Background()
 	m.err = nil
 	onPH := m.focused().onPlaceholder()
-	before := m.store.LastWrite()
-	if err := write(ctx); err != nil {
+	r, err := write(ctx)
+	if err != nil {
 		m.err = fmt.Errorf("save failed: %w", err)
 		m.reload(ctx)
 		m.adoptAll(m.doc, focusID, onPH)
 		return false
 	}
-	r := m.store.LastWrite()
-	if r.Doc == nil || r.Doc == before.Doc {
+	if r.Doc == nil {
 		// write succeeded without a store write: there is no result to
 		// adopt, so read the list as it is.
 		m.reload(ctx)
@@ -99,9 +100,8 @@ func (m *model) commit(focusID string, write func(ctx context.Context) error) (s
 	}
 	external := r.Read != m.lastFP
 	m.ownRead = r.Read
-	// m.doc aliases r.Doc, the store's LastWrite().Doc, and the handlers
-	// change m.doc in place; that is safe only while nothing else reads
-	// LastWrite().Doc (commit compares it by pointer only).
+	// r.Doc is the model's own (the store keeps no reference to it), so the
+	// handlers may change m.doc in place.
 	m.doc, m.saved, m.lastFP = r.Doc, r.Doc.Clone(), r.Wrote
 	// The write read and validated the file, so earlier poll failures are
 	// over: a later one counts from zero.

@@ -47,7 +47,7 @@ func TestLoadMissingFile(t *testing.T) {
 
 func TestStoreWriteCreatesFile(t *testing.T) {
 	s := newStore(t)
-	id, err := s.AppendCategory(context.Background(), "A", "")
+	id, _, err := s.AppendCategory(context.Background(), "A", "")
 	if err != nil {
 		t.Fatalf("AppendCategory: %v", err)
 	}
@@ -62,38 +62,39 @@ func TestStoreWriteCreatesFile(t *testing.T) {
 	}
 }
 
-func TestStoreLastWrite(t *testing.T) {
+func TestStoreWriteResult(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	c := mustID(t)(s.AppendCategory(ctx, "C", ""))
-	task := mustID(t)(s.AppendTask(ctx, Fields{Title: "t"}, Open, c))
-
-	lw := s.LastWrite()
-	if lw.Doc == nil {
-		t.Fatal("LastWrite().Doc is nil after AppendTask")
+	task, res, err := s.AppendTask(ctx, Fields{Title: "t"}, Open, c)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := item(t, lw.Doc, task); got.Title != "t" || got.Parent == nil || got.Parent.ID != c {
-		t.Fatalf("LastWrite().Doc task = %+v; want t under C", got)
+	if res.Doc == nil {
+		t.Fatal("AppendTask result Doc is nil")
+	}
+	if got := item(t, res.Doc, task); got.Title != "t" || got.Parent == nil || got.Parent.ID != c {
+		t.Fatalf("result Doc task = %+v; want t under C", got)
 	}
 	_, fp, err := s.Load(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lw.Wrote != fp || lw.Read == lw.Wrote {
-		t.Fatalf("LastWrite Read %x, Wrote %x; want Wrote = Load's %x and Read different", lw.Read, lw.Wrote, fp)
+	if !res.Written || res.Wrote != fp || res.Read == res.Wrote {
+		t.Fatalf("result Written %v, Read %x, Wrote %x; want written, Wrote = Load's %x and Read different",
+			res.Written, res.Read, res.Wrote, fp)
 	}
 
 	before, err := os.Stat(s.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustOK(t, s.Edit(ctx, task, Changes{Title: new("t")}))
-	lw = s.LastWrite()
-	if lw.Read != lw.Wrote || lw.Wrote != fp {
-		t.Fatalf("no-op Edit: LastWrite Read %x, Wrote %x; want both %x", lw.Read, lw.Wrote, fp)
+	res = mustOK(t)(s.Edit(ctx, task, Changes{Title: new("t")}))
+	if res.Written || res.Read != res.Wrote || res.Wrote != fp {
+		t.Fatalf("no-op Edit: Written %v, Read %x, Wrote %x; want not written, both %x", res.Written, res.Read, res.Wrote, fp)
 	}
-	if got := item(t, lw.Doc, task); got.Title != "t" {
-		t.Fatalf("no-op Edit: LastWrite().Doc task = %+v", got)
+	if got := item(t, res.Doc, task); got.Title != "t" {
+		t.Fatalf("no-op Edit: result Doc task = %+v", got)
 	}
 	after, err := os.Stat(s.Path())
 	if err != nil {
@@ -104,17 +105,36 @@ func TestStoreLastWrite(t *testing.T) {
 	}
 }
 
-// A failed write keeps the last successful write's result.
-func TestStoreLastWriteKeptOnError(t *testing.T) {
+// Each write's Doc is the caller's own: two writes never share one, and
+// changing it changes neither the file nor a later write's Doc.
+func TestStoreWriteResultDocIsCallers(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	c := mustID(t)(s.AppendCategory(ctx, "C", ""))
+	first := mustOK(t)(s.Edit(ctx, c, Changes{}))
+	first.Doc.Roots[0].Title = "changed in memory"
+	second := mustOK(t)(s.Edit(ctx, c, Changes{}))
+	if second.Doc == first.Doc || second.Doc.Roots[0].Title != "C" {
+		t.Fatalf("second Doc = %p (title %q), first %p; want a fresh copy titled C",
+			second.Doc, second.Doc.Roots[0].Title, first.Doc)
+	}
+}
+
+// A failed write returns the zero WriteResult.
+func TestStoreFailedWriteResultIsZero(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	mustID(t)(s.AppendCategory(ctx, "C", ""))
-	lw := s.LastWrite()
-	if err := s.Delete(ctx, "zzzzzzz"); !errors.Is(err, ErrNotFound) {
+	res, err := s.Delete(ctx, "zzzzzzz")
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Delete(missing) = %v, want ErrNotFound", err)
 	}
-	if got := s.LastWrite(); got.Wrote != lw.Wrote || got.Doc != lw.Doc {
-		t.Fatal("a failed write replaced LastWrite")
+	if res != (WriteResult{}) {
+		t.Fatalf("failed write result = %+v, want the zero WriteResult", res)
+	}
+	id, res, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, "zzzzzzz")
+	if err == nil || id != "" || res != (WriteResult{}) {
+		t.Fatalf("failed add = %q, %+v, %v; want \"\", the zero WriteResult and an error", id, res, err)
 	}
 }
 
@@ -131,13 +151,13 @@ func TestStoreStaleCallerOps(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := NewStore(a.Path())
-	mustOK(t, b.Delete(ctx, tk))
+	mustOK(t)(b.Delete(ctx, tk))
 
 	want := fileBytes(t, a.Path())
-	if err := a.Complete(ctx, tk, false); !errors.Is(err, ErrNotFound) {
+	if _, err := a.Complete(ctx, tk, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stale Complete = %v, want ErrNotFound", err)
 	}
-	if err := a.Move(ctx, x, cat, tk); !errors.Is(err, ErrConflict) {
+	if _, err := a.Move(ctx, x, cat, tk); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale Move = %v, want ErrConflict", err)
 	}
 	if got := fileBytes(t, a.Path()); !bytes.Equal(got, want) {
@@ -156,7 +176,7 @@ func TestStorePruneSeesFreshFile(t *testing.T) {
 	b := NewStore(a.Path())
 	sub := mustID(t)(b.AppendTask(ctx, Fields{Title: "sub"}, Open, done))
 
-	n, err := a.Prune(ctx)
+	n, _, err := a.Prune(ctx)
 	if err != nil || n != 0 {
 		t.Fatalf("Prune = %d, %v; want 0, nil", n, err)
 	}
@@ -206,7 +226,7 @@ func TestStoreRefusedValueIsNotAnInvalidFile(t *testing.T) {
 	s := newStore(t)
 	doc := &Document{}
 	doc.AppendRoot(&Item{ID: "not-an-id", Kind: Category, Title: "New"})
-	err := s.Import(context.Background(), doc, false)
+	_, err := s.Import(context.Background(), doc, false)
 	if err == nil {
 		t.Fatal("Import of a list with a malformed ID returned nil error")
 	}
@@ -224,19 +244,19 @@ func TestStoreRefusedValueIsNotAnInvalidFile(t *testing.T) {
 func everyWrite(s *Store, cat, task string) map[string]func() error {
 	ctx := context.Background()
 	return map[string]func() error{
-		"AddCategory":    func() error { _, err := s.AddCategory(ctx, "X", "", ""); return err },
-		"AppendCategory": func() error { _, err := s.AppendCategory(ctx, "X", ""); return err },
-		"AddTask":        func() error { _, err := s.AddTask(ctx, Fields{Title: "x"}, Open, cat, ""); return err },
-		"AppendTask":     func() error { _, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, cat); return err },
-		"Edit":           func() error { return s.Edit(ctx, task, Changes{Title: new("y")}) },
-		"SetStatuses":    func() error { return s.SetStatuses(ctx, map[string]Status{task: Done}) },
-		"CascadeStatus":  func() error { return s.CascadeStatus(ctx, task, Done) },
-		"Complete":       func() error { return s.Complete(ctx, task, false) },
-		"Reopen":         func() error { return s.Reopen(ctx, task, Working, ReopenOptions{}) },
-		"Move":           func() error { return s.Move(ctx, task, cat, "") },
-		"Delete":         func() error { return s.Delete(ctx, task) },
-		"Prune":          func() error { _, err := s.Prune(ctx); return err },
-		"Import":         func() error { return s.Import(ctx, &Document{}, true) },
+		"AddCategory":    func() error { _, _, err := s.AddCategory(ctx, "X", "", ""); return err },
+		"AppendCategory": func() error { _, _, err := s.AppendCategory(ctx, "X", ""); return err },
+		"AddTask":        func() error { _, _, err := s.AddTask(ctx, Fields{Title: "x"}, Open, cat, ""); return err },
+		"AppendTask":     func() error { _, _, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, cat); return err },
+		"Edit":           func() error { return errOf(s.Edit(ctx, task, Changes{Title: new("y")})) },
+		"SetStatuses":    func() error { return errOf(s.SetStatuses(ctx, map[string]Status{task: Done})) },
+		"CascadeStatus":  func() error { return errOf(s.CascadeStatus(ctx, task, Done)) },
+		"Complete":       func() error { return errOf(s.Complete(ctx, task, false)) },
+		"Reopen":         func() error { return errOf(s.Reopen(ctx, task, Working, ReopenOptions{})) },
+		"Move":           func() error { return errOf(s.Move(ctx, task, cat, "")) },
+		"Delete":         func() error { return errOf(s.Delete(ctx, task)) },
+		"Prune":          func() error { _, _, err := s.Prune(ctx); return err },
+		"Import":         func() error { return errOf(s.Import(ctx, &Document{}, true)) },
 	}
 }
 
@@ -270,9 +290,12 @@ func TestStoreChanged(t *testing.T) {
 	if changed, fp, err := s.Changed(ctx, Fingerprint{}); err != nil || changed || !fp.IsMissing() {
 		t.Fatalf("Changed(missing) on a missing file = %v, %x, %v; want false, missing", changed, fp, err)
 	}
-	mustID(t)(s.AppendCategory(ctx, "A", ""))
+	_, res, err := s.AppendCategory(ctx, "A", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	changed, fp, err := s.Changed(ctx, Fingerprint{})
-	if err != nil || !changed || fp != s.LastWrite().Wrote {
+	if err != nil || !changed || fp != res.Wrote {
 		t.Fatalf("Changed after a write = %v, %x, %v; want true and the written fingerprint", changed, fp, err)
 	}
 	if changed, _, err := s.Changed(ctx, fp); err != nil || changed {
@@ -285,7 +308,7 @@ func TestStoreDirectoryPathFails(t *testing.T) {
 	if _, _, err := s.Load(context.Background()); err == nil {
 		t.Fatal("Load of a directory succeeded; want an error")
 	}
-	if _, err := s.AppendCategory(context.Background(), "A", ""); err == nil {
+	if _, _, err := s.AppendCategory(context.Background(), "A", ""); err == nil {
 		t.Fatal("a write to a directory succeeded; want an error")
 	}
 }

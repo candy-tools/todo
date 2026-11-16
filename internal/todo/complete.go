@@ -43,7 +43,7 @@ type ReopenOptions struct {
 // it, as the list is at write time, is set to Done too (see CascadeStatus);
 // without it the subtasks keep their states. A category fails it with
 // ErrNotTask.
-func (s *Store) Complete(ctx context.Context, id string, cascade bool) error {
+func (s *Store) Complete(ctx context.Context, id string, cascade bool) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.Complete(id, cascade) })
 }
 
@@ -54,6 +54,6 @@ func (s *Store) Complete(ctx context.Context, id string, cascade bool) error {
 // missing fails the write with ErrNotFound. Setting both fails with
 // ErrRestoreAndCascade, writing nothing. A category fails it with ErrNotTask,
 // and a subtask given a state other than Open or Done with ErrSubtaskStatus.
-func (s *Store) Reopen(ctx context.Context, id string, st Status, o ReopenOptions) error {
+func (s *Store) Reopen(ctx context.Context, id string, st Status, o ReopenOptions) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.Reopen(id, st, o) })
 }

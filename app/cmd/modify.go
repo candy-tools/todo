@@ -23,7 +23,7 @@ func rmCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := s.Delete(ctx, it.ID); err != nil {
+				if _, err := s.Delete(ctx, it.ID); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "rm: %s\n", todo.Printable(it.Title))
@@ -46,7 +46,7 @@ func pruneCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				n, err := s.Prune(ctx)
+				n, _, err := s.Prune(ctx)
 				if err != nil {
 					return err
 				}
@@ -103,7 +103,7 @@ func editCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := s.Edit(ctx, it.ID, ch); err != nil {
+				if _, err := s.Edit(ctx, it.ID, ch); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", title)

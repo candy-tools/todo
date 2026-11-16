@@ -49,7 +49,7 @@ func (m model) complete(it *todo.Item) (tea.Model, tea.Cmd) {
 	id := it.ID
 	m.snapshots[id] = todo.SnapshotDone(it)
 	todo.CascadeSetDone(it, true)
-	m.commitStatus(id, func(ctx context.Context) error { return m.store.Complete(ctx, id, true) })
+	m.commitStatus(id, func(ctx context.Context) (todo.WriteResult, error) { return m.store.Complete(ctx, id, true) })
 	return m, nil
 }
 
@@ -61,7 +61,7 @@ func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 	restore := m.snapshots[id]
 	delete(m.snapshots, id)
 	m.doc.ApplyStatuses(todo.ReopenStates(id, st, restore))
-	m.commitStatus(id, func(ctx context.Context) error {
+	m.commitStatus(id, func(ctx context.Context) (todo.WriteResult, error) {
 		return m.store.Reopen(ctx, id, st, todo.ReopenOptions{Restore: restore})
 	})
 	return m, nil
@@ -150,8 +150,8 @@ func (m model) setState(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 }
 
 // setStatusesWrite returns the store write that sets item id to st.
-func (m model) setStatusesWrite(id string, st todo.Status) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
+func (m model) setStatusesWrite(id string, st todo.Status) storeWrite {
+	return func(ctx context.Context) (todo.WriteResult, error) {
 		return m.store.SetStatuses(ctx, map[string]todo.Status{id: st})
 	}
 }

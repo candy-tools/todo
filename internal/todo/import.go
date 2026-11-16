@@ -80,18 +80,18 @@ func count(it *Item, rep *ImportReport) {
 // keeps subtasks one level deep, its titles cleaned, and every item without an
 // ID given one. A title CleanTitle refuses fails the import with
 // ErrInvalidTitle; ImportMarkdown never yields one.
-func (s *Store) Import(ctx context.Context, doc *Document, replace bool) error {
-	_, err := s.importDoc(ctx, doc, replace, false)
-	return err
+func (s *Store) Import(ctx context.Context, doc *Document, replace bool) (WriteResult, error) {
+	res, _, err := s.importDoc(ctx, doc, replace, false)
+	return res, err
 }
 
 // importDoc is Import that, when backUp is set and it replaces a list that
 // holds items, first copies the file to the first free BackupPath, inside the
 // write and so under the lock, and returns that path. When the write then
 // fails, the list is unchanged and the backup is removed again.
-func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bool) (string, error) {
+func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bool) (WriteResult, string, error) {
 	backup := ""
-	err := s.write(ctx, func(d *Document) (bool, error) {
+	res, err := s.write(ctx, func(d *Document) (bool, error) {
 		holdsItems := len(d.Roots) > 0
 		if holdsItems && !replace {
 			return false, ErrNotEmpty
@@ -110,14 +110,14 @@ func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bo
 		return true, nil
 	})
 	if err == nil {
-		return backup, nil
+		return res, backup, nil
 	}
 	if backup != "" {
 		if rmErr := os.Remove(backup); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
-			return "", fmt.Errorf("%w (backup %s left in place: %v)", err, backup, rmErr)
+			return WriteResult{}, "", fmt.Errorf("%w (backup %s left in place: %v)", err, backup, rmErr)
 		}
 	}
-	return "", err
+	return WriteResult{}, "", err
 }
 
 // prepareImport readies doc to become the list: it flattens the subtasks,
@@ -152,7 +152,7 @@ func ImportFile(path, mdPath string, replace bool, opts ...Option) (*Store, Impo
 		return nil, ImportReport{}, fmt.Errorf("%s: %w", mdPath, err)
 	}
 	s := NewStore(path, opts...)
-	if rep.Backup, err = s.importDoc(context.Background(), doc, replace, true); err != nil {
+	if _, rep.Backup, err = s.importDoc(context.Background(), doc, replace, true); err != nil {
 		return nil, ImportReport{}, err
 	}
 	return s, rep, nil

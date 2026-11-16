@@ -19,7 +19,7 @@ func TestStoreBusy(t *testing.T) {
 	todotest.HoldWriteLock(t, path)
 
 	start := time.Now()
-	_, err := s.AppendCategory(ctx, "B", "")
+	_, _, err := s.AppendCategory(ctx, "B", "")
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Errorf("the write waited %v, want well under the 5 s default", elapsed)
 	}

@@ -38,7 +38,7 @@ func addCmd() *cobra.Command {
 				}
 				// The store places the task after the parent's last task as the tree
 				// is when it writes, so a sibling changed meanwhile does not matter.
-				if _, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parent.ID); err != nil {
+				if _, _, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parent.ID); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), task.Title, categoryPath(task))
@@ -89,7 +89,7 @@ func addCategoryCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if _, err := s.AppendCategory(ctx, title, parentID); err != nil {
+				if _, _, err := s.AppendCategory(ctx, title, parentID); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add-category: %s %s\n", strings.Repeat("#", depthOf(cat)+1), title)
