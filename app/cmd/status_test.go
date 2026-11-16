@@ -321,3 +321,32 @@ func TestStatusToDoneOnDoneTaskKeepsSubtasks(t *testing.T) {
 		t.Errorf("status --to done on a done task must not touch its subtasks:\n%s", got)
 	}
 }
+
+func TestDoneHintsAtOpenSubtasks(t *testing.T) {
+	for _, c := range []struct {
+		name, md string
+		args     []string
+		hint     string
+	}{
+		{"two open", "- [ ] parent\n  - [ ] c1\n  - [ ] c2\n  - [x] c3\n", nil, "2 subtasks still open; --cascade completes them\n"},
+		{"one open", "- [ ] parent\n  - [ ] c1\n  - [x] c2\n", nil, "1 subtask still open; --cascade completes it\n"},
+		{"all done", "- [ ] parent\n  - [x] c1\n", nil, ""},
+		{"no subtasks", "- [ ] parent\n", nil, ""},
+		{"cascade", "- [ ] parent\n  - [ ] c1\n", []string{"--cascade"}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			path := todotest.Seed(t, "# Work\n\n"+c.md)
+			args := append([]string{"done", "--file", path, "--title", "parent"}, c.args...)
+			stdout, stderr, err := runSplit(t, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stdout != "done: [done] parent  (Work)\n" {
+				t.Errorf("stdout must be only the confirmation, got %q", stdout)
+			}
+			if stderr != c.hint {
+				t.Errorf("stderr: want %q, got %q", c.hint, stderr)
+			}
+		})
+	}
+}

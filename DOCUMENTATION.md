@@ -276,7 +276,8 @@ subtasks' states exactly — that undo memory is kept in RAM for the session, so
 the database only ever records the current states. Without undo history the
 dialog opens on `done`, and the subtasks keep their states when you reopen it.
 The CLI's `todo done` completes only the task unless you pass `--cascade`, and
-it has no undo.
+it has no undo. When subtasks are left open it says so on stderr (`2 subtasks
+still open; --cascade completes them`); stdout is unchanged.
 
 ## Live reload
 

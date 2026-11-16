@@ -81,6 +81,15 @@ func statusCmd() *cobra.Command {
 	return c
 }
 
+// openSubtasksHint is the stderr line `done` without --cascade prints when the
+// task it completed still has n subtasks that are not done.
+func openSubtasksHint(n int) string {
+	if n == 1 {
+		return "1 subtask still open; --cascade completes it"
+	}
+	return fmt.Sprintf("%d subtasks still open; --cascade completes them", n)
+}
+
 func doneCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "done",
@@ -89,7 +98,14 @@ func doneCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cascade, _ := cmd.Flags().GetBool("cascade")
 			return setStatus(cmd, "done", func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
-				return todo.Done, s.Complete(ctx, it.ID, cascade)
+				done, total := it.TaskCounts()
+				if err := s.Complete(ctx, it.ID, cascade); err != nil {
+					return todo.Done, err
+				}
+				if open := total - done; !cascade && open > 0 {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), openSubtasksHint(open))
+				}
+				return todo.Done, nil
 			})
 		},
 	}
