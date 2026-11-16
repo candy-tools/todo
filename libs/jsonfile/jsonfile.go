@@ -4,9 +4,10 @@
 // atomically (temp file, fsync, rename), so a reader never sees a half-written
 // file. The directory is fsynced after the rename on a best-effort basis only
 // (errors ignored, skipped on Windows), so a crash right after a write may
-// still lose the rename on some file systems. Reads (Load) and change polling (Changed) take no lock. The package is
-// generic over the stored type and knows nothing about what it stores: the
-// path, the lock timeout and the validation hook all come from Config.
+// still lose the rename on some file systems. Reads (Load) and change polling
+// (Changed) take no lock. The package is generic over the stored type and
+// knows nothing about what it stores: the path, the lock timeout and the
+// validation hook all come from Config.
 //
 // The lock file is left in place after a write and must not be deleted while
 // the data file is in use: a writer that locked a deleted lock file does not
@@ -153,8 +154,9 @@ type Result[T any] struct {
 	// nothing was written.
 	Value T
 	// Read is the fingerprint of the file as Update found it under the lock
-	// (the zero, missing fingerprint when there was no file). Comparing it with the fingerprint of
-	// the caller's last Load tells whether someone else wrote in between.
+	// (the zero, missing fingerprint when there was no file). Comparing it
+	// with the fingerprint of the caller's last Load tells whether someone
+	// else wrote in between.
 	Read Fingerprint
 	// Wrote is the fingerprint of the bytes Update wrote, or Read when it
 	// wrote nothing.

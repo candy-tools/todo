@@ -119,9 +119,10 @@ func StoreExists(path string) (bool, error) {
 }
 
 // Load reads the whole list and the fingerprint of the bytes it came from,
-// without taking the lock. A missing file is an empty Document and the zero (missing) fingerprint. A
-// file that is not a valid list fails with ErrInvalidList (or ErrNewerSchema)
-// naming the path, and still returns the fingerprint of the bytes read.
+// without taking the lock. A missing file is an empty Document and the zero
+// (missing) fingerprint. A file that is not a valid list fails with
+// ErrInvalidList (or ErrNewerSchema) naming the path, and still returns the
+// fingerprint of the bytes read.
 func (s *Store) Load(_ context.Context) (*Document, Fingerprint, error) {
 	l, fp, err := s.file.Load()
 	if err != nil {
