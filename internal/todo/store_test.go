@@ -302,7 +302,7 @@ func everyWrite(s *Store, cat, task string) map[string]func() error {
 		"SetStatuses":    func() error { return errOf(s.SetStatuses(ctx, map[string]Status{task: Done})) },
 		"CascadeStatus":  func() error { return errOf(s.CascadeStatus(ctx, task, Done)) },
 		"Complete":       func() error { return errOf(s.Complete(ctx, task, false)) },
-		"Reopen":         func() error { return errOf(s.Reopen(ctx, task, Working, ReopenOptions{})) },
+		"Reopen":         func() error { return errOf(s.Reopen(ctx, task, false)) },
 		"SetState":       func() error { return errOf(s.SetState(ctx, task, Working, StateOptions{})) },
 		"Move":           func() error { return errOf(s.Move(ctx, task, cat, "")) },
 		"Delete":         func() error { return errOf(s.Delete(ctx, task)) },

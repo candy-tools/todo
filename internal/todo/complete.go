@@ -80,14 +80,29 @@ func (s *Store) Complete(ctx context.Context, id string, cascade bool) (WriteRes
 	return s.change(ctx, func(d *Document) error { return d.Complete(id, cascade) })
 }
 
-// Reopen sets task id to st, in one write, and treats its subtasks as o says:
-// o.Cascade opens them all (see CascadeStatus), o.Restore gives them their
-// snapshot states back (see ReopenStates), and with neither they keep theirs.
-// A task in o.Restore deleted since the snapshot, or no longer Done (changed
-// since the complete it undoes), is left out (see Document.Reopen); task id
-// itself missing fails the write with ErrNotFound. Setting both fails with
-// ErrRestoreAndCascade, writing nothing. A category fails it with ErrNotTask,
-// and a subtask given a state other than Open or Done with ErrSubtaskStatus.
-func (s *Store) Reopen(ctx context.Context, id string, st Status, o ReopenOptions) (WriteResult, error) {
-	return s.change(ctx, func(d *Document) error { return d.Reopen(id, st, o) })
+// Reopen takes task id out of Done in one write, deciding under the lock from
+// the task as it is then, not the caller's copy: a done task goes to
+// ReopenTarget (Working, or Open for a subtask); with cascade every task below
+// it is opened too. A task that is not done keeps its state: with cascade its
+// subtasks are opened, without it nothing is written. A missing id fails
+// with ErrNotFound and a category with ErrNotTask. It is the write-time form
+// of the CLI's reopen; an undo with a snapshot uses SetState.
+func (s *Store) Reopen(ctx context.Context, id string, cascade bool) (WriteResult, error) {
+	return s.write(ctx, func(d *Document) (bool, error) {
+		it, err := d.lookup(id)
+		if err != nil {
+			return false, err
+		}
+		if it.Kind != Task {
+			return false, ErrNotTask
+		}
+		st := it.Status
+		switch {
+		case st == Done:
+			st = ReopenTarget(it)
+		case !cascade:
+			return false, nil
+		}
+		return d.SetState(id, st, StateOptions{Cascade: cascade})
+	})
 }

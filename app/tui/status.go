@@ -62,7 +62,7 @@ func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 	delete(m.snapshots, id)
 	m.doc.ApplyStatuses(todo.ReopenStates(id, st, restore))
 	m.commitStatus(id, func(ctx context.Context) (todo.WriteResult, error) {
-		return m.store.Reopen(ctx, id, st, todo.ReopenOptions{Restore: restore})
+		return m.store.SetState(ctx, id, st, todo.StateOptions{Restore: restore})
 	})
 	return m, nil
 }

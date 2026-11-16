@@ -58,7 +58,7 @@ func setThroughPolicy(st todo.Status) statusWrite {
 			_, err := s.Complete(ctx, it.ID, false)
 			return st, err
 		case it.Status == todo.Done:
-			_, err := s.Reopen(ctx, it.ID, st, todo.ReopenOptions{})
+			_, err := s.SetState(ctx, it.ID, st, todo.StateOptions{})
 			return st, err
 		}
 		return set(st)(ctx, s, it)
@@ -154,14 +154,16 @@ func reopenCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cascade, _ := cmd.Flags().GetBool("cascade")
 			return setStatus(cmd, "reopen", func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
-				st := it.Status
-				if st == todo.Done {
-					st = todo.ReopenTarget(it)
-				} else if !cascade {
-					return st, nil
+				// The store picks the state under the lock, from the task as
+				// it is then; report the one it left.
+				res, err := s.Reopen(ctx, it.ID, cascade)
+				if err != nil {
+					return it.Status, err
 				}
-				_, err := s.Reopen(ctx, it.ID, st, todo.ReopenOptions{Cascade: cascade})
-				return st, err
+				if now, ok := res.Doc.ByID(it.ID); ok {
+					return now.Status, nil
+				}
+				return it.Status, nil
 			})
 		},
 	}

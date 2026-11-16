@@ -177,7 +177,7 @@ func TestSetStatusesRejectsMissingID(t *testing.T) {
 	rejects(t, s, ErrNotFound, func() error { return errOf(s.SetStatuses(ctx, map[string]Status{gone: Working})) })
 	rejects(t, s, ErrNotFound, func() error { return errOf(s.SetStatuses(ctx, map[string]Status{id: Open, "zzzzzzz": Done})) })
 	rejects(t, s, ErrNotFound, func() error { return errOf(s.Complete(ctx, gone, false)) })
-	rejects(t, s, ErrNotFound, func() error { return errOf(s.Reopen(ctx, gone, Working, ReopenOptions{})) })
+	rejects(t, s, ErrNotFound, func() error { return errOf(s.Reopen(ctx, gone, false)) })
 
 	if got := item(t, load(t, s), id); got.Status != Done {
 		t.Fatalf("task after rejected writes = %+v; want it still done", got)
@@ -330,13 +330,13 @@ func TestEveryWriteChangesFile(t *testing.T) {
 		{"SetStatuses", func() (WriteResult, error) { return s.SetStatuses(ctx, map[string]Status{task: Done}) }},
 		{"CascadeStatus", func() (WriteResult, error) { return s.CascadeStatus(ctx, task, Working) }},
 		{"Complete", func() (WriteResult, error) { return s.Complete(ctx, task, false) }},
-		{"Reopen", func() (WriteResult, error) { return s.Reopen(ctx, task, Working, ReopenOptions{}) }},
+		{"Reopen", func() (WriteResult, error) { return s.Reopen(ctx, task, false) }},
 		{"Complete cascade", func() (WriteResult, error) { return s.Complete(ctx, task, true) }},
 		{"Reopen restore", func() (WriteResult, error) {
-			return s.Reopen(ctx, task, Working, ReopenOptions{Restore: DoneStates{task: Done}})
+			return s.SetState(ctx, task, Working, StateOptions{Restore: DoneStates{task: Done}})
 		}},
 		{"CascadeStatus done", func() (WriteResult, error) { return s.CascadeStatus(ctx, task, Done) }},
-		{"Reopen cascade", func() (WriteResult, error) { return s.Reopen(ctx, task, Working, ReopenOptions{Cascade: true}) }},
+		{"Reopen cascade", func() (WriteResult, error) { return s.Reopen(ctx, task, true) }},
 		{"Move", func() (WriteResult, error) { return s.Move(ctx, task, c, u) }},
 		{"Complete again", func() (WriteResult, error) { return s.Complete(ctx, task, false) }},
 		{"Prune", func() (WriteResult, error) { _, res, err := s.Prune(ctx); return res, err }},
