@@ -51,11 +51,11 @@ var Missing Fingerprint
 
 // ErrBusy is returned by Update when it gave up waiting for another writer to
 // release the lock.
-var ErrBusy = errors.New("jsonfile: lock busy")
+var ErrBusy = errors.New("lock busy: another writer holds it")
 
 // ErrInvalid matches (via errors.Is) every *InvalidError: a file that could not
 // be decoded or that failed the Validate hook.
-var ErrInvalid = errors.New("jsonfile: invalid file")
+var ErrInvalid = errors.New("invalid file")
 
 // InvalidError reports a file whose bytes do not decode into the stored type
 // or whose decoded value fails Config.Validate. Its message is the inner
@@ -188,7 +188,7 @@ func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err 
 		return Result[T]{}, err
 	}
 	if err := atomicWrite(path, data); err != nil {
-		return Result[T]{}, err
+		return Result[T]{}, fmt.Errorf("write %s: %w", path, err)
 	}
 	return Result[T]{Value: v, Read: read, Wrote: sha256.Sum256(data), Written: true}, nil
 }
@@ -218,7 +218,7 @@ func (s *Store[T]) lock(ctx context.Context, path string) (func(), error) {
 		current, err := holdsFileAt(fl, path)
 		if err != nil {
 			_ = fl.Unlock()
-			return nil, fmt.Errorf("jsonfile: lock %s: %w", path, err)
+			return nil, fmt.Errorf("lock %s: %w", path, err)
 		}
 		if current {
 			return func() { _ = fl.Unlock() }, nil
@@ -237,7 +237,7 @@ func lockErr(ctx context.Context, path string, err error) error {
 	if err == nil || errors.Is(err, context.DeadlineExceeded) {
 		return ErrBusy
 	}
-	return fmt.Errorf("jsonfile: lock %s: %w", path, err)
+	return fmt.Errorf("lock %s: %w", path, err)
 }
 
 // holdsFileAt reports whether the file fl has locked is the file at path now.

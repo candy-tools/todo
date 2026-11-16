@@ -398,6 +398,7 @@ func TestNoTempFileLeftOnWriteFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("Update over a non-empty directory returned nil error")
 	}
+	assertUserError(t, err, "write "+path+": ")
 
 	entries, err := os.ReadDir(filepath.Dir(path))
 	if err != nil {
@@ -434,5 +435,31 @@ func TestUpdateValidatesBeforeWriting(t *testing.T) {
 	}
 	if after := readBytes(t, path); !bytes.Equal(before, after) {
 		t.Errorf("file changed: %q -> %q", before, after)
+	}
+}
+
+// assertUserError fails unless err's message starts with prefix (the action
+// and the path) and does not name this package, which means nothing to a user.
+func assertUserError(t *testing.T, err error, prefix string) {
+	t.Helper()
+	if msg := err.Error(); !strings.HasPrefix(msg, prefix) || strings.Contains(msg, "jsonfile") {
+		t.Errorf("err = %q, want it to start with %q and not name the package", msg, prefix)
+	}
+}
+
+func TestLockErrorNamesActionAndPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "no-such-dir", "list.json")
+	_, err := jsonfile.New(jsonfile.Config[doc]{Path: path}).Update(context.Background(), setN(1))
+	if err == nil {
+		t.Fatal("Update in a missing directory returned nil error")
+	}
+	assertUserError(t, err, "lock "+path+".lock: ")
+}
+
+func TestSentinelsDoNotNameThePackage(t *testing.T) {
+	for _, err := range []error{jsonfile.ErrBusy, jsonfile.ErrInvalid} {
+		if strings.Contains(err.Error(), "jsonfile") {
+			t.Errorf("sentinel text %q names the package", err)
+		}
 	}
 }

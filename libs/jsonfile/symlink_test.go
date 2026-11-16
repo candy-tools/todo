@@ -194,3 +194,15 @@ func TestTwoSymlinksShareOneLock(t *testing.T) {
 		t.Errorf("N = %d, want %d", v.N, want)
 	}
 }
+
+func TestSymlinkLoopError(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json")
+	symlink(t, "b.json", a)
+	symlink(t, "a.json", b)
+	_, err := jsonfile.New(jsonfile.Config[doc]{Path: a}).Update(context.Background(), setN(1))
+	if err == nil {
+		t.Fatal("Update through a link loop returned nil error")
+	}
+	assertUserError(t, err, a+": ")
+}

@@ -121,7 +121,7 @@ func createTemp(dir, prefix string) (*os.File, error) {
 		}
 		return f, err
 	}
-	return nil, fmt.Errorf("jsonfile: no unused temp file name in %s", dir)
+	return nil, fmt.Errorf("no unused temp file name in %s", dir)
 }
 
 // resolveLinks returns the file path names once every symlink in its last
@@ -162,7 +162,7 @@ func resolveLinks(path string) (string, error) {
 			return "", err
 		}
 	}
-	return "", fmt.Errorf("jsonfile: %s: too many levels of symbolic links", path)
+	return "", fmt.Errorf("%s: too many levels of symbolic links", path)
 }
 
 // realDir returns p with its directory resolved on disk: symlinked
