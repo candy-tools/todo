@@ -200,9 +200,9 @@ func TestSplitEmptyDocument(t *testing.T) {
 }
 
 func TestSplitFilteredStateChangeNamesColumn(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] o\n- [ ] r\n")
-	m = setStatusExternally(t, m, path, "r", todo.Ready)
-	m.status = ""
+	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "o", "status": "open"},
+		{"id": "t000002", "category": "c000000", "title": "r", "status": "ready"}]}`)
 	m.setColumn(todo.ColNext)
 	m = filterTick(t, m, todo.Ready)
 	m = press(m, "v", "x")

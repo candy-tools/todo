@@ -74,8 +74,9 @@ func TestBracketBackFromDoneIsWorking(t *testing.T) {
 }
 
 func TestBracketIntoDoneCascadesWithUndo(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] r\n  - [ ] s1\n  - [ ] s2\n")
-	m = setStatusExternally(t, m, path, "r", todo.Review)
+	m, path := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "r", "status": "review", "subtasks": [
+			{"id": "s000001", "title": "s1"}, {"id": "s000002", "title": "s2"}]}]}`)
 	m = showOn(t, m, todo.ColInProgress, "r")
 	m = press(m, "p")
 	for _, title := range []string{"r", "s1", "s2"} {
@@ -96,8 +97,9 @@ func TestBracketIntoDoneCascadesWithUndo(t *testing.T) {
 }
 
 func TestBracketOutOfDoneRestoresSubtasks(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] r\n  - [ ] s1\n  - [x] s2\n")
-	m = setStatusExternally(t, m, path, "r", todo.Review)
+	m, path := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "r", "status": "review", "subtasks": [
+			{"id": "s000001", "title": "s1"}, {"id": "s000002", "title": "s2", "done": true}]}]}`)
 	m = showOn(t, m, todo.ColInProgress, "r")
 	m = press(m, "p") // into Done: snapshot, cascade
 	m = showOn(t, m, todo.ColDone, "r")
@@ -265,8 +267,8 @@ func TestStateFilter(t *testing.T) {
 }
 
 func TestUndoAccidentalCompleteRestoresExactState(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n")
-	m = setStatusExternally(t, m, path, "a", todo.New)
+	m, path := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "a", "status": "new"}]}`)
 	m = showOn(t, m, todo.ColNext, "a")
 	m = pickState(t, m, todo.Done)
 	if st := storedItem(t, path, "a").Status; st != todo.Done {
@@ -431,8 +433,9 @@ func TestHelpShowsBoardKeys(t *testing.T) {
 }
 
 func TestReopenFromSnapshotIntoPickedState(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] r\n  - [ ] s1\n  - [x] s2\n")
-	m = setStatusExternally(t, m, path, "r", todo.Review)
+	m, path := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "r", "status": "review", "subtasks": [
+			{"id": "s000001", "title": "s1"}, {"id": "s000002", "title": "s2", "done": true}]}]}`)
 	m = showOn(t, m, todo.ColInProgress, "r")
 	m = press(m, "p") // into Done: snapshot, cascade
 	if len(m.snapshots) != 1 {

@@ -10,18 +10,32 @@ import (
 )
 
 // newTestModel seeds a store from the markdown src, opens it with the TUI's
-// BusyTimeout into a model, and sizes the view. It
-// returns the model and the store path so tests can assert on what was
-// persisted.
+// BusyTimeout into a model, and sizes the view. It returns the model and the
+// store path so tests can assert on what was persisted.
 func newTestModel(t *testing.T, src string) (model, string) {
 	t.Helper()
 	path := todotest.Seed(t, src)
+	return modelOn(t, path), path
+}
+
+// newJSONModel is newTestModel seeded from a list file's JSON, for a test
+// that starts from kanban states or plans markdown cannot express.
+func newJSONModel(t *testing.T, json string) (model, string) {
+	t.Helper()
+	path := todotest.SeedJSON(t, json)
+	return modelOn(t, path), path
+}
+
+// modelOn opens the list at path with the TUI's BusyTimeout into a model and
+// sizes the view.
+func modelOn(t *testing.T, path string) model {
+	t.Helper()
 	st := todo.NewStore(path, todo.WithBusyTimeout(BusyTimeout))
 	m, err := newModel(st, "")
 	if err != nil {
 		t.Fatalf("newModel: %v", err)
 	}
-	return send(m, tea.WindowSizeMsg{Width: 100, Height: 30}), path
+	return send(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 }
 
 // newTestModelOn is newTestModel switched to the board tab for column c, for

@@ -11,6 +11,7 @@ import (
 	"github.com/gofrs/flock"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/libs/jsonfile"
 )
 
 // Seed imports md into a fresh list at <t.TempDir()>/.todo.json and returns
@@ -32,6 +33,22 @@ func Seed(t testing.TB, md string) string {
 	return path
 }
 
+// SeedJSON writes json, a list file's content, as is to
+// <t.TempDir()>/.todo.json and returns its path. It lets a test give kanban
+// states, fixed IDs and plans directly, which markdown cannot express. It
+// fails the test when the content does not load as a list.
+func SeedJSON(t testing.TB, json string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	if err := writeFile(path, json); err != nil {
+		t.Fatalf("todotest.SeedJSON: %v", err)
+	}
+	if _, _, err := todo.NewStore(path).Load(context.Background()); err != nil {
+		t.Fatalf("todotest.SeedJSON: %v", err)
+	}
+	return path
+}
+
 // Dump reads the list at path and returns its content as canonical markdown.
 func Dump(t testing.TB, path string) string {
 	t.Helper()
@@ -43,11 +60,12 @@ func Dump(t testing.TB, path string) string {
 }
 
 // HoldWriteLock takes the write lock of the list at path (the lock file
-// <path>.lock), standing in for another process in the middle of a write. The
-// lock is held until the test ends.
+// jsonfile.LockPath names, beside the file a symlinked path points at),
+// standing in for another process in the middle of a write. The lock is held
+// until the test ends.
 func HoldWriteLock(t testing.TB, path string) {
 	t.Helper()
-	fl := flock.New(path + ".lock")
+	fl := flock.New(jsonfile.LockPath(path))
 	if err := fl.Lock(); err != nil {
 		t.Fatalf("todotest.HoldWriteLock: %v", err)
 	}

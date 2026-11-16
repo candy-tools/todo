@@ -302,14 +302,9 @@ func TestCategoryKeysBacklogOnly(t *testing.T) {
 }
 
 func TestReadyWithoutPlanFlagged(t *testing.T) {
-	m, path := newTestModel(t, "# B\n- [ ] r\n- [ ] planned\n")
-	m = setStatusExternally(t, m, path, "r", todo.Ready)
-	m = setStatusExternally(t, m, path, "planned", todo.Ready)
-	planned := find(m.doc, "planned")
-	if _, err := m.store.Edit(context.Background(), planned.ID, todo.Changes{Plan: new("docs/plan.md")}); err != nil {
-		t.Fatal(err)
-	}
-	m = pollOnce(t, m)
+	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "B"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "r", "status": "ready"},
+		{"id": "t000002", "category": "c000000", "title": "planned", "status": "ready", "plan": "docs/plan.md"}]}`)
 	m.setColumn(todo.ColNext)
 	if row := rowOf(t, m.tree, "r"); !strings.Contains(row, "ready") || !strings.Contains(row, "⚠ no plan") {
 		t.Errorf("a ready task without a plan must be flagged: %q", row)
@@ -320,8 +315,8 @@ func TestReadyWithoutPlanFlagged(t *testing.T) {
 }
 
 func TestTaskRowGlyphsAndStateNames(t *testing.T) {
-	m, path := newTestModel(t, "# B\n- [ ] t\n  - [ ] s\n")
-	m = setStatusExternally(t, m, path, "t", todo.Review)
+	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "B"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "t", "status": "review", "subtasks": [{"id": "s000001", "title": "s"}]}]}`)
 	m.setColumn(todo.ColInProgress)
 	if row := rowOf(t, m.tree, "t"); !strings.Contains(row, "◑ t") || !strings.Contains(row, "review") {
 		t.Errorf("review row = %q", row)
