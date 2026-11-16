@@ -382,7 +382,9 @@ var (
 
 // unknownFieldOwner returns the item of the list file b that holds the
 // unknown field name, as "task bbbbbbb: " (or by its JSON path when it has no
-// valid ID), and "" for the top level or when it cannot tell.
+// valid ID), and "" for the top level or when it cannot tell. It looks through
+// the categories and the tasks in the order the file has them, so it names
+// the first object holding the field, as the decoder met it.
 func unknownFieldOwner(b []byte, name string) string {
 	type object = map[string]json.RawMessage
 	unknown := func(o object, fields []string) bool {
@@ -400,29 +402,70 @@ func unknownFieldOwner(b []byte, name string) string {
 		return ""
 	}
 	_ = json.Unmarshal(b, &doc) // the items it could decode are enough
-	for i, c := range doc.Categories {
-		if unknown(c, categoryFields) {
-			return itemRef("category", fmt.Sprintf("categories[%d]", i), c) + ": "
+	inCategories := func() string {
+		for i, c := range doc.Categories {
+			if unknown(c, categoryFields) {
+				return itemRef("category", fmt.Sprintf("categories[%d]", i), c) + ": "
+			}
 		}
+		return ""
 	}
-	for i, t := range doc.Tasks {
-		task := itemRef("task", fmt.Sprintf("tasks[%d]", i), t)
-		if unknown(t, taskFields) {
-			return task + ": "
+	inTasks := func() string {
+		for i, t := range doc.Tasks {
+			task := itemRef("task", fmt.Sprintf("tasks[%d]", i), t)
+			if unknown(t, taskFields) {
+				return task + ": "
+			}
+			var subs []object
+			_ = json.Unmarshal(t["subtasks"], &subs)
+			for j, s := range subs {
+				if !unknown(s, subtaskFields) {
+					continue
+				}
+				if ref := itemRef("subtask", "", s); ref != "" {
+					return ref + " of " + task + ": "
+				}
+				return fmt.Sprintf("tasks[%d].subtasks[%d]: ", i, j)
+			}
 		}
-		var subs []object
-		_ = json.Unmarshal(t["subtasks"], &subs)
-		for j, s := range subs {
-			if !unknown(s, subtaskFields) {
-				continue
-			}
-			if ref := itemRef("subtask", "", s); ref != "" {
-				return ref + " of " + task + ": "
-			}
-			return fmt.Sprintf("tasks[%d].subtasks[%d]: ", i, j)
+		return ""
+	}
+	for _, key := range topKeys(b) {
+		var owner string
+		switch {
+		case strings.EqualFold(key, "categories"):
+			owner = inCategories()
+		case strings.EqualFold(key, "tasks"):
+			owner = inTasks()
+		}
+		if owner != "" {
+			return owner
 		}
 	}
 	return ""
+}
+
+// topKeys returns the keys of the JSON object b in the order b has them, as
+// far as it can read them.
+func topKeys(b []byte) []string {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil
+	}
+	var keys []string
+	for dec.More() {
+		t, err := dec.Token()
+		key, ok := t.(string)
+		if err != nil || !ok {
+			break
+		}
+		keys = append(keys, key)
+		var skip json.RawMessage
+		if dec.Decode(&skip) != nil {
+			break
+		}
+	}
+	return keys
 }
 
 // itemRef names an item object o of the file: kind and ID when it has a
