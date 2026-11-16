@@ -197,8 +197,10 @@ is not done keeps its state and nothing is written (with `--cascade` its
 subtasks are reopened). `--cascade` on `done` / `reopen` applies the change to
 the task's subtasks too.
 
-Breaking the board's rules — a subtask under a subtask, or a board state on a
-subtask — exits with code `2`.
+Breaking the board's rules — a subtask under a subtask, a board state on a
+subtask, or an invalid title — exits with code `2`. Asking an item of the wrong
+kind — a state on a category, a category under a task — exits with code `5`,
+and the error names the item.
 
 `--id` is stable: an item keeps its id for as long as it exists, so it is the
 safest way to address an item across a sequence of edits. `--number` shifts
@@ -207,7 +209,8 @@ after any add/remove; `--title` is stable as long as it stays unique. Re-run
 
 Exit codes: `0` ok, `2` usage, `3` not found, `4` ambiguous title, `5` wrong
 kind, `6` conflict (the list changed while the command ran, or another todo
-kept it locked for writing for more than 5 seconds; re-run it), `1` other (including an invalid list file).
+kept it locked for writing for more than 5 seconds; re-run it), `1` other
+(including an invalid list file, and an internal error, which writes nothing).
 Errors go to stderr.
 
 ## Keys
@@ -289,6 +292,11 @@ within about a second, so you can watch the list update live. Your selection and
 which items are folded are kept across a reload. Changes made inside todo are
 written immediately, so editing in the TUI while a script edits from outside
 never fight each other.
+
+If the list file is removed while the TUI shows it, the TUI keeps showing the
+list and refuses to recreate the file: every save fails with `save failed: list
+file was removed`. Started on a list file that does not exist yet, its first
+save creates it.
 
 ## Storage
 
