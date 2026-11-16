@@ -134,7 +134,7 @@ func TestEditKeepsKind(t *testing.T) {
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
 	task := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Deferred, c, ""))
 
-	mustOK(t)(s.Edit(ctx, c, Changes{Title: new("C2"), Description: new("x")}))
+	mustOK(t)(s.Edit(ctx, c, Changes{Title: new("C2")}))
 	mustOK(t)(s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("desc")}))
 
 	doc := load(t, s)
@@ -492,37 +492,21 @@ func TestEmptyEditKeepsFile(t *testing.T) {
 	})
 }
 
-func TestEditCategoryIgnoresPlan(t *testing.T) {
-	s := newStore(t)
-	ctx := context.Background()
-	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
-
-	mustOK(t)(s.Edit(ctx, c, Changes{Title: new("C2"), Description: new("x"), Plan: new("docs/p.md")}))
-
-	if got := item(t, load(t, s), c); got.Title != "C2" || got.Description != "" || got.Plan != "" {
-		t.Fatalf("category after Edit = %+v; want C2 with no description or plan", got)
-	}
-}
-
-// An Edit of a category that names only the fields a category ignores changes
-// nothing it stores, so it must not rewrite the file (the TUI reads a change as
-// an external one), and a missing item is still ErrNotFound.
-func TestEditCategoryIgnoredFieldsKeepFile(t *testing.T) {
+// A category has no description or plan: an Edit that names either fails
+// with ErrNotTask and writes nothing, and a missing item is still ErrNotFound.
+func TestEditCategoryDescriptionOrPlanIsNotTask(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
 	for name, ch := range map[string]Changes{
-		"description": {Description: new("x")},
-		"plan":        {Plan: new("docs/p.md")},
-		"both":        {Description: new("x"), Plan: new("docs/p.md")},
+		"description":    {Description: new("x")},
+		"plan":           {Plan: new("docs/p.md")},
+		"title and both": {Title: new("C2"), Description: new("x"), Plan: new("docs/p.md")},
 	} {
-		keepsFile(t, s, name, func() (WriteResult, error) { return s.Edit(ctx, c, ch) })
+		rejects(t, s, ErrNotTask, func() error { return errOf(s.Edit(ctx, c, ch)) })
 		if _, err := s.Edit(ctx, "zzzzzzz", ch); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%s: Edit of a missing item = %v; want ErrNotFound", name, err)
 		}
-	}
-	if got := item(t, load(t, s), c); got.Title != "C" || got.Description != "" || got.Plan != "" {
-		t.Fatalf("category after Edit = %+v; want C with no description or plan", got)
 	}
 }
 

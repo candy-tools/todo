@@ -80,9 +80,9 @@ var ErrNowhere = classed(ErrBadRequest, "nowhere to move the item that way")
 // a category under a category or at the root. Its class is ErrWrongKind.
 var ErrWrongParent = classed(ErrWrongKind, "a task must sit under a category and a category cannot sit under a task")
 
-// ErrNotTask is returned by a write that would set the status of a category:
-// only a task has a status. Its class is ErrWrongKind.
-var ErrNotTask = classed(ErrWrongKind, "only a task has a status")
+// ErrNotTask is returned by a write that would give a category a state, a
+// description or a plan: only a task has them. Its class is ErrWrongKind.
+var ErrNotTask = classed(ErrWrongKind, "only a task has a state, a description or a plan")
 
 // ErrBusy is returned by a write that gave up waiting for another process to
 // release the list's write lock (after the store's busy timeout). Its class

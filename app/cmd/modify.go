@@ -78,21 +78,16 @@ func editCmd() *cobra.Command {
 					ch.Title = &title
 				}
 				if setDesc {
-					if !it.IsTask() {
-						return wrongKind("set a description on", it, "task")
-					}
 					desc, _ := cmd.Flags().GetString("set-desc")
 					ch.Description = &desc
 				}
 				if setPlan {
-					if !it.IsTask() {
-						return wrongKind("set a plan on", it, "task")
-					}
 					plan, _ := cmd.Flags().GetString("set-plan")
 					ch.Plan = &plan
 				}
+				// The store refuses a description or plan for a category.
 				if _, err := s.Edit(ctx, it.ID, ch); err != nil {
-					return err
+					return wrongKindIn(err, "edit", it)
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", title)
 				return nil

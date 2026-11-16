@@ -438,16 +438,23 @@ func TestOpEditNoChange(t *testing.T) {
 	}
 }
 
-func TestOpEditCategoryIgnoresDescription(t *testing.T) {
-	d := opDoc(t, "# A\n")
-	desc, plan := "notes", "p.md"
-	changed, err := d.Edit(idOf(t, d, "A"), todo.Changes{Description: &desc, Plan: &plan})
-	wantNoErr(t, err)
-	if changed {
-		t.Error("changed = true, want false")
-	}
-	if it := find(d, "A"); it.Description != "" || it.Plan != "" {
-		t.Errorf("category = %+v, want no description or plan", it)
+// Only a task has a description or a plan: an edit that gives either to a
+// category fails whole with ErrNotTask (a title among its changes included)
+// and changes nothing.
+func TestOpEditCategoryDescriptionOrPlanIsNotTask(t *testing.T) {
+	desc, plan, title := "notes", "p.md", "B"
+	for name, c := range map[string]todo.Changes{
+		"description":    {Description: &desc},
+		"plan":           {Plan: &plan},
+		"title and plan": {Title: &title, Plan: &plan},
+		"empty plan":     {Plan: new(string)},
+	} {
+		d := opDoc(t, "# A\n")
+		changed, err := d.Edit(idOf(t, d, "A"), c)
+		if !errors.Is(err, todo.ErrNotTask) || changed {
+			t.Errorf("%s: Edit of a category = %v, %v; want ErrNotTask and no change", name, changed, err)
+		}
+		wantDoc(t, d, "# A\n")
 	}
 }
 

@@ -87,12 +87,12 @@ func (s *Store) change(ctx context.Context, op func(d *Document) error) (WriteRe
 }
 
 // Edit sets the fields of item id that c names: its title and, for a task, its
-// description and plan; a category ignores c.Description and c.Plan. Fields c
-// leaves nil, and kind, status and placement, are kept, so an edit never
-// reverts a field another process changed since the caller read the item. A
-// title CleanTitle refuses fails the edit with ErrInvalidTitle, and a missing
-// id with ErrNotFound. An edit that changes nothing (c names no field, only
-// fields the item ignores, or only values it already holds) writes nothing.
+// description and plan. Fields c leaves nil, and kind, status and placement,
+// are kept, so an edit never reverts a field another process changed since the
+// caller read the item. A title CleanTitle refuses fails the edit with
+// ErrInvalidTitle, a missing id with ErrNotFound, and a description or plan
+// for a category with ErrNotTask. An edit that changes nothing (c names no
+// field, or only values the item already holds) writes nothing.
 func (s *Store) Edit(ctx context.Context, id string, c Changes) (WriteResult, error) {
 	return s.write(ctx, func(d *Document) (bool, error) { return d.Edit(id, c) })
 }

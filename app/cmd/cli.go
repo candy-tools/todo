@@ -40,13 +40,6 @@ func (e *cliError) Error() string { return e.msg }
 func usageErr(msg string) error { return &cliError{exitUsage, msg} }
 func notFound(msg string) error { return &cliError{exitNotFound, msg} }
 
-func kindName(it *todo.Item) string {
-	if it.IsTask() {
-		return "task"
-	}
-	return "category"
-}
-
 // categoryPath returns the enclosing category's title, for confirmation lines.
 func categoryPath(it *todo.Item) string {
 	if c := it.EnclosingCategory(); c != nil {
@@ -64,11 +57,6 @@ func wrongKindIn(err error, action string, it *todo.Item) error {
 		return fmt.Errorf("cannot %s %q: %w", action, it.Title, err)
 	}
 	return err
-}
-
-func wrongKind(action string, it *todo.Item, want string) error {
-	return &cliError{exitWrongKind, fmt.Sprintf(
-		"cannot %s %q: it is a %s, not a %s", action, it.Title, kindName(it), want)}
 }
 
 // addSelectorFlags registers the number/id/title trio under an optional prefix

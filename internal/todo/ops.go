@@ -258,10 +258,10 @@ func (d *Document) addTask(f Fields, st Status, parentID string, at func(parent 
 }
 
 // Edit sets the fields of item id that c names: its title and, for a task, its
-// description and plan; a category ignores c.Description and c.Plan. Fields c
-// leaves nil are kept. changed is false when every field applied already held
-// its value, or c names no field the item uses. A missing id is ErrNotFound and
-// a title CleanTitle refuses fails it with that error.
+// description and plan. Fields c leaves nil are kept. changed is false when
+// every field c names already held its value. A missing id is ErrNotFound, a
+// title CleanTitle refuses fails it with that error, and a description or plan
+// for a category (even an empty one) fails the whole edit with ErrNotTask.
 func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	var title string
 	if c.Title != nil {
@@ -273,6 +273,9 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	if err != nil {
 		return false, err
 	}
+	if it.Kind != Task && (c.Description != nil || c.Plan != nil) {
+		return false, ErrNotTask
+	}
 	set := func(field *string, v *string) {
 		if v != nil && *field != *v {
 			*field = *v
@@ -282,10 +285,8 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	if c.Title != nil {
 		set(&it.Title, &title)
 	}
-	if it.Kind == Task {
-		set(&it.Description, c.Description)
-		set(&it.Plan, c.Plan)
-	}
+	set(&it.Description, c.Description)
+	set(&it.Plan, c.Plan)
 	return changed, nil
 }
 
