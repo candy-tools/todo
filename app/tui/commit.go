@@ -78,10 +78,10 @@ func (m *model) writer() *todo.Store {
 // is handled as external (snapshots dropped, the status line says so).
 //
 // On failure the list is loaded again, and handled the same way when it moved;
-// when that fails too, a copy of the document as last loaded is put back, so
-// the change the caller made in memory does not stay on screen as if saved. A
-// write that finds the file the model read removed fails as errListRemoved
-// and writes nothing (see writer); the view keeps the list.
+// when that fails too, the view keeps the list it shows, which no handler
+// changes before its write. A write that finds the file the model read
+// removed fails as errListRemoved and writes nothing (see writer); the view
+// keeps the list.
 //
 // commit reports whether the write succeeded, so a caller can keep the user's
 // input to retry a failed save.
@@ -99,18 +99,9 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 		m.adoptAll(m.doc, focusID, onPH)
 		return false
 	}
-	if r.Doc == nil {
-		// write succeeded without a store write: there is no result to
-		// adopt, so read the list as it is.
-		m.reload(ctx)
-		m.adoptAll(m.doc, focusID, onPH)
-		return true
-	}
 	external := r.Read != m.lastFP
 	m.ownRead = r.Read
-	// r.Doc is the model's own (the store keeps no reference to it), so the
-	// handlers may change m.doc in place.
-	m.doc, m.saved, m.lastFP = r.Doc, r.Doc.Clone(), r.Wrote
+	m.doc, m.lastFP = r.Doc, r.Wrote
 	// The write read and validated the file, so earlier poll failures are
 	// over: a later one counts from zero.
 	m.clearPollErr()
@@ -121,19 +112,17 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 	return true
 }
 
-// reload loads the list for commit when the write left no result to adopt
-// (it failed), taking it as an external change when its file moved since the
-// last load. When the load fails,
-// or finds the file removed (which the poll reports, keeping the view), m.doc
-// goes back to a copy of the list as last loaded.
+// reload loads the list for commit after a failed write, which left no
+// result to adopt, taking it as an external change when its file moved since
+// the last load. When the load fails, or finds the file removed (which the
+// poll reports), m.doc stays the list the model shows.
 func (m *model) reload(ctx context.Context) {
 	doc, fp, err := m.store.Load(ctx)
 	if err != nil || (fp.IsMissing() && !m.lastFP.IsMissing()) {
-		m.doc = m.saved.Clone()
 		return
 	}
 	external := fp != m.lastFP
-	m.doc, m.saved, m.lastFP = doc, doc.Clone(), fp
+	m.doc, m.lastFP = doc, fp
 	if external {
 		m.noteExternal()
 	}

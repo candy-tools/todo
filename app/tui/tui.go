@@ -44,12 +44,10 @@ type model struct {
 	// Persistence: the store, the document loaded from it, and the
 	// fingerprint and errors of the last load or write.
 	store *todo.Store
-	doc   *todo.Document
-	// saved is an untouched copy of doc as the store last gave it. The actions
-	// change doc in memory before they write, so when the write fails and the
-	// reload cannot replace doc either, commit puts a copy of saved back rather
-	// than show the unsaved change as if it were saved.
-	saved *todo.Document
+	// doc is the list as the store last gave it: a load, or a write's result.
+	// It is read only: an action sends its change to the store and shows the
+	// list the write left (see commit).
+	doc *todo.Document
 	// lastFP is the fingerprint of the list file doc reflects: the one todo
 	// last loaded, which after its own write is the file that write left. The
 	// poll loop asks the store whether the file changed since, to tell an
@@ -150,7 +148,6 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		store:     st,
 		version:   metainfo.Version,
 		doc:       doc,
-		saved:     doc.Clone(),
 		view:      v,
 		tree:      newTree(doc, v),
 		side:      newSidebar(doc, v),

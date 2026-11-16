@@ -174,7 +174,7 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 	if sel := m.focused().selected(); sel != nil && !onPH {
 		focus = sel.ID
 	}
-	m.doc, m.saved, m.lastFP = msg.doc, msg.doc.Clone(), msg.fp
+	m.doc, m.lastFP = msg.doc, msg.fp
 	m.adoptAll(msg.doc, focus, onPH)
 	m.noteExternal()
 }

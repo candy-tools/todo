@@ -1007,7 +1007,6 @@ func TestFailedWriteAndReloadRestoresEdit(t *testing.T) {
 func TestSavedWriteAdoptsWriteResult(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	a, b := find(m.doc, "a"), find(m.doc, "b")
-	m.doc.Remove(b)
 	var wrote todo.Fingerprint
 	saved := m.commit(a.ID, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
 		res, err := st.Delete(ctx, b.ID)
@@ -1029,12 +1028,11 @@ func TestSavedWriteAdoptsWriteResult(t *testing.T) {
 	}
 }
 
-// TestFailedWriteRevertsToStore has the write fail while the reload works: the
-// in-memory change is discarded and the view shows what the store holds.
-func TestFailedWriteRevertsToStore(t *testing.T) {
+// TestFailedWriteShowsStore has the write fail while the reload works: the
+// error is shown and the view shows what the store holds.
+func TestFailedWriteShowsStore(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	b := find(m.doc, "b")
-	m.doc.Remove(b)
 	m.commit(b.ID, func(context.Context, *todo.Store) (todo.WriteResult, error) {
 		return todo.WriteResult{}, errors.New("boom")
 	})
@@ -1042,7 +1040,7 @@ func TestFailedWriteRevertsToStore(t *testing.T) {
 		t.Errorf("footer should report the failed save, got %q", got)
 	}
 	if find(m.doc, "b") == nil || !hasRow(m, "b") {
-		t.Errorf("the view must revert to the store's state, which still has b")
+		t.Errorf("the view must show the store's list, which still has b")
 	}
 	if got := m.tree.selected().Title; got != "b" {
 		t.Errorf("selection = %q, want b", got)
@@ -1158,33 +1156,6 @@ func TestFileRemovedMidPollKeepsView(t *testing.T) {
 	m = send(m, msg)
 	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
 		t.Errorf("rows = %v, want %v", got, rows)
-	}
-}
-
-// TestCommitWithoutStoreWriteReloads commits a change made in memory through a
-// write that succeeds without a store write, before any write and after one:
-// there is no write result to adopt, so the view shows the stored list.
-func TestCommitWithoutStoreWriteReloads(t *testing.T) {
-	for _, afterWrite := range []bool{false, true} {
-		m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
-		if afterWrite {
-			m = press(selectTitle(t, m, "a"), "p")
-			if m.err != nil {
-				t.Fatalf("precondition: the write failed: %v", m.err)
-			}
-		}
-		b := find(m.doc, "b")
-		m.doc.Remove(b)
-		if !m.commit(b.ID, func(context.Context, *todo.Store) (todo.WriteResult, error) { return todo.WriteResult{}, nil }) {
-			t.Fatalf("afterWrite=%v: the commit must report success", afterWrite)
-		}
-		if find(m.doc, "b") == nil || !hasRow(m, "b") {
-			t.Errorf("afterWrite=%v: the in-memory change must give way to the stored list, rows %v",
-				afterWrite, rowTitles(m.tree))
-		}
-		if m.err != nil {
-			t.Errorf("afterWrite=%v: m.err = %v", afterWrite, m.err)
-		}
 	}
 }
 
