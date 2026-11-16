@@ -104,11 +104,15 @@ func createTemp(dir, prefix string) (*os.File, error) {
 
 // resolveLinks returns the file path names once every symlink in its last
 // element is followed, or path itself when that is not a symlink (or does not
-// exist). A relative link target is taken relative to the link's directory. A
-// dangling link resolves to the path it points at, so a write creates that file
-// rather than replace the link. Symlinked directories along the way are left
-// as they are: they do not change which file a rename replaces or which lock
-// file is opened.
+// exist). A dangling link resolves to the path it points at, so a write
+// creates that file rather than replace the link.
+//
+// A link target is resolved as the system does: a relative one against the
+// directory the link really sits in, and `..` against the directories on disk,
+// not by cleaning the path as text (reached through a symlinked directory,
+// `..` leads out of the directory linked to, not back up the path). Once a
+// link was followed, the directory of the result is the real one (symlinked
+// directories resolved); a path that is not a link is returned as given.
 func resolveLinks(path string) (string, error) {
 	p := path
 	for range maxLinks {
@@ -127,9 +131,33 @@ func resolveLinks(path string) (string, error) {
 			return "", err
 		}
 		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(p), target)
+			// Concatenate rather than filepath.Join, which would clean `..`
+			// as text; realDir resolves it on disk.
+			linkDir, _ := filepath.Split(p)
+			target = linkDir + target
 		}
-		p = target
+		if p, err = realDir(target); err != nil {
+			return "", err
+		}
 	}
 	return "", fmt.Errorf("jsonfile: %s: too many levels of symbolic links", path)
+}
+
+// realDir returns p with its directory resolved on disk: symlinked
+// directories followed and `..` taken against the real directories. The last
+// element is kept as is (it may itself be a link). When the directory does
+// not exist, p is returned unchanged; a write there fails on its own.
+func realDir(p string) (string, error) {
+	dir, base := filepath.Split(p)
+	if dir == "" {
+		dir = "."
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return p, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolved, base), nil
 }

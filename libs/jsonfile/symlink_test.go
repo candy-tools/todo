@@ -107,6 +107,27 @@ func TestSymlinkChainResolvesToTarget(t *testing.T) {
 	}
 }
 
+// TestSymlinkDotDotFollowsRealDirectory reaches a link through a symlinked
+// directory: its `..` must be taken from the directory the link really sits
+// in (real/x/y), not cleaned away against the path it was reached by.
+func TestSymlinkDotDotFollowsRealDirectory(t *testing.T) {
+	dir := t.TempDir()
+	deep := filepath.Join(dir, "real", "x", "y")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlink(t, deep, filepath.Join(dir, "dirlink"))
+	symlink(t, filepath.Join("..", "list.json"), filepath.Join(deep, "l.json"))
+
+	mustUpdate(t, jsonfile.New(jsonfile.Config[doc]{Path: filepath.Join(dir, "dirlink", "l.json")}), setN(4))
+	assertSymlink(t, filepath.Join(deep, "l.json"))
+	v, _, err := jsonfile.New(jsonfile.Config[doc]{Path: filepath.Join(dir, "real", "x", "list.json")}).Load()
+	if err != nil || v.N != 4 {
+		t.Errorf("real/x/list.json N = %d, %v; want 4", v.N, err)
+	}
+	assertNotExist(t, filepath.Join(dir, "list.json"))
+}
+
 func TestSymlinkUpdateWaitsForTargetLock(t *testing.T) {
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real.json")
