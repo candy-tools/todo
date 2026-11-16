@@ -795,6 +795,70 @@ func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
 	}
 }
 
+// completedWithSnapshot completes a working task with two open subtasks
+// through the state picker, which leaves an undo snapshot, and returns the
+// model on the Done tab with the task selected, so t then enter undoes.
+func completedWithSnapshot(t *testing.T) (model, string) {
+	t.Helper()
+	m, path := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n", todo.ColInProgress)
+	m = pickState(t, selectTitle(t, m, "parent"), todo.Done)
+	if m.err != nil || len(m.snapshots) != 1 {
+		t.Fatalf("precondition: the complete must leave a snapshot: err %v, snapshots %d", m.err, len(m.snapshots))
+	}
+	return showOn(t, m, todo.ColDone, "parent"), path
+}
+
+// TestUndoKeepsOtherWritersChanges completes a task, has a second store change
+// a subtask before any poll, and undoes the complete through the state picker:
+// the undo's write finds a list other than the one the complete left, so it
+// is a plain reopen. The other writer's change survives, and no snapshot
+// state is written back, also when the other writer reopened the subtask and
+// completed it again.
+func TestUndoKeepsOtherWritersChanges(t *testing.T) {
+	note := "checked again"
+	cases := []struct {
+		name   string
+		other  func(ctx context.Context, s *todo.Store, c1 string) error
+		wantC1 todo.Status
+	}{
+		{"a subtask reopened", func(ctx context.Context, s *todo.Store, c1 string) error {
+			_, err := s.SetState(ctx, c1, todo.Open, todo.StateOptions{})
+			return err
+		}, todo.Open},
+		{"a subtask reopened, edited and completed again", func(ctx context.Context, s *todo.Store, c1 string) error {
+			if _, err := s.SetState(ctx, c1, todo.Open, todo.StateOptions{}); err != nil {
+				return err
+			}
+			if _, err := s.Edit(ctx, c1, todo.Changes{Description: &note}); err != nil {
+				return err
+			}
+			_, err := s.SetState(ctx, c1, todo.Done, todo.StateOptions{})
+			return err
+		}, todo.Done},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, path := completedWithSnapshot(t)
+			if err := tc.other(context.Background(), openSecond(t, path), find(m.doc, "c1").ID); err != nil {
+				t.Fatalf("other writer: %v", err)
+			}
+
+			m = press(m, "t", "enter") // t starts on the state before the complete
+			if m.err != nil {
+				t.Fatalf("the undo failed: %v", m.err)
+			}
+			for title, want := range map[string]todo.Status{"parent": todo.Working, "c1": tc.wantC1, "c2": todo.Done} {
+				if got := statusIn(t, path, title); got != want {
+					t.Errorf("%s = %v after the undo, want %v", title, got, want)
+				}
+			}
+			if len(m.snapshots) != 0 || m.status != "reloaded — list changed externally" {
+				t.Errorf("the undo found an outside change: snapshots %d, status %q", len(m.snapshots), m.status)
+			}
+		})
+	}
+}
+
 // TestOwnWriteDetectsExternalWriteBeforePoll covers an external write landing
 // between polls: the app's next own write must notice that the file it found
 // is not the one it last loaded, treat its result as external and drop the
@@ -808,7 +872,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 
 	// An agent reopens c1 through a second handle; no poll runs.
 	c1 := find(m.doc, "c1").ID
-	if _, err := openSecond(t, path).SetStatuses(context.Background(), map[string]todo.Status{c1: todo.Open}); err != nil {
+	if _, err := openSecond(t, path).SetState(context.Background(), c1, todo.Open, todo.StateOptions{}); err != nil {
 		t.Fatalf("external write: %v", err)
 	}
 

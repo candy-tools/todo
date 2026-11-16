@@ -35,8 +35,7 @@ func (m model) toggleSubtask(it *todo.Item) (tea.Model, tea.Cmd) {
 	if it.IsDone() {
 		st = todo.Open
 	}
-	it.Status = st
-	m.commit(it.ID, m.setStatusesWrite(it.ID, st))
+	m.commit(it.ID, stateWrite(it.ID, st, todo.StateOptions{}))
 	return m, nil
 }
 
@@ -48,22 +47,20 @@ func (m model) toggleSubtask(it *todo.Item) (tea.Model, tea.Cmd) {
 func (m model) complete(it *todo.Item) (tea.Model, tea.Cmd) {
 	id := it.ID
 	m.snapshots[id] = todo.SnapshotDone(it)
-	todo.CascadeSetDone(it, true)
-	m.commitStatus(id, func(ctx context.Context, s *todo.Store) (todo.WriteResult, error) { return s.Complete(ctx, id, true) })
+	m.commitStatus(id, stateWrite(id, todo.Done, todo.StateOptions{Cascade: true}))
 	return m, nil
 }
 
 // reopen takes done top-level task it out of Done into state st. With an undo
-// snapshot from completing it, its subtasks get their snapshot states back;
-// without one they keep theirs. The snapshot is used up either way.
+// snapshot from completing it, its subtasks get their snapshot states back,
+// but only when the list is still the one the model shows (RestoreSince):
+// after any other write the store makes it a plain reopen. Without a snapshot
+// the subtasks keep their states. The snapshot is used up either way.
 func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 	id := it.ID
 	restore := m.snapshots[id]
 	delete(m.snapshots, id)
-	m.doc.ApplyStatuses(todo.ReopenStates(id, st, restore))
-	m.commitStatus(id, func(ctx context.Context, s *todo.Store) (todo.WriteResult, error) {
-		return s.SetState(ctx, id, st, todo.StateOptions{Restore: restore})
-	})
+	m.commitStatus(id, stateWrite(id, st, todo.StateOptions{Restore: restore, RestoreSince: m.lastFP}))
 	return m, nil
 }
 
@@ -101,8 +98,7 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 	case it.IsDone():
 		return m.reopen(it, target.FirstState())
 	}
-	it.Status = target.FirstState()
-	m.commitStatus(it.ID, m.setStatusesWrite(it.ID, it.Status))
+	m.commitStatus(it.ID, stateWrite(it.ID, target.FirstState(), todo.StateOptions{}))
 	return m, nil
 }
 
@@ -144,14 +140,15 @@ func (m model) setState(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 	case it.IsDone():
 		return m.reopen(it, st)
 	}
-	it.Status = st
-	m.commitStatus(it.ID, m.setStatusesWrite(it.ID, st))
+	m.commitStatus(it.ID, stateWrite(it.ID, st, todo.StateOptions{}))
 	return m, nil
 }
 
-// setStatusesWrite returns the store write that sets item id to st.
-func (m model) setStatusesWrite(id string, st todo.Status) storeWrite {
+// stateWrite returns the store write that sets task id to st with options o.
+// The store decides under its lock, from the task as the file holds it then,
+// whether that completes, reopens or just changes it (see todo.Store.SetState).
+func stateWrite(id string, st todo.Status, o todo.StateOptions) storeWrite {
 	return func(ctx context.Context, s *todo.Store) (todo.WriteResult, error) {
-		return s.SetStatuses(ctx, map[string]todo.Status{id: st})
+		return s.SetState(ctx, id, st, o)
 	}
 }

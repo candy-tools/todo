@@ -21,7 +21,7 @@ func setStatusExternally(t *testing.T, m model, path, title string, st todo.Stat
 	if it == nil {
 		t.Fatalf("no item %q", title)
 	}
-	if _, err := openSecond(t, path).SetStatuses(context.Background(), map[string]todo.Status{it.ID: st}); err != nil {
+	if _, err := openSecond(t, path).SetState(context.Background(), it.ID, st, todo.StateOptions{}); err != nil {
 		t.Fatalf("external set status: %v", err)
 	}
 	return pollOnce(t, m)
