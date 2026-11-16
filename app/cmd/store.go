@@ -59,35 +59,41 @@ func importNotice(rep todo.ImportReport, from string) string {
 	return strings.Join(append(lines, rep.Warnings...), "\n")
 }
 
-// legacyImportable reports whether the store at path is missing while the
-// default path is in use and a TODO.md exists to import.
-func legacyImportable(path string, isDefault bool) (bool, error) {
+// firstRun reports whether the default list file is in use and does not
+// exist yet: only then is TODO.md imported automatically and a .todo.db
+// mentioned.
+func firstRun(path string, isDefault bool) (bool, error) {
 	if !isDefault {
 		return false, nil
 	}
 	exists, err := fileExists(path)
-	if err != nil || exists {
+	if err != nil {
 		return false, err
+	}
+	return !exists, nil
+}
+
+// legacyImportable reports whether, on a first run (see firstRun), a TODO.md
+// exists to import.
+func legacyImportable(first bool) (bool, error) {
+	if !first {
+		return false, nil
 	}
 	return fileExists(legacyFile)
 }
 
 // legacyDBNotice returns the notice that a .todo.db an older todo left is not
-// read, when isDefault, the list file at path does not exist yet and a
-// .todo.db does; otherwise "". The .todo.db is only stat'ed.
-func legacyDBNotice(path string, isDefault bool) (string, error) {
-	if !isDefault {
-		return "", nil
+// read, on a first run (see firstRun) when a .todo.db exists; otherwise "".
+// The .todo.db is only stat'ed, and one that cannot be stat'ed earns no
+// notice: the notice is a courtesy, never a reason to fail.
+func legacyDBNotice(first bool) string {
+	if !first {
+		return ""
 	}
-	exists, err := fileExists(path)
-	if err != nil || exists {
-		return "", err
+	if old, err := fileExists(legacyDBFile); err != nil || !old {
+		return ""
 	}
-	old, err := fileExists(legacyDBFile)
-	if err != nil || !old {
-		return "", err
-	}
-	return fmt.Sprintf("found %s from an older todo; it is no longer read (lists are now stored in %s)", legacyDBFile, defaultFile), nil
+	return fmt.Sprintf("found %s from an older todo; it is no longer read (lists are now stored in %s)", legacyDBFile, defaultFile)
 }
 
 // joinNotices joins the non-empty notices, one per line.
@@ -110,11 +116,12 @@ func joinNotices(notices ...string) string {
 // as is, without a notice. An import that fails, say on a list busy past the
 // timeout in opts, fails with the CLI error of its class (see storeErr).
 func openList(path string, isDefault bool, opts ...todo.Option) (*todo.Store, string, error) {
-	dbNote, err := legacyDBNotice(path, isDefault)
+	first, err := firstRun(path, isDefault)
 	if err != nil {
 		return nil, "", err
 	}
-	imp, err := legacyImportable(path, isDefault)
+	dbNote := legacyDBNotice(first)
+	imp, err := legacyImportable(first)
 	if err != nil {
 		return nil, "", err
 	}

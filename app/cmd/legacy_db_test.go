@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -132,4 +133,29 @@ func TestLegacyDBNoticeOnImport(t *testing.T) {
 		t.Errorf("stderr = %q, want the .todo.db notice", errOut)
 	}
 	assertOldDBUntouched(t)
+}
+
+// A .todo.db that cannot be stat'ed (here a symlink to itself) earns no
+// notice and fails no command: the notice is only a courtesy.
+func TestLegacyDBStatErrorIsIgnored(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.Symlink(legacyDBFile, legacyDBFile); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := os.Stat(legacyDBFile); err == nil || errors.Is(err, os.ErrNotExist) {
+		t.Skipf("precondition: stat of a self-link should fail otherwise, got %v", err)
+	}
+	for _, args := range [][]string{{"list"}, {"add-category", "--title", "Work"}, {"import", "list.md"}} {
+		if args[0] == "import" {
+			if err := os.WriteFile("list.md", []byte("# Home\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(defaultFile); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, errOut, err := runSplit(t, args...); err != nil || errOut != "" {
+			t.Errorf("%v: err=%v stderr=%q, want success and no notice", args, err, errOut)
+		}
+	}
 }

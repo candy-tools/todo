@@ -18,11 +18,10 @@ func importCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			notice, err := legacyDBNotice(path, isDefault)
-			if err != nil {
-				return err
-			}
-			printNotice(cmd, notice)
+			// The notice is a courtesy: a list file that cannot be stat'ed
+			// fails the import itself, with a better message.
+			first, _ := firstRun(path, isDefault)
+			printNotice(cmd, legacyDBNotice(first))
 			force, _ := cmd.Flags().GetBool("force")
 			_, rep, err := todo.ImportFile(path, args[0], force)
 			if errors.Is(err, todo.ErrNotEmpty) {
