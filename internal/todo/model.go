@@ -238,8 +238,9 @@ func (it *Item) IsSubtask() bool {
 }
 
 // Column returns the board column task it shows in: its status's column, or,
-// for a subtask, its task's. A category sits in no column; for one it returns
-// ColBacklog.
+// for a subtask, its task's. It is for tasks only: a category sits in no
+// column, and for one it returns ColBacklog, which a caller must not take as
+// the category's place on the board.
 func (it *Item) Column() Column {
 	if it.IsSubtask() {
 		return it.Parent.Status.Column()

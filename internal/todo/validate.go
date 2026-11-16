@@ -38,27 +38,31 @@ func (l *diskList) validate() error {
 var idRule = fmt.Sprintf("an id is %d characters from 0-9 and a-z except i, l, o and u", idLen)
 
 // validateIDs checks every ID is well formed, then that none repeats. A
-// malformed ID is reported with the item that holds it, named by title, since
-// its ID cannot name it.
+// malformed ID is reported with the item that holds it, named by title (or by
+// its JSON path when it has none), since its ID cannot name it.
 func (l *diskList) validateIDs() error {
 	malformed := func(owner, id string) error {
 		return invalidf("%s: malformed id %q: %s", owner, id, idRule)
 	}
 	var ids []string
-	for _, c := range l.Categories {
+	for i, c := range l.Categories {
 		if !validID(c.ID) {
-			return malformed(fmt.Sprintf("category %q", c.Title), c.ID)
+			return malformed(titled("category", c.Title, fmt.Sprintf("categories[%d]", i)), c.ID)
 		}
 		ids = append(ids, c.ID)
 	}
-	for _, t := range l.Tasks {
+	for i, t := range l.Tasks {
+		task := titled("task", t.Title, fmt.Sprintf("tasks[%d]", i))
 		if !validID(t.ID) {
-			return malformed(fmt.Sprintf("task %q", t.Title), t.ID)
+			return malformed(task, t.ID)
 		}
 		ids = append(ids, t.ID)
-		for _, s := range t.Subtasks {
+		for j, s := range t.Subtasks {
 			if !validID(s.ID) {
-				return malformed(fmt.Sprintf("subtask %q of task %q", s.Title, t.Title), s.ID)
+				if s.Title == "" {
+					return malformed(fmt.Sprintf("tasks[%d].subtasks[%d]", i, j), s.ID)
+				}
+				return malformed(fmt.Sprintf("subtask %q of %s", s.Title, task), s.ID)
 			}
 			ids = append(ids, s.ID)
 		}
@@ -114,6 +118,15 @@ func (l *diskList) validateTitles() error {
 		}
 	}
 	return nil
+}
+
+// titled names an item by kind and title, as `task "Buy milk"`, or by its
+// JSON path when it has no title.
+func titled(kind, title, path string) string {
+	if title == "" {
+		return path
+	}
+	return fmt.Sprintf("%s %q", kind, title)
 }
 
 // checkTitle fails when CleanTitle rejects title or would change it. CleanTitle
