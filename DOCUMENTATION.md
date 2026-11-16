@@ -300,19 +300,30 @@ changes only the lines that changed.
 {
   "version": 3,
   "categories": [
-    { "id": "c7x2pqa", "title": "Main" },
-    { "id": "q9m4kz1", "title": "Backend", "parent": "c7x2pqa" }
+    {
+      "id": "8v1wyaa",
+      "title": "Main"
+    },
+    {
+      "id": "s85fd4v",
+      "title": "Backend",
+      "parent": "8v1wyaa"
+    }
   ],
   "tasks": [
     {
-      "id": "k3f9qw2",
-      "category": "q9m4kz1",
+      "id": "4r2ft3y",
+      "category": "s85fd4v",
       "title": "Hot reload",
       "status": "ready",
       "plan": "docs/plans/hot-reload.md",
       "description": "Poll the file and reload on change.",
       "subtasks": [
-        { "id": "k3fa1m8", "title": "flock wrapper", "done": true }
+        {
+          "id": "t14an2j",
+          "title": "flock wrapper",
+          "done": true
+        }
       ]
     }
   ]
@@ -334,20 +345,28 @@ changes only the lines that changed.
   task and subtask has its own. This is what `--id` takes.
 
 **The lock file.** A write first takes a lock on `.todo.json.lock`, next to the
-list. Two todo processes never write at the same time. A write that waits more
-than 5 seconds for the lock fails as a conflict (exit code `6`). Reading needs
-no lock. todo only creates the lock file when it writes.
+list. Two todo processes never write at the same time. A CLI write that waits
+more than 5 seconds for the lock fails as a conflict (exit code `6`); the TUI
+waits only 750 ms, so it never freezes, and shows the save as failed. Reading
+needs no lock. todo only creates the lock file when it writes.
 
 **Hand edits.** You can edit `.todo.json` by hand. Two things to know:
 
-- An editor does not take the lock. If you save while todo is writing, one of
-  the two changes can be lost: the last writer wins for the whole file. To
-  change the list while todo runs, use the CLI.
+- An editor does not take the lock, and saving writes back its whole buffer:
+  the file as it was when the editor loaded it, plus your edits. Every todo
+  change made since then (in the TUI, by a CLI command, by an agent) is
+  overwritten, not only one made at the same moment. Reload the file in the
+  editor right before you change it, or use the CLI while todo runs.
 - A mistake, such as broken JSON or a task whose category does not exist, stops
   every todo write until you fix it. The error names the problem. todo never
   repairs or overwrites such a file.
 
-**Git.** Commit `.todo.json` and ignore `.todo.json.lock`.
+**Git.** Commit `.todo.json` and ignore `.todo.json.lock`. A merge conflict in
+`.todo.json` is resolved by hand, as in any text file. todo checks the result
+on the next load: leftover conflict markers or a dangling ID stop every write
+until you fix them, with an error naming the problem.
 
 **Old `.todo.db` files.** todo no longer reads SQLite files. A `.todo.db` in the
-directory is ignored and left alone. There is no conversion.
+directory is ignored and left alone. There is no conversion. Until a
+`.todo.json` exists, todo says so on each run: on stderr for the CLI, in the
+footer for the TUI.
