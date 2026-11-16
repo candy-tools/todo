@@ -229,6 +229,26 @@ func TestStoreRefusesInvalidFile(t *testing.T) {
 	}
 }
 
+// TestStoreRefusedValueIsNotAnInvalidFile makes a write produce a list the
+// format refuses: the file on disk is fine, so the error must not call it an
+// invalid list file, and nothing is written.
+func TestStoreRefusedValueIsNotAnInvalidFile(t *testing.T) {
+	s := newStore(t)
+	doc := &Document{}
+	doc.AppendRoot(&Item{ID: "not-an-id", Kind: Category, Title: "New"})
+	err := s.Import(context.Background(), doc, false)
+	if err == nil {
+		t.Fatal("Import of a list with a malformed ID returned nil error")
+	}
+	const prefix = "refused to write an invalid list: "
+	if msg := err.Error(); !strings.HasPrefix(msg, prefix) || strings.Contains(msg, ErrInvalidList.Error()) {
+		t.Errorf("err = %q, want it to start with %q and not say %q", msg, prefix, ErrInvalidList)
+	}
+	if b := fileBytes(t, s.Path()); b != nil {
+		t.Errorf("the refused write created the file:\n%s", b)
+	}
+}
+
 // everyWrite returns one call of every write method, on category cat and task
 // task.
 func everyWrite(s *Store, cat, task string) map[string]func() error {

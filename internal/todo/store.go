@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -177,12 +178,16 @@ func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, e
 }
 
 // mapErr turns jsonfile's errors into the package's: a lock timeout is
-// ErrBusy, and a file that fails to decode or validate is ErrInvalidList (or
-// ErrNewerSchema), prefixed with the path. Other errors pass through.
+// ErrBusy, a file that fails to decode or validate is ErrInvalidList (or
+// ErrNewerSchema), prefixed with the path, and a list a write produced that
+// fails validation is a refusedError (a bug, not a bad file). Other errors
+// pass through.
 func (s *Store) mapErr(err error) error {
 	switch {
 	case errors.Is(err, jsonfile.ErrBusy):
 		return ErrBusy
+	case errors.Is(err, jsonfile.ErrInvalidValue):
+		return &refusedError{err: err}
 	case errors.Is(err, jsonfile.ErrInvalid):
 		if errors.Is(err, ErrInvalidList) || errors.Is(err, ErrNewerSchema) {
 			return fmt.Errorf("%s: %w", s.Path(), err)
@@ -191,3 +196,20 @@ func (s *Store) mapErr(err error) error {
 	}
 	return err
 }
+
+// refusedError is a write that produced a list the format refuses, so nothing
+// was written: a bug in the write, not a problem with the file. Its message
+// says so without calling the file invalid; it still wraps the validation
+// error, so errors.Is reaches ErrInvalidList and the like.
+type refusedError struct {
+	err error
+}
+
+// Error returns the validation failure, minus its "invalid list file" prefix.
+func (e *refusedError) Error() string {
+	msg := strings.TrimPrefix(e.err.Error(), ErrInvalidList.Error()+": ")
+	return "refused to write an invalid list: " + msg
+}
+
+// Unwrap returns the validation error.
+func (e *refusedError) Unwrap() error { return e.err }

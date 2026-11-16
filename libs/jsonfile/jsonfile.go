@@ -74,6 +74,28 @@ func (e *InvalidError) Unwrap() error { return e.Err }
 // Is reports whether target is ErrInvalid.
 func (e *InvalidError) Is(target error) bool { return target == ErrInvalid }
 
+// ErrInvalidValue matches (via errors.Is) every *InvalidValueError: a value
+// Update refused to write because it failed the Validate hook. It is not
+// ErrInvalid: the file on disk is fine and was left as it was.
+var ErrInvalidValue = errors.New("invalid value")
+
+// InvalidValueError reports a value the Update callback produced that fails
+// Config.Validate, so Update wrote nothing. That is a bug in the caller, not a
+// problem with the file. Its message is the inner error's message unchanged.
+type InvalidValueError struct {
+	// Err is the validation error.
+	Err error
+}
+
+// Error returns the inner error's message.
+func (e *InvalidValueError) Error() string { return e.Err.Error() }
+
+// Unwrap returns the inner error, so errors.Is and errors.As reach it.
+func (e *InvalidValueError) Unwrap() error { return e.Err }
+
+// Is reports whether target is ErrInvalidValue.
+func (e *InvalidValueError) Is(target error) bool { return target == ErrInvalidValue }
+
 // Config configures a Store.
 type Config[T any] struct {
 	// Path is the JSON file. The lock file is Path + ".lock" (or, when Path
@@ -83,8 +105,10 @@ type Config[T any] struct {
 	// ErrBusy. Zero or negative means DefaultLockTimeout.
 	LockTimeout time.Duration
 	// Validate, when not nil, checks every decoded value and every value
-	// Update is about to write. An error makes the value invalid: Load and
-	// Update return it as an *InvalidError, and Update writes nothing.
+	// Update is about to write. An error on a decoded value makes the file
+	// invalid: Load and Update return it as an *InvalidError. An error on a
+	// value to write refuses it: Update returns an *InvalidValueError. Either
+	// way Update writes nothing.
 	Validate func(*T) error
 }
 
@@ -150,8 +174,8 @@ func (s *Store[T]) Load() (T, Fingerprint, error) {
 // invalid file is returned as an error and never overwritten. Otherwise fn
 // gets the fresh value (the zero T for a missing file) and may change it. When
 // fn returns an error, or changed == false, nothing is written. Otherwise the
-// changed value is run through the Validate hook (an *InvalidError writes
-// nothing), encoded as indented JSON, and atomically replaces the file. On
+// changed value is run through the Validate hook (an *InvalidValueError
+// writes nothing), encoded as indented JSON, and atomically replaces the file. On
 // error the Result is the zero value.
 func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err error)) (Result[T], error) {
 	path, err := resolveLinks(s.path)
@@ -179,7 +203,7 @@ func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err 
 	// later Load and Update refuse the file.
 	if s.validate != nil {
 		if err := s.validate(&v); err != nil {
-			return Result[T]{}, &InvalidError{Err: err}
+			return Result[T]{}, &InvalidValueError{Err: err}
 		}
 	}
 

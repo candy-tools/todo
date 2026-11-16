@@ -191,6 +191,9 @@ func TestUpdateRefusesInvalidFile(t *testing.T) {
 			if !errors.Is(err, jsonfile.ErrInvalid) {
 				t.Fatalf("err = %v, want ErrInvalid", err)
 			}
+			if errors.Is(err, jsonfile.ErrInvalidValue) {
+				t.Errorf("err = %v is ErrInvalidValue, want only ErrInvalid", err)
+			}
 			var inv *jsonfile.InvalidError
 			if !errors.As(err, &inv) {
 				t.Fatalf("err = %T, want *InvalidError", err)
@@ -222,6 +225,20 @@ func TestInvalidErrorUnwrap(t *testing.T) {
 	}
 	if !errors.Is(err, jsonfile.ErrInvalid) {
 		t.Error("errors.Is(err, ErrInvalid) = false")
+	}
+}
+
+func TestInvalidValueErrorUnwrap(t *testing.T) {
+	inner := errors.New("inner")
+	err := error(&jsonfile.InvalidValueError{Err: inner})
+	if err.Error() != "inner" {
+		t.Errorf("Error() = %q, want %q", err.Error(), "inner")
+	}
+	if !errors.Is(err, inner) || !errors.Is(err, jsonfile.ErrInvalidValue) {
+		t.Error("errors.Is(err, inner / ErrInvalidValue) = false")
+	}
+	if errors.Is(err, jsonfile.ErrInvalid) {
+		t.Error("errors.Is(err, ErrInvalid) = true for a refused value")
 	}
 }
 
@@ -426,12 +443,18 @@ func TestUpdateValidatesBeforeWriting(t *testing.T) {
 	before := readBytes(t, path)
 
 	_, err := s.Update(context.Background(), setN(7))
-	if !errors.Is(err, jsonfile.ErrInvalid) {
-		t.Fatalf("err = %v, want ErrInvalid", err)
+	if !errors.Is(err, jsonfile.ErrInvalidValue) {
+		t.Fatalf("err = %v, want ErrInvalidValue", err)
 	}
-	var inv *jsonfile.InvalidError
+	if errors.Is(err, jsonfile.ErrInvalid) {
+		t.Errorf("err = %v is ErrInvalid, but the file on disk is fine", err)
+	}
+	var inv *jsonfile.InvalidValueError
 	if !errors.As(err, &inv) {
-		t.Fatalf("err = %T, want *InvalidError", err)
+		t.Fatalf("err = %T, want *InvalidValueError", err)
+	}
+	if err.Error() != "n must not be 7" {
+		t.Errorf("Error() = %q, want the Validate message", err.Error())
 	}
 	if after := readBytes(t, path); !bytes.Equal(before, after) {
 		t.Errorf("file changed: %q -> %q", before, after)
@@ -457,7 +480,7 @@ func TestLockErrorNamesActionAndPath(t *testing.T) {
 }
 
 func TestSentinelsDoNotNameThePackage(t *testing.T) {
-	for _, err := range []error{jsonfile.ErrBusy, jsonfile.ErrInvalid} {
+	for _, err := range []error{jsonfile.ErrBusy, jsonfile.ErrInvalid, jsonfile.ErrInvalidValue} {
 		if strings.Contains(err.Error(), "jsonfile") {
 			t.Errorf("sentinel text %q names the package", err)
 		}
