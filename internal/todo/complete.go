@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"maps"
-
-	closuretree "github.com/go-bumbu/closure-tree"
-	"gorm.io/gorm"
 )
 
 // ErrRestoreAndCascade is returned by a Reopen asked both to restore the
@@ -43,14 +40,11 @@ type ReopenOptions struct {
 }
 
 // Complete sets task id to Done, in one write. With cascade every item below
-// it, as the tree is at write time, is set to Done too (see CascadeStatus);
+// it, as the list is at write time, is set to Done too (see CascadeStatus);
 // without it the subtasks keep their states. A category fails it with
 // ErrNotTask.
 func (s *Store) Complete(ctx context.Context, id string, cascade bool) error {
-	if cascade {
-		return s.CascadeStatus(ctx, id, Done)
-	}
-	return s.SetStatuses(ctx, map[string]Status{id: Done})
+	return s.change(ctx, func(d *Document) error { return d.Complete(id, cascade) })
 }
 
 // Reopen sets task id to st, in one write, and treats its subtasks as o says:
@@ -58,35 +52,8 @@ func (s *Store) Complete(ctx context.Context, id string, cascade bool) error {
 // snapshot states back (see ReopenStates), and with neither they keep theirs.
 // A task in o.Restore deleted since the snapshot is left out; task id itself
 // missing fails the write with ErrNotFound. Setting both fails with
-// ErrRestoreAndCascade before anything is written. A category fails it with
-// ErrNotTask, and a subtask given a state other than Open or Done with
-// ErrSubtaskStatus.
+// ErrRestoreAndCascade, writing nothing. A category fails it with ErrNotTask,
+// and a subtask given a state other than Open or Done with ErrSubtaskStatus.
 func (s *Store) Reopen(ctx context.Context, id string, st Status, o ReopenOptions) error {
-	node, err := parseID(id)
-	if err != nil {
-		return err
-	}
-	restoreNodes := make(map[uint]Status, len(o.Restore))
-	for rid, rst := range o.Restore {
-		if n, err := parseID(rid); err == nil {
-			restoreNodes[n] = rst
-		}
-	}
-	if o.Restore != nil && o.Cascade {
-		return ErrRestoreAndCascade
-	}
-	if o.Cascade {
-		return s.CascadeStatus(ctx, id, st)
-	}
-	return s.write(ctx, func(tx *gorm.DB, tree *closuretree.Tree) error {
-		restore, err := heldStates(tx, restoreNodes)
-		if err != nil {
-			return err
-		}
-		if restore == nil {
-			restore = map[uint]Status{}
-		}
-		restore[node] = st
-		return setStatuses(ctx, tx, tree, restore)
-	})
+	return s.change(ctx, func(d *Document) error { return d.Reopen(id, st, o) })
 }

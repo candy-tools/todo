@@ -7,8 +7,8 @@ import (
 )
 
 // The list operations below are the in-memory form of the store's writes: each
-// one applies the rules the SQLite store checks on the Document it is called
-// on. Every operation validates everything first and changes d only when it
+// one applies the store's rules on the Document it is called on, and the store
+// runs it on the list as the file holds it at write time. Every operation validates everything first and changes d only when it
 // succeeds, so on an error d is exactly as it was. An ID of "" names the root
 // as a parent and "place first" as an afterID.
 

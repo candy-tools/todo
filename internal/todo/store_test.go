@@ -1,24 +1,20 @@
 package todo
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/go-bumbu/db/gormdb"
-	"github.com/go-bumbu/db/gormdb/sqlite"
-	"gorm.io/gorm/logger"
 )
 
-// newStore opens a fresh store in a temporary directory, closed with the test.
+// newStore opens a store on a missing .todo.json in a temporary directory,
+// closed with the test.
 func newStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := OpenStore(filepath.Join(t.TempDir(), "t.db"))
+	s, err := OpenStore(filepath.Join(t.TempDir(), ".todo.json"))
 	if err != nil {
 		t.Fatalf("OpenStore: %v", err)
 	}
@@ -26,391 +22,300 @@ func newStore(t *testing.T) *Store {
 	return s
 }
 
-func TestOpenStoreCreatesEmpty(t *testing.T) {
+// openAt opens a store on path, closed with the test.
+func openAt(t *testing.T, path string) *Store {
+	t.Helper()
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+// fileBytes returns the content of path, nil when it does not exist.
+func fileBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestLoadMissingFile(t *testing.T) {
 	s := newStore(t)
-	doc, rev, err := s.Load(context.Background())
+	doc, fp, err := s.Load(context.Background())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(doc.Roots) != 0 || rev != 0 {
-		t.Fatalf("got %d roots, revision %d; want empty store at revision 0", len(doc.Roots), rev)
+	if doc == nil || len(doc.Roots) != 0 || fp != Missing {
+		t.Fatalf("Load = %v, %x; want an empty document and Missing", doc, fp)
 	}
-	if ok, err := StoreExists(s.Path()); err != nil || !ok {
-		t.Fatalf("StoreExists(created) = %v, %v; want true, nil", ok, err)
+	for _, p := range []string{s.Path(), s.Path() + ".lock"} {
+		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s after Load: stat err = %v, want it not created", filepath.Base(p), err)
+		}
 	}
-	missing := filepath.Join(t.TempDir(), "missing.db")
-	if ok, err := StoreExists(missing); err != nil || ok {
+}
+
+func TestStoreExists(t *testing.T) {
+	s := newStore(t)
+	if ok, err := StoreExists(s.Path()); err != nil || ok {
 		t.Fatalf("StoreExists(missing) = %v, %v; want false, nil", ok, err)
 	}
+	if _, err := s.AppendCategory(context.Background(), "A", ""); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := StoreExists(s.Path()); err != nil || !ok {
+		t.Fatalf("StoreExists(written) = %v, %v; want true, nil", ok, err)
+	}
 }
 
-func TestOpenStoreRefusesNewerSchema(t *testing.T) {
+func TestStoreWriteCreatesFile(t *testing.T) {
 	s := newStore(t)
-	if err := s.db.Model(&dbMeta{}).Where("id = ?", 1).Update("schema_version", schemaVersion+1).Error; err != nil {
-		t.Fatal(err)
-	}
-	path := s.Path()
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s2, err := OpenStore(path)
-	if err == nil {
-		_ = s2.Close()
-		t.Fatal("OpenStore on a newer schema succeeded; want an error")
-	}
-	want := fmt.Sprintf("list was written by a newer todo (schema %d); upgrade todo", schemaVersion+1)
-	if !strings.Contains(err.Error(), want) {
-		t.Errorf("err = %q; want it to contain %q", err, want)
-	}
-	if !errors.Is(err, ErrNewerSchema) {
-		t.Errorf("err = %v; want it to wrap ErrNewerSchema", err)
-	}
-}
-
-// bumpSchemaVersion records a schema version newer than this binary's in the
-// store at path through a second database handle, standing in for a newer todo
-// that migrated the file while s stays open.
-func bumpSchemaVersion(t *testing.T, path string) {
-	t.Helper()
-	db, err := gormdb.Open(gormdb.Cfg{
-		Driver: gormdb.DriverSqlite,
-		Sqlite: gormdb.SqliteCfg{Path: path},
-		Logger: logger.Discard,
-	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
+	id, err := s.AppendCategory(context.Background(), "A", "")
 	if err != nil {
-		t.Fatalf("open second handle: %v", err)
+		t.Fatalf("AppendCategory: %v", err)
 	}
-	defer func() { _ = gormdb.Close(db) }()
-	if err := db.Model(&dbMeta{}).Where("id = ?", 1).Update("schema_version", schemaVersion+1).Error; err != nil {
-		t.Fatalf("bump schema version: %v", err)
+	for _, p := range []string{s.Path(), s.Path() + ".lock"} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s after the first write: %v", filepath.Base(p), err)
+		}
 	}
-}
-
-func TestLoadRefusesNewerSchema(t *testing.T) {
-	s := newStore(t)
-	bumpSchemaVersion(t, s.Path())
-
-	if _, _, err := s.Load(context.Background()); !errors.Is(err, ErrNewerSchema) {
-		t.Fatalf("Load = %v, want ErrNewerSchema", err)
+	doc := load(t, s)
+	if len(doc.Roots) != 1 || doc.Roots[0].ID != id || doc.Roots[0].Title != "A" || !validID(id) {
+		t.Fatalf("roots = %v (id %q); want category A with a valid ID", titles(doc.Roots), id)
 	}
 }
 
-func TestWriteRefusesNewerSchema(t *testing.T) {
+func TestStoreLastWrite(t *testing.T) {
+	ctx := context.Background()
 	s := newStore(t)
-	bumpSchemaVersion(t, s.Path())
+	c := mustID(t)(s.AppendCategory(ctx, "C", ""))
+	task := mustID(t)(s.AppendTask(ctx, Fields{Title: "t"}, Open, c))
 
-	if _, err := s.AddCategory(context.Background(), "C", "", ""); !errors.Is(err, ErrNewerSchema) {
-		t.Fatalf("AddCategory = %v, want ErrNewerSchema", err)
+	lw := s.LastWrite()
+	if lw.Doc == nil {
+		t.Fatal("LastWrite().Doc is nil after AppendTask")
 	}
-	var count int64
-	if err := s.db.Model(&dbItem{}).Count(&count).Error; err != nil {
+	if got := item(t, lw.Doc, task); got.Title != "t" || got.Parent == nil || got.Parent.ID != c {
+		t.Fatalf("LastWrite().Doc task = %+v; want t under C", got)
+	}
+	_, fp, err := s.Load(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Fatalf("store holds %d items after the refused write, want 0", count)
+	if lw.Wrote != fp || lw.Read == lw.Wrote {
+		t.Fatalf("LastWrite Read %x, Wrote %x; want Wrote = Load's %x and Read different", lw.Read, lw.Wrote, fp)
+	}
+
+	before, err := os.Stat(s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustOK(t, s.Edit(ctx, task, Changes{Title: new("t")}))
+	lw = s.LastWrite()
+	if lw.Read != lw.Wrote || lw.Wrote != fp {
+		t.Fatalf("no-op Edit: LastWrite Read %x, Wrote %x; want both %x", lw.Read, lw.Wrote, fp)
+	}
+	if got := item(t, lw.Doc, task); got.Title != "t" {
+		t.Fatalf("no-op Edit: LastWrite().Doc task = %+v", got)
+	}
+	after, err := os.Stat(s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) || !os.SameFile(before, after) {
+		t.Fatal("a no-op Edit rewrote the file")
 	}
 }
 
-func TestOpenStoreRejectsDirectoryPath(t *testing.T) {
-	if s, err := OpenStore(t.TempDir()); err == nil {
-		_ = s.Close()
-		t.Fatal("OpenStore on a directory succeeded; want an error")
+// A failed write keeps the last successful write's result.
+func TestStoreLastWriteKeptOnError(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustID(t)(s.AppendCategory(ctx, "C", ""))
+	lw := s.LastWrite()
+	if err := s.Delete(ctx, "zzzzzzz"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Delete(missing) = %v, want ErrNotFound", err)
+	}
+	if got := s.LastWrite(); got.Wrote != lw.Wrote || got.Doc != lw.Doc {
+		t.Fatal("a failed write replaced LastWrite")
 	}
 }
 
-// TestWriteRefusesReplacedFile removes the store file, or renames another store
-// over it, while s stays open: SQLite would keep writing to the unlinked inode,
-// so the check must report ErrFileReplaced and every write must be refused.
-func TestWriteRefusesReplacedFile(t *testing.T) {
-	replace := map[string]func(t *testing.T, path string){
-		"removed": func(t *testing.T, path string) {
-			if err := os.Remove(path); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"renamed over": func(t *testing.T, path string) {
-			other := newStore(t)
-			if err := other.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Rename(other.Path(), path); err != nil {
-				t.Fatal(err)
-			}
-		},
+// Another store that loaded before a change still writes against the file as
+// it is now: a task it names that was deleted is not found, and an anchor that
+// is gone is a conflict.
+func TestStoreStaleCallerOps(t *testing.T) {
+	ctx := context.Background()
+	a := newStore(t)
+	cat := mustID(t)(a.AppendCategory(ctx, "C", ""))
+	x := mustID(t)(a.AppendTask(ctx, Fields{Title: "x"}, Open, cat))
+	tk := mustID(t)(a.AppendTask(ctx, Fields{Title: "t"}, Open, cat))
+	if _, _, err := a.Load(ctx); err != nil {
+		t.Fatal(err)
 	}
-	for name, fn := range replace {
+	b := openAt(t, a.Path())
+	mustOK(t, b.Delete(ctx, tk))
+
+	want := fileBytes(t, a.Path())
+	if err := a.Complete(ctx, tk, false); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stale Complete = %v, want ErrNotFound", err)
+	}
+	if err := a.Move(ctx, x, cat, tk); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale Move = %v, want ErrConflict", err)
+	}
+	if got := fileBytes(t, a.Path()); !bytes.Equal(got, want) {
+		t.Fatalf("file changed by refused writes:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestStorePruneSeesFreshFile(t *testing.T) {
+	ctx := context.Background()
+	a := newStore(t)
+	cat := mustID(t)(a.AppendCategory(ctx, "C", ""))
+	done := mustID(t)(a.AppendTask(ctx, Fields{Title: "done"}, Done, cat))
+	if got := item(t, load(t, a), done); got.Status != Done {
+		t.Fatalf("done = %v", got.Status)
+	}
+	b := openAt(t, a.Path())
+	sub := mustID(t)(b.AppendTask(ctx, Fields{Title: "sub"}, Open, done))
+
+	n, err := a.Prune(ctx)
+	if err != nil || n != 0 {
+		t.Fatalf("Prune = %d, %v; want 0, nil", n, err)
+	}
+	doc := load(t, a)
+	item(t, doc, done)
+	item(t, doc, sub)
+}
+
+// invalidFiles are list files every write must refuse with ErrInvalidList.
+var invalidFiles = map[string]string{
+	"broken reference": `{"version": 3, "categories": [{"id": "aaaaaaa", "title": "C"}],
+		"tasks": [{"id": "bbbbbbb", "category": "ccccccc", "title": "t", "status": "open"}]}`,
+	"syntax error": `{"version": 3, "categories": [`,
+	"wrong type":   `{"version": "3", "categories": [], "tasks": []}`,
+}
+
+func TestStoreRefusesInvalidFile(t *testing.T) {
+	ctx := context.Background()
+	for name, content := range invalidFiles {
 		t.Run(name, func(t *testing.T) {
 			s := newStore(t)
-			if err := s.CheckFile(); err != nil {
-				t.Fatalf("CheckFile on the open file = %v, want nil", err)
-			}
-			fn(t, s.Path())
-			if err := s.CheckFile(); !errors.Is(err, ErrFileReplaced) {
-				t.Fatalf("CheckFile = %v, want ErrFileReplaced", err)
-			}
-			if _, err := s.AddCategory(context.Background(), "C", "", ""); !errors.Is(err, ErrFileReplaced) {
-				t.Fatalf("AddCategory = %v, want ErrFileReplaced", err)
-			}
-			// The writer connection reads the file the store holds; Load would
-			// refuse it, as a read may run on the file now at the path.
-			var count int64
-			if err := s.db.Clauses(gormdb.Write).Model(&dbItem{}).Count(&count).Error; err != nil {
+			if err := os.WriteFile(s.Path(), []byte(content), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if count != 0 {
-				t.Fatalf("the refused write reached the unlinked file: %d items", count)
+			if _, _, err := s.Load(ctx); !errors.Is(err, ErrInvalidList) || !strings.Contains(err.Error(), s.Path()) {
+				t.Fatalf("Load = %v; want ErrInvalidList naming the file", err)
 			}
-		})
-	}
-}
-
-// TestReadRefusesReplacedFile renames another store, holding other categories
-// and a higher revision, over the file of an open store, then holds the read
-// connection the store already has so the next read must open a new one,
-// which SQLite does by path. That read would see the other file while the
-// writes still go to the held one: Load and Revision must refuse it with
-// ErrFileReplaced rather than return the other file's data.
-func TestReadRefusesReplacedFile(t *testing.T) {
-	ctx := context.Background()
-	reads := map[string]func(s *Store) (string, error){
-		"Load": func(s *Store) (string, error) {
-			doc, rev, err := s.Load(ctx)
-			if err != nil {
-				return "", err
-			}
-			var titles []string
-			for _, r := range doc.Roots {
-				titles = append(titles, r.Title)
-			}
-			return fmt.Sprintf("roots %q at revision %d", strings.Join(titles, ","), rev), nil
-		},
-		"Revision": func(s *Store) (string, error) {
-			rev, err := s.Revision(ctx)
-			return fmt.Sprintf("revision %d", rev), err
-		},
-	}
-	for name, read := range reads {
-		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "t.db")
-			storeWithCategory(t, path, "A")
-			s, err := OpenStore(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = s.Close() })
-			if _, err := read(s); err != nil {
-				t.Fatal(err)
-			}
-
-			other, err := OpenStore(filepath.Join(t.TempDir(), "other.db"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, title := range []string{"B", "C", "D"} {
-				if _, err := other.AppendCategory(ctx, title, ""); err != nil {
-					t.Fatal(err)
+			for wname, w := range everyWrite(s, "aaaaaaa", "bbbbbbb") {
+				err := w()
+				if !errors.Is(err, ErrInvalidList) {
+					t.Errorf("%s = %v, want ErrInvalidList", wname, err)
+				} else if !strings.Contains(err.Error(), s.Path()) {
+					t.Errorf("%s = %v, want the file path in the message", wname, err)
+				}
+				if got := string(fileBytes(t, s.Path())); got != content {
+					t.Fatalf("%s changed the file to:\n%s", wname, got)
 				}
 			}
-			if err := other.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Rename(other.Path(), path); err != nil {
-				t.Fatal(err)
-			}
-
-			hold := s.db.Clauses(gormdb.Read).Begin()
-			if err := hold.Error; err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { hold.Rollback() })
-			var n int64
-			if err := hold.Model(&dbItem{}).Count(&n).Error; err != nil {
-				t.Fatal(err)
-			}
-
-			if got, err := read(s); !errors.Is(err, ErrFileReplaced) {
-				t.Fatalf("%s after the file was replaced = %s, %v; want ErrFileReplaced", name, got, err)
-			}
 		})
 	}
 }
 
-// TestCloseAfterReplaceKeepsBothFiles writes to a store, moves its file away
-// and renames another store in at its path, then closes the first. Its write
-// must be in the file moved away, and the file now at the path must open with
-// its own content, not the closed store's WAL frames left next to it.
-func TestCloseAfterReplaceKeepsBothFiles(t *testing.T) {
+// everyWrite returns one call of every write method, on category cat and task
+// task.
+func everyWrite(s *Store, cat, task string) map[string]func() error {
 	ctx := context.Background()
-	s := newStore(t)
-	if _, err := s.AppendCategory(ctx, "A", ""); err != nil {
-		t.Fatal(err)
-	}
-	other := newStore(t)
-	if _, err := other.AppendCategory(ctx, "B", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := other.Close(); err != nil {
-		t.Fatal(err)
-	}
-	path := s.Path()
-	if err := os.Rename(path, path+".old"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(other.Path(), path); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	for p, want := range map[string]string{path: "B", path + ".old": "A"} {
-		r, err := OpenStore(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		doc, _, err := r.Load(ctx)
-		_ = r.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(doc.Roots) != 1 || doc.Roots[0].Title != want {
-			t.Errorf("%s holds %d roots, want only %s", filepath.Base(p), len(doc.Roots), want)
-		}
+	return map[string]func() error{
+		"AddCategory":    func() error { _, err := s.AddCategory(ctx, "X", "", ""); return err },
+		"AppendCategory": func() error { _, err := s.AppendCategory(ctx, "X", ""); return err },
+		"AddTask":        func() error { _, err := s.AddTask(ctx, Fields{Title: "x"}, Open, cat, ""); return err },
+		"AppendTask":     func() error { _, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, cat); return err },
+		"Edit":           func() error { return s.Edit(ctx, task, Changes{Title: new("y")}) },
+		"SetStatuses":    func() error { return s.SetStatuses(ctx, map[string]Status{task: Done}) },
+		"CascadeStatus":  func() error { return s.CascadeStatus(ctx, task, Done) },
+		"Complete":       func() error { return s.Complete(ctx, task, false) },
+		"Reopen":         func() error { return s.Reopen(ctx, task, Working, ReopenOptions{}) },
+		"Move":           func() error { return s.Move(ctx, task, cat, "") },
+		"Delete":         func() error { return s.Delete(ctx, task) },
+		"Prune":          func() error { _, err := s.Prune(ctx); return err },
+		"Import":         func() error { return s.Import(ctx, &Document{}, true) },
 	}
 }
 
-// TestOpenStoreFileReplacedWhileOpening renames another store, holding a
-// category B, over the path after OpenStore's final open and before it records
-// the file's identity. The store must not take the new file's identity for the
-// one its connections hold: its writes must land in the file at the path (next
-// to B), or OpenStore must fail with ErrFileReplaced.
-func TestOpenStoreFileReplacedWhileOpening(t *testing.T) {
+func TestStoreNewerVersion(t *testing.T) {
 	ctx := context.Background()
+	s := newStore(t)
+	content := `{"version": 4, "categories": [], "tasks": [], "tags": []}`
+	if err := os.WriteFile(s.Path(), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := s.Load(ctx)
+	if !errors.Is(err, ErrNewerSchema) {
+		t.Fatalf("Load = %v, want ErrNewerSchema", err)
+	}
+	if !strings.Contains(err.Error(), "list was written by a newer todo") {
+		t.Errorf("Load error %q does not say the list is from a newer todo", err)
+	}
+	for name, w := range everyWrite(s, "aaaaaaa", "bbbbbbb") {
+		if err := w(); !errors.Is(err, ErrNewerSchema) {
+			t.Errorf("%s = %v, want ErrNewerSchema", name, err)
+		}
+	}
+	if got := string(fileBytes(t, s.Path())); got != content {
+		t.Fatalf("the newer file was changed to:\n%s", got)
+	}
+}
+
+func TestStoreChanged(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if changed, fp, err := s.Changed(ctx, Missing); err != nil || changed || fp != Missing {
+		t.Fatalf("Changed(Missing) on a missing file = %v, %x, %v; want false, Missing", changed, fp, err)
+	}
+	mustID(t)(s.AppendCategory(ctx, "A", ""))
+	changed, fp, err := s.Changed(ctx, Missing)
+	if err != nil || !changed || fp != s.LastWrite().Wrote {
+		t.Fatalf("Changed after a write = %v, %x, %v; want true and the written fingerprint", changed, fp, err)
+	}
+	if changed, _, err := s.Changed(ctx, fp); err != nil || changed {
+		t.Fatalf("Changed(current) = %v, %v; want false", changed, err)
+	}
+}
+
+func TestStoreDirectoryPathFails(t *testing.T) {
+	s := openAt(t, t.TempDir())
+	if _, _, err := s.Load(context.Background()); err == nil {
+		t.Fatal("Load of a directory succeeded; want an error")
+	}
+	if _, err := s.AppendCategory(context.Background(), "A", ""); err == nil {
+		t.Fatal("a write to a directory succeeded; want an error")
+	}
+}
+
+func TestOpenStoreBusyTimeout(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		exists bool
-		opts   []Option
+		opts []Option
+		want string
 	}{
-		{name: "existing file", exists: true},
-		{name: "existing file, short busy timeout", exists: true, opts: []Option{WithBusyTimeout(100 * time.Millisecond)}},
-		{name: "new file"},
-		{name: "new file, short busy timeout", opts: []Option{WithBusyTimeout(100 * time.Millisecond)}},
+		{nil, DefaultBusyTimeout.String()},
+		{[]Option{WithBusyTimeout(0)}, DefaultBusyTimeout.String()},
+		{[]Option{WithBusyTimeout(-1)}, DefaultBusyTimeout.String()},
+		{[]Option{WithBusyTimeout(750 * 1e6)}, "750ms"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "t.db")
-			if tc.exists {
-				storeWithCategory(t, path, "A")
-			}
-			openStoreBeforeIdentity = func() {
-				openStoreBeforeIdentity = nil
-				other := filepath.Join(t.TempDir(), "other.db")
-				storeWithCategory(t, other, "B")
-				if err := os.Rename(other, path); err != nil {
-					t.Fatal(err)
-				}
-			}
-			t.Cleanup(func() { openStoreBeforeIdentity = nil })
-
-			s, err := OpenStore(path, tc.opts...)
-			if err != nil {
-				if !errors.Is(err, ErrFileReplaced) {
-					t.Fatalf("OpenStore = %v, want success or ErrFileReplaced", err)
-				}
-				return
-			}
-			if _, err := s.AppendCategory(ctx, "C", ""); err != nil {
-				t.Fatalf("AppendCategory: %v", err)
-			}
-			if err := s.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if got := rootTitles(t, path); got != "B,C" {
-				t.Fatalf("the file at the path holds %q, want \"B,C\": the write went to the replaced file", got)
-			}
-		})
-	}
-}
-
-// TestOpenStoreFileKeepsBeingReplaced removes the file at every attempt:
-// OpenStore must give up with ErrFileReplaced.
-func TestOpenStoreFileKeepsBeingReplaced(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "t.db")
-	storeWithCategory(t, path, "A")
-	openStoreBeforeIdentity = func() {
-		if err := os.Remove(path); err != nil {
+		s, err := OpenStore(filepath.Join(t.TempDir(), ".todo.json"), tc.opts...)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	t.Cleanup(func() { openStoreBeforeIdentity = nil })
-	if s, err := OpenStore(path); !errors.Is(err, ErrFileReplaced) {
-		if err == nil {
-			_ = s.Close()
+		if got := s.busyTimeout.String(); got != tc.want {
+			t.Errorf("busy timeout = %s, want %s", got, tc.want)
 		}
-		t.Fatalf("OpenStore = %v, want ErrFileReplaced", err)
-	}
-}
-
-// storeWithCategory creates a store at path holding one category, title, and
-// closes it.
-func storeWithCategory(t *testing.T, path, title string) {
-	t.Helper()
-	s, err := OpenStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AppendCategory(context.Background(), title, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// rootTitles opens the store at path and returns its root titles, joined by
-// commas in tree order.
-func rootTitles(t *testing.T, path string) string {
-	t.Helper()
-	s, err := OpenStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	doc, _, err := s.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var titles []string
-	for _, r := range doc.Roots {
-		titles = append(titles, r.Title)
-	}
-	return strings.Join(titles, ",")
-}
-
-func TestLoadRevisionMatchesTree(t *testing.T) {
-	ctx := context.Background()
-	s := newStore(t)
-	other, err := OpenStore(s.Path())
-	if err != nil {
-		t.Fatalf("OpenStore second handle: %v", err)
-	}
-	t.Cleanup(func() { _ = other.Close() })
-	before, err := s.Revision(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	loadBetweenReads = func() {
-		loadBetweenReads = nil
-		if _, err := other.AppendCategory(ctx, "external", ""); err != nil {
-			t.Errorf("external write: %v", err)
-		}
-	}
-	t.Cleanup(func() { loadBetweenReads = nil })
-
-	doc, rev, err := s.Load(ctx)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if got := len(doc.Roots); (rev == before) != (got == 0) {
-		t.Fatalf("Load = %d roots at revision %d (before the external write: %d); want the tree and revision from one snapshot", got, rev, before)
 	}
 }

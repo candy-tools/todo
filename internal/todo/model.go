@@ -1,5 +1,5 @@
 // Package todo is the domain of the TODO app: the in-memory tree loaded from the
-// SQLite store, the operations over it (toggle, cascade-complete, and the
+// JSON list file, the operations over it (toggle, cascade-complete, and the
 // snapshot/restore that powers accidental-complete undo), the store itself, and
 // the one-time markdown import. It has no dependency on the TUI.
 package todo
@@ -22,11 +22,12 @@ const (
 )
 
 // Status is a task's workflow state. Open and Done are the classic checkbox
-// states; the rest are kanban states. The numbers are stored in the database, so
-// they are pinned: never renumber them, only append. Open, Working, Deferred
-// and Done have a checkbox marker — `[ ]` `[/]` `[>]` `[x]` — which the markdown
-// import reads; the others have none. Only Done reads
-// as "complete": counts, pruning and the done-cascade all key off IsDone.
+// states; the rest are kanban states. The list file stores a status by its name
+// (see String), so the names are pinned; keep the numbers stable too, only
+// append. Open, Working, Deferred and Done have a checkbox marker — `[ ]` `[/]`
+// `[>]` `[x]` — which the markdown import reads; the others have none. Only
+// Done reads as "complete": counts, pruning and the done-cascade all key off
+// IsDone.
 type Status int
 
 const (

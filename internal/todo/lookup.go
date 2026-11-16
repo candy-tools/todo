@@ -26,7 +26,7 @@ func (d *Document) ByNumber(n int) (*Item, bool) {
 	return items[n-1], true
 }
 
-// ByID returns the item whose database ID equals id, or ok=false when none
+// ByID returns the item whose ID equals id, or ok=false when none
 // matches. The empty ID means "not persisted", so it never matches.
 func (d *Document) ByID(id string) (*Item, bool) {
 	if id == "" {

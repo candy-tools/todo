@@ -1,9 +1,11 @@
 package todo
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -128,8 +130,8 @@ func TestEditKeepsKind(t *testing.T) {
 	if got := item(t, doc, task); got.Kind != Task || got.Title != "t2" || got.Description != "desc" || got.Status != Deferred {
 		t.Fatalf("task after Edit = %+v; want deferred task t2 described desc", got)
 	}
-	if err := s.Edit(ctx, "999", Changes{Title: new("x")}); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Edit(999) = %v, want ErrNotFound", err)
+	if err := s.Edit(ctx, "zzzzzzz", Changes{Title: new("x")}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Edit(missing) = %v, want ErrNotFound", err)
 	}
 }
 
@@ -159,7 +161,7 @@ func TestSetStatusesRejectsMissingID(t *testing.T) {
 	mustOK(t, s.Delete(ctx, gone))
 
 	rejects(t, s, ErrNotFound, func() error { return s.SetStatuses(ctx, map[string]Status{gone: Working}) })
-	rejects(t, s, ErrNotFound, func() error { return s.SetStatuses(ctx, map[string]Status{id: Open, "999": Done}) })
+	rejects(t, s, ErrNotFound, func() error { return s.SetStatuses(ctx, map[string]Status{id: Open, "zzzzzzz": Done}) })
 	rejects(t, s, ErrNotFound, func() error { return s.Complete(ctx, gone, false) })
 	rejects(t, s, ErrNotFound, func() error { return s.Reopen(ctx, gone, Working, ReopenOptions{}) })
 
@@ -221,21 +223,9 @@ func TestMoveMissingIsNotFound(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	ids := addSample(t, s)
-	before, err := s.Revision(ctx)
-	if err != nil {
-		t.Fatalf("Revision: %v", err)
-	}
 
-	// To the root is the case closure-tree's Update lets through silently.
-	if err := s.Move(ctx, "999", "", ""); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Move(999, root) = %v, want ErrNotFound", err)
-	}
-	if err := s.Move(ctx, "999", ids.A, ""); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Move(999, A) = %v, want ErrNotFound", err)
-	}
-	if after, err := s.Revision(ctx); err != nil || after != before {
-		t.Fatalf("Revision after failed moves = %d, %v; want %d", after, err, before)
-	}
+	rejects(t, s, ErrNotFound, func() error { return s.Move(ctx, "zzzzzzz", "", "") })
+	rejects(t, s, ErrNotFound, func() error { return s.Move(ctx, "zzzzzzz", ids.A, "") })
 }
 
 func TestDeleteSubtree(t *testing.T) {
@@ -255,14 +245,14 @@ func TestDeleteSubtree(t *testing.T) {
 	if _, ok := doc.ByID(c); ok {
 		t.Fatal("subtask of the deleted parent is still there")
 	}
-	if err := s.Delete(ctx, "999"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Delete(999) = %v, want ErrNotFound", err)
+	if err := s.Delete(ctx, "zzzzzzz"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Delete(missing) = %v, want ErrNotFound", err)
 	}
 }
 
 func TestPruneUsesFreshData(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "t.db")
+	path := filepath.Join(t.TempDir(), ".todo.json")
 	s1, err := OpenStore(path)
 	if err != nil {
 		t.Fatalf("OpenStore s1: %v", err)
@@ -297,7 +287,7 @@ func TestPruneUsesFreshData(t *testing.T) {
 
 func TestOpenStoreReopenKeepsData(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "t.db")
+	path := filepath.Join(t.TempDir(), ".todo.json")
 	s, err := OpenStore(path)
 	if err != nil {
 		t.Fatalf("OpenStore: %v", err)
@@ -318,10 +308,13 @@ func TestOpenStoreReopenKeepsData(t *testing.T) {
 	}
 }
 
-func TestEveryWriteBumpsRevision(t *testing.T) {
+// Every write that changes the list replaces the file, so a poller sees it:
+// the write's fingerprints differ, Read is what the file held before and Wrote
+// what Changed reports after.
+func TestEveryWriteChangesFile(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	var c, task string
+	var c, task, u string
 	writes := []struct {
 		name string
 		fn   func() error
@@ -329,36 +322,37 @@ func TestEveryWriteBumpsRevision(t *testing.T) {
 		{"AddCategory", func() (err error) { c, err = s.AddCategory(ctx, "C", "", ""); return err }},
 		{"AddTask", func() (err error) { task, err = s.AddTask(ctx, Fields{Title: "t"}, Open, c, ""); return err }},
 		{"AppendCategory", func() error { _, err := s.AppendCategory(ctx, "D", c); return err }},
-		{"AppendTask", func() error { _, err := s.AppendTask(ctx, Fields{Title: "u"}, Open, c); return err }},
+		{"AppendTask", func() (err error) { u, err = s.AppendTask(ctx, Fields{Title: "u"}, Open, c); return err }},
 		{"Edit", func() error { return s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("d")}) }},
 		{"SetStatuses", func() error { return s.SetStatuses(ctx, map[string]Status{task: Done}) }},
-		{"CascadeStatus", func() error { return s.CascadeStatus(ctx, task, Done) }},
-		{"Reopen", func() error { return s.Reopen(ctx, task, Working, ReopenOptions{}) }},
+		{"CascadeStatus", func() error { return s.CascadeStatus(ctx, task, Working) }},
 		{"Complete", func() error { return s.Complete(ctx, task, false) }},
+		{"Reopen", func() error { return s.Reopen(ctx, task, Working, ReopenOptions{}) }},
+		{"Complete cascade", func() error { return s.Complete(ctx, task, true) }},
 		{"Reopen restore", func() error {
 			return s.Reopen(ctx, task, Working, ReopenOptions{Restore: DoneStates{task: Done}})
 		}},
-		{"Complete cascade", func() error { return s.Complete(ctx, task, true) }},
+		{"CascadeStatus done", func() error { return s.CascadeStatus(ctx, task, Done) }},
 		{"Reopen cascade", func() error { return s.Reopen(ctx, task, Working, ReopenOptions{Cascade: true}) }},
-		{"Move", func() error { return s.Move(ctx, task, c, "") }},
+		{"Move", func() error { return s.Move(ctx, task, c, u) }},
+		{"Complete again", func() error { return s.Complete(ctx, task, false) }},
 		{"Prune", func() error { _, err := s.Prune(ctx); return err }},
 		{"Delete", func() error { return s.Delete(ctx, c) }},
 	}
+	prev := Missing
 	for _, w := range writes {
-		before, err := s.Revision(ctx)
-		if err != nil {
-			t.Fatalf("Revision before %s: %v", w.name, err)
-		}
 		if err := w.fn(); err != nil {
 			t.Fatalf("%s: %v", w.name, err)
 		}
-		after, err := s.Revision(ctx)
-		if err != nil {
-			t.Fatalf("Revision after %s: %v", w.name, err)
+		lw := s.LastWrite()
+		if lw.Read != prev || lw.Wrote == lw.Read {
+			t.Fatalf("%s: LastWrite Read %x, Wrote %x; want Read %x and a new Wrote", w.name, lw.Read, lw.Wrote, prev)
 		}
-		if after != before+1 {
-			t.Fatalf("%s moved the revision from %d to %d, want +1", w.name, before, after)
+		changed, now, err := s.Changed(ctx, prev)
+		if err != nil || !changed || now != lw.Wrote {
+			t.Fatalf("%s: Changed = %v, %x, %v; want true, %x", w.name, changed, now, err, lw.Wrote)
 		}
+		prev = now
 	}
 }
 
@@ -386,19 +380,40 @@ func TestManyInsertsBetweenSiblingsStayOrdered(t *testing.T) {
 }
 
 // rejects runs a write that must fail with want, and checks that it left the
-// store untouched: the revision did not move.
+// file untouched: its bytes did not change.
 func rejects(t *testing.T, s *Store, want error, write func() error) {
 	t.Helper()
-	ctx := context.Background()
-	before, err := s.Revision(ctx)
-	if err != nil {
-		t.Fatalf("Revision: %v", err)
-	}
+	before := fileBytes(t, s.Path())
 	if err := write(); !errors.Is(err, want) {
 		t.Fatalf("write = %v, want %v", err, want)
 	}
-	if after, err := s.Revision(ctx); err != nil || after != before {
-		t.Fatalf("revision after a rejected write = %d, %v; want %d", after, err, before)
+	if after := fileBytes(t, s.Path()); !bytes.Equal(after, before) {
+		t.Fatalf("file after a rejected write:\n%s\nwant:\n%s", after, before)
+	}
+}
+
+// keepsFile runs a write that must succeed without changing the list, and
+// checks that it left the file untouched (not even rewritten with the same
+// bytes) and recorded a LastWrite with Read == Wrote.
+func keepsFile(t *testing.T, s *Store, name string, write func() error) {
+	t.Helper()
+	before, err := os.Stat(s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := fileBytes(t, s.Path())
+	if err := write(); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	after, err := os.Stat(s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) || !after.ModTime().Equal(before.ModTime()) || !bytes.Equal(fileBytes(t, s.Path()), content) {
+		t.Fatalf("%s rewrote the file", name)
+	}
+	if lw := s.LastWrite(); lw.Read != lw.Wrote {
+		t.Fatalf("%s: LastWrite Read %x != Wrote %x", name, lw.Read, lw.Wrote)
 	}
 }
 
@@ -452,23 +467,25 @@ func TestEditKeepsFieldsItDoesNotName(t *testing.T) {
 	}
 }
 
-// An Edit naming no field is a no-op: it opens no write, so the revision
-// stays put and pollers see no change.
-func TestEmptyEditKeepsRevision(t *testing.T) {
+// An Edit naming no field is a no-op: it writes nothing, so pollers see no
+// change.
+func TestEmptyEditKeepsFile(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
 	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Open, c, ""))
-	before, err := s.Revision(ctx)
-	mustOK(t, err)
 
-	mustOK(t, s.Edit(ctx, id, Changes{}))
-
-	after, err := s.Revision(ctx)
-	mustOK(t, err)
-	if after != before {
-		t.Fatalf("an empty Edit moved the revision from %d to %d", before, after)
-	}
+	keepsFile(t, s, "empty Edit", func() error { return s.Edit(ctx, id, Changes{}) })
+	keepsFile(t, s, "Edit to the same values", func() error {
+		return s.Edit(ctx, id, Changes{Title: new("t"), Description: new(""), Plan: new("")})
+	})
+	keepsFile(t, s, "Prune of nothing", func() error {
+		n, err := s.Prune(ctx)
+		if err == nil && n != 0 {
+			t.Errorf("Prune removed %d, want 0", n)
+		}
+		return err
+	})
 }
 
 func TestEditCategoryIgnoresPlan(t *testing.T) {
@@ -484,9 +501,9 @@ func TestEditCategoryIgnoresPlan(t *testing.T) {
 }
 
 // An Edit of a category that names only the fields a category ignores changes
-// nothing it stores, so it must not bump the revision (the TUI reads a bump as an
-// external change), and a missing item is still ErrNotFound.
-func TestEditCategoryIgnoredFieldsKeepRevision(t *testing.T) {
+// nothing it stores, so it must not rewrite the file (the TUI reads a change as
+// an external one), and a missing item is still ErrNotFound.
+func TestEditCategoryIgnoredFieldsKeepFile(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
@@ -495,15 +512,8 @@ func TestEditCategoryIgnoredFieldsKeepRevision(t *testing.T) {
 		"plan":        {Plan: new("docs/p.md")},
 		"both":        {Description: new("x"), Plan: new("docs/p.md")},
 	} {
-		before, err := s.Revision(ctx)
-		mustOK(t, err)
-		mustOK(t, s.Edit(ctx, c, ch))
-		after, err := s.Revision(ctx)
-		mustOK(t, err)
-		if after != before {
-			t.Fatalf("%s: a category Edit of ignored fields moved the revision from %d to %d", name, before, after)
-		}
-		if err := s.Edit(ctx, c+"00", ch); !errors.Is(err, ErrNotFound) {
+		keepsFile(t, s, name, func() error { return s.Edit(ctx, c, ch) })
+		if err := s.Edit(ctx, "zzzzzzz", ch); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%s: Edit of a missing item = %v; want ErrNotFound", name, err)
 		}
 	}
@@ -686,7 +696,7 @@ func TestStatusOnCategoryIsNotTask(t *testing.T) {
 }
 
 // An add whose sibling was moved away by another process since the caller
-// read the tree is a conflict, not a raw closure-tree error.
+// read the tree is a conflict.
 func TestAddAfterMovedSiblingIsConflict(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
@@ -772,7 +782,7 @@ func TestAppendTaskRules(t *testing.T) {
 		return err
 	})
 	rejects(t, s, ErrNotFound, func() error {
-		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, "999")
+		_, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, "zzzzzzz")
 		return err
 	})
 	rejects(t, s, ErrInvalidTitle, func() error {
@@ -821,7 +831,7 @@ func TestAppendCategoryRules(t *testing.T) {
 		return err
 	})
 	rejects(t, s, ErrNotFound, func() error {
-		_, err := s.AppendCategory(ctx, "x", "999")
+		_, err := s.AppendCategory(ctx, "x", "zzzzzzz")
 		return err
 	})
 	rejects(t, s, ErrInvalidTitle, func() error {

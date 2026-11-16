@@ -8,7 +8,6 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.8
-	github.com/go-bumbu/closure-tree v0.10.0
 	github.com/go-bumbu/db v0.1.0
 	github.com/gofrs/flock v0.13.2
 	github.com/spf13/cobra v1.10.2
