@@ -98,6 +98,7 @@ func (m *model) commit(focusID string, write func(ctx context.Context) error) (s
 		return false
 	}
 	external := r.Read != m.lastFP
+	m.ownRead = r.Read
 	// m.doc aliases r.Doc, the store's LastWrite().Doc, and the handlers
 	// change m.doc in place; that is safe only while nothing else reads
 	// LastWrite().Doc (commit compares it by pointer only).

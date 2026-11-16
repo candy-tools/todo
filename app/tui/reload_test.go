@@ -609,6 +609,63 @@ func TestReloadIgnoresOwnFingerprint(t *testing.T) {
 	}
 }
 
+// TestProbeRacingOwnWriteIsIgnored has a probe load an outside write, then the
+// app commit its own write before the probe's message arrives: the write found
+// the outside change and adopted both, so the late message, carrying the file
+// as the write found it, must not roll the view back.
+func TestProbeRacingOwnWriteIsIgnored(t *testing.T) {
+	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n- [/] b\n", todo.ColInProgress)
+	title := "b renamed"
+	if err := openSecond(t, path).Edit(context.Background(), find(m.doc, "b").ID, todo.Changes{Title: &title}); err != nil {
+		t.Fatalf("external edit: %v", err)
+	}
+	late := reloadCheck(m.store, m.lastFP) // the probe started before the commit
+	if _, ok := late.(storeReloadedMsg); !ok {
+		t.Fatalf("precondition: the probe must load the outside write, got %#v", late)
+	}
+
+	m = pickState(t, selectTitle(t, m, "a"), todo.Done)
+	if m.err != nil {
+		t.Fatalf("the write failed: %v", m.err)
+	}
+	wrote := m.lastFP
+	m = send(m, late)
+	if m.lastFP != wrote {
+		t.Errorf("lastFP = %x, want the own write's %x", m.lastFP, wrote)
+	}
+	if a := find(m.doc, "a"); a == nil || a.Status != todo.Done {
+		t.Errorf("the late probe rolled the own write back: a = %v", a)
+	}
+	if find(m.doc, title) == nil {
+		t.Errorf("the outside rename must stay")
+	}
+	if msg := reloadCheck(m.store, m.lastFP); msg != nil {
+		t.Errorf("the view must match the file, got %#v", msg)
+	}
+}
+
+// TestRevertToPreWriteContentIsReloaded has the app write, then something
+// outside put back the exact bytes the write replaced (a git checkout, an undo
+// in another tool): a probe started after the write must apply it, although
+// its fingerprint is the one the app's write found.
+func TestRevertToPreWriteContentIsReloaded(t *testing.T) {
+	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
+	before, orig := m.lastFP, readList(t, path)
+	m = pickState(t, selectTitle(t, m, "a"), todo.Done)
+	if m.err != nil || m.lastFP == before {
+		t.Fatalf("precondition: the write failed: %v", m.err)
+	}
+	writeList(t, path, orig)
+
+	m = pollOnce(t, m)
+	if m.lastFP != before {
+		t.Errorf("lastFP = %x, want the reverted file's %x", m.lastFP, before)
+	}
+	if a := find(m.doc, "a"); a == nil || a.Status != todo.Working {
+		t.Errorf("the revert must be shown: a = %v", a)
+	}
+}
+
 func TestExternalWriteReloadsKeepingSelection(t *testing.T) {
 	m, path := newTestModel(t, "# A\n\n- [ ] a\n- [ ] b\n\n## A2\n\n- [ ] c\n")
 	// Rows: A, a, b, A2, c, placeholder. Fold A2, then select b.

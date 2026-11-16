@@ -55,7 +55,11 @@ type model struct {
 	// poll loop asks the store whether the file changed since, to tell an
 	// external write (reload) from the app's own (ignore).
 	lastFP todo.Fingerprint
-	err    error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
+	// ownRead is the fingerprint the app's last own write found the file at
+	// (its WriteResult.Read). A probe that raced that write can still deliver
+	// the file at ownRead afterwards; handleReload ignores it (see there).
+	ownRead todo.Fingerprint
+	err     error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
 	// pollErr is the poll failure last put in err, kept to show each distinct
 	// poll failure once and to clear it when a later poll succeeds.
 	pollErr error

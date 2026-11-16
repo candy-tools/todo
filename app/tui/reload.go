@@ -30,10 +30,12 @@ type reloadTickMsg struct{}
 
 // storeReloadedMsg carries a document freshly loaded from the store after its
 // file changed, together with the fingerprint of the bytes it came from (used
-// to tell the app's own writes apart from external ones).
+// to tell the app's own writes apart from external ones) and the fingerprint
+// the probe compared against (the model's lastFP when the probe started).
 type storeReloadedMsg struct {
-	doc *todo.Document
-	fp  todo.Fingerprint
+	doc   *todo.Document
+	fp    todo.Fingerprint
+	since todo.Fingerprint
 }
 
 // reloadFailedMsg reports that the poll could not read the list: the file was
@@ -96,7 +98,7 @@ func reloadCheck(st listReader, last todo.Fingerprint) tea.Msg {
 	if fp == todo.Missing {
 		return reloadFailedMsg{err: errListRemoved}
 	}
-	return storeReloadedMsg{doc: doc, fp: fp}
+	return storeReloadedMsg{doc: doc, fp: fp, since: last}
 }
 
 // handleReloadFailed counts a failed poll. Once pollFailsShown polls in a row
@@ -132,16 +134,22 @@ func (m *model) clearPollErr() {
 
 // handleReload applies an external change. A message at the fingerprint the
 // model already has is ignored: nothing changed since the model took the list.
-// A probe that raced one of the app's own writes is not caught: one started
-// before a commit carries the list as it was before that write, and applying
-// it rolls the view back (as an external change) until the next poll, a second
-// later, finds the file at the write's fingerprint and loads it again. While a modal is open or an item is grabbed for moving the
-// reload is deferred, so an edit is never yanked out from under the user; the
-// next tick re-detects it once they return to plain navigation. The search
-// bar is not a modal: a reload applies while it is open.
+// So is one from a probe that raced one of the app's own writes: started
+// before the commit (its since is no longer lastFP), it carries the file as
+// that write found it (ownRead), which the write's result already includes;
+// applying it would roll the view back until the next poll. A probe started
+// after the write is applied even at ownRead, as the file was put back to
+// those bytes since (a git checkout, say). While a modal is open or an item is
+// grabbed for moving the reload is deferred, so an edit is never yanked out
+// from under the user; the next tick re-detects it once they return to plain
+// navigation. The search bar is not a modal: a reload applies while it is
+// open.
 func (m model) handleReload(msg storeReloadedMsg) (tea.Model, tea.Cmd) {
 	m.clearPollErr()
 	if msg.fp == m.lastFP {
+		return m, nil
+	}
+	if msg.fp == m.ownRead && msg.since != m.lastFP {
 		return m, nil
 	}
 	if !m.canApplyReload() {
