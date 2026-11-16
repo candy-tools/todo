@@ -392,10 +392,10 @@ func fullyDone(it *Item) bool {
 	return done == total
 }
 
-// Placement returns where it sits in the tree as item IDs: parentID is the
+// placement returns where it sits in the tree as item IDs: parentID is the
 // parent's ID ("" for a root) and afterID is the ID of the sibling immediately
 // before it ("" when it is the first among its peers).
-func (d *Document) Placement(it *Item) (parentID, afterID string) {
+func (d *Document) placement(it *Item) (parentID, afterID string) {
 	if it.Parent != nil {
 		parentID = it.Parent.ID
 	}

@@ -180,25 +180,6 @@ func titles(items []*todo.Item) []string {
 	return out
 }
 
-func TestPlacement(t *testing.T) {
-	doc := todotest.Parse(t, "# A\n\n- [ ] t1\n- [ ] t2\n\n## B\n")
-	a := doc.Roots[0]
-	t1, t2, b := a.Children[0], a.Children[1], a.Children[2]
-	a.ID, t1.ID, t2.ID, b.ID = "1", "2", "3", "4"
-	if p, af := doc.Placement(t1); p != "1" || af != "" {
-		t.Errorf("t1: %s,%s", p, af)
-	}
-	if p, af := doc.Placement(t2); p != "1" || af != "2" {
-		t.Errorf("t2: %s,%s", p, af)
-	}
-	if p, af := doc.Placement(b); p != "1" || af != "3" {
-		t.Errorf("b: %s,%s", p, af)
-	}
-	if p, af := doc.Placement(a); p != "" || af != "" {
-		t.Errorf("a: %s,%s", p, af)
-	}
-}
-
 func TestDoneSubtrees(t *testing.T) {
 	doc := todotest.Parse(t, "# A\n\n- [x] done\n  - [x] d1\n- [x] mixed\n  - [ ] open\n  - [x] inner\n")
 	got := doc.DoneSubtrees()

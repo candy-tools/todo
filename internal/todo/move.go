@@ -68,7 +68,7 @@ func (d *Document) StepPlacement(id string, s MoveStep, shown func(id string) bo
 			return "", "", err
 		}
 		if shown == nil || it.Parent != parent || c.shownBefore(it, shown) != before {
-			p, a = c.Placement(it)
+			p, a = c.placement(it)
 			return p, a, nil
 		}
 	}
