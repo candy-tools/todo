@@ -12,10 +12,10 @@ import (
 	"github.com/candy-tools/todo/libs/jsonfile"
 )
 
-// newerSchemaError returns ErrNewerSchema wrapped with the format version
+// newerFormatError returns ErrNewerFormat wrapped with the format version
 // found in the file.
-func newerSchemaError(version int) error {
-	return fmt.Errorf("%w (format version %d); upgrade todo", ErrNewerSchema, version)
+func newerFormatError(version int) error {
+	return fmt.Errorf("%w (format version %d); upgrade todo", ErrNewerFormat, version)
 }
 
 // Fingerprint identifies one version of the list file's content (see
@@ -110,7 +110,7 @@ func (s *Store) Existing() *Store {
 // Load reads the whole list and the fingerprint of the bytes it came from,
 // without taking the lock. A missing file is an empty Document and the zero
 // (missing) fingerprint. A file that is not a valid list fails with
-// ErrInvalidList (or ErrNewerSchema) naming the path, and still returns the
+// ErrInvalidList (or ErrNewerFormat) naming the path, and still returns the
 // fingerprint of the bytes read.
 func (s *Store) Load(_ context.Context) (*Document, Fingerprint, error) {
 	l, fp, err := s.file.Load()
@@ -174,7 +174,7 @@ func (s *Store) gone() bool {
 
 // mapErr turns jsonfile's errors into the package's: a lock timeout is
 // ErrBusy, a file that fails to decode or validate is ErrInvalidList (or
-// ErrNewerSchema), prefixed with the path, and a list a write produced that
+// ErrNewerFormat), prefixed with the path, and a list a write produced that
 // fails validation is a refusedError (a bug, not a bad file). Other errors
 // pass through.
 func (s *Store) mapErr(err error) error {
@@ -184,7 +184,7 @@ func (s *Store) mapErr(err error) error {
 	case errors.Is(err, jsonfile.ErrInvalidValue):
 		return &refusedError{err: err}
 	case errors.Is(err, jsonfile.ErrInvalid):
-		if errors.Is(err, ErrInvalidList) { // ErrNewerSchema included
+		if errors.Is(err, ErrInvalidList) { // ErrNewerFormat included
 			return fmt.Errorf("%s: %w", s.Path(), err)
 		}
 		return fmt.Errorf("%s: %w: %w", s.Path(), ErrInvalidList, err)

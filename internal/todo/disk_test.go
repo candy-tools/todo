@@ -197,8 +197,8 @@ func TestDiskTaskOrderBeforeSubcategories(t *testing.T) {
 func TestUnmarshalNewerVersion(t *testing.T) {
 	var l todo.DiskList
 	err := json.Unmarshal([]byte(`{"version":4,"extra":1}`), &l)
-	if !errors.Is(err, todo.ErrNewerSchema) {
-		t.Errorf("err = %v, want ErrNewerSchema", err)
+	if !errors.Is(err, todo.ErrNewerFormat) {
+		t.Errorf("err = %v, want ErrNewerFormat", err)
 	}
 }
 

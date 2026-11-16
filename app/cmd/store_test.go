@@ -269,7 +269,7 @@ func TestStoreErrorsMapByClass(t *testing.T) {
 		{todo.ErrConflict, exitConflict, todo.ErrConflict.Error()},
 		{todo.ErrBusy, exitConflict, todo.ErrBusy.Error()},
 		{todo.ErrInvalidList, exitGeneric, todo.ErrInvalidList.Error()},
-		{fmt.Errorf("x.json: %w", todo.ErrNewerSchema), exitGeneric, "x.json: " + todo.ErrNewerSchema.Error()},
+		{fmt.Errorf("x.json: %w", todo.ErrNewerFormat), exitGeneric, "x.json: " + todo.ErrNewerFormat.Error()},
 		{todo.ErrListMissing, exitGeneric, todo.ErrListMissing.Error()},
 		{refused, exitGeneric, refused.Error()},
 	} {

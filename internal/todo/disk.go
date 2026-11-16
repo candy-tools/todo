@@ -196,7 +196,7 @@ func (l *diskList) UnmarshalJSON(b []byte) error { return l.decode(b) }
 
 // decode decodes strictly: unknown fields fail. The version is read
 // first: a missing or non-integer one fails, one newer than fileVersion is
-// reported as ErrNewerSchema and an older one as an unsupported format
+// reported as ErrNewerFormat and an older one as an unsupported format
 // version, before anything else, since such a file may hold fields this
 // binary does not know. A value of the wrong type is reported
 // at its line and column, by its JSON path and the kind expected; an unknown
@@ -218,7 +218,7 @@ func (l *diskList) decode(b []byte) error {
 	}
 	switch {
 	case version > fileVersion:
-		return newerSchemaError(version)
+		return newerFormatError(version)
 	case version < fileVersion: // before any field of a format this todo does not read
 		return invalidf("unsupported format version %d", version)
 	}

@@ -31,7 +31,7 @@ func TestErrorClasses(t *testing.T) {
 		{todo.ErrConflict, todo.ErrConflict},
 		{todo.ErrBusy, todo.ErrConflict},
 		{todo.ErrInvalidList, todo.ErrInvalidList},
-		{todo.ErrNewerSchema, todo.ErrInvalidList},
+		{todo.ErrNewerFormat, todo.ErrInvalidList},
 		{todo.ErrListMissing, todo.ErrListMissing},
 	} {
 		for _, err := range []error{tc.err, fmt.Errorf("context: %w", tc.err)} {

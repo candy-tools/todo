@@ -35,7 +35,7 @@ var ErrConflict = errors.New("the list changed since it was read; reload and try
 
 // ErrInvalidList is returned (wrapped) when the list file is not a valid list:
 // it does not decode, or it breaks the format's rules. It is also the class of
-// ErrNewerSchema: a file this todo cannot read.
+// ErrNewerFormat: a file this todo cannot read.
 var ErrInvalidList = errors.New("invalid list file")
 
 // ErrListMissing is returned by a write through a store from Existing when
@@ -89,10 +89,10 @@ var ErrNotTask = classed(ErrWrongKind, "only a task has a status")
 // is ErrConflict.
 var ErrBusy = classed(ErrConflict, "list busy (another todo is writing), try again")
 
-// ErrNewerSchema is returned when the list file was written by a newer todo,
+// ErrNewerFormat is returned when the list file was written by a newer todo,
 // whose format this binary does not know and must not read or write. It is
 // wrapped with the version found. Its class is ErrInvalidList.
-var ErrNewerSchema = classed(ErrInvalidList, "list was written by a newer todo")
+var ErrNewerFormat = classed(ErrInvalidList, "list was written by a newer todo")
 
 // ErrNotEmpty is returned by Import when the list already holds items and the
 // caller did not ask to replace them. It belongs to no class.

@@ -460,8 +460,8 @@ func TestReloadFailureShownAndCleared(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
 	m = failPolls(t, m, path, good, 4, 3)
-	if !errors.Is(m.err, todo.ErrNewerSchema) {
-		t.Fatalf("m.err = %v, want the failed reload (ErrNewerSchema)", m.err)
+	if !errors.Is(m.err, todo.ErrNewerFormat) {
+		t.Fatalf("m.err = %v, want the failed reload (ErrNewerFormat)", m.err)
 	}
 	if got := m.footer(200); !strings.Contains(got, "reload failed:") || !strings.Contains(got, "newer todo") {
 		t.Errorf("footer should report the failed reload, got %q", got)
@@ -482,7 +482,7 @@ func TestReloadFailureShownOnce(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
 	m = failPolls(t, m, path, good, 4, 3)
-	if !errors.Is(m.err, todo.ErrNewerSchema) {
+	if !errors.Is(m.err, todo.ErrNewerFormat) {
 		t.Fatalf("m.err = %v, want the failed reload", m.err)
 	}
 	saveErr := errors.New("save failed: boom")

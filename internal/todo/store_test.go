@@ -338,15 +338,15 @@ func TestStoreNewerVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err := s.Load(ctx)
-	if !errors.Is(err, ErrNewerSchema) {
-		t.Fatalf("Load = %v, want ErrNewerSchema", err)
+	if !errors.Is(err, ErrNewerFormat) {
+		t.Fatalf("Load = %v, want ErrNewerFormat", err)
 	}
 	if !strings.Contains(err.Error(), "list was written by a newer todo") {
 		t.Errorf("Load error %q does not say the list is from a newer todo", err)
 	}
 	for name, w := range everyWrite(s, "aaaaaaa", "bbbbbbb") {
-		if err := w(); !errors.Is(err, ErrNewerSchema) {
-			t.Errorf("%s = %v, want ErrNewerSchema", name, err)
+		if err := w(); !errors.Is(err, ErrNewerFormat) {
+			t.Errorf("%s = %v, want ErrNewerFormat", name, err)
 		}
 	}
 	if got := string(fileBytes(t, s.Path())); got != content {
