@@ -130,6 +130,23 @@ type Store[T any] struct {
 	statAt   time.Time
 }
 
+// Snapshot describes the file as Update read it under the lock, for fn to
+// check preconditions on (say, that the file exists) or to copy the bytes
+// (say, to back the file up) without reading it again outside the lock.
+type Snapshot struct {
+	// Path is the file read: Config.Path, or the file it links to when it is
+	// a symlink (see Update). The write, if any, replaces this file.
+	Path string
+	// Exists reports whether there was a file.
+	Exists bool
+	// Bytes is the file's content, nil when there was no file. It is fn's to
+	// keep; the Store does not use it again.
+	Bytes []byte
+	// Fingerprint is the fingerprint of Bytes (the zero, missing one when
+	// there was no file). It is Result.Read.
+	Fingerprint Fingerprint
+}
+
 // Result is the outcome of an Update.
 type Result[T any] struct {
 	// Value is the value after fn ran: the one written, or the one read when
@@ -179,7 +196,8 @@ func (s *Store[T]) Path() string { return s.path }
 // fingerprint and a nil error. A file that fails to decode or validate gives
 // an *InvalidError, along with the fingerprint of the bytes read.
 func (s *Store[T]) Load() (T, Fingerprint, error) {
-	return s.read(s.path)
+	v, cur, err := s.read(s.path)
+	return v, cur.Fingerprint, err
 }
 
 // Update runs a locked read-modify-write. It waits up to the lock timeout for
@@ -189,12 +207,13 @@ func (s *Store[T]) Load() (T, Fingerprint, error) {
 // so Stores on different links to one file share one lock, and the write
 // replaces that file, leaving the link in place. An unreadable or
 // invalid file is returned as an error and never overwritten. Otherwise fn
-// gets the fresh value (the zero T for a missing file) and may change it. When
-// fn returns an error, or changed == false, nothing is written. Otherwise the
-// changed value is run through the Validate hook (an *InvalidValueError
-// writes nothing), encoded as indented JSON, and atomically replaces the file. On
-// error the Result is the zero value.
-func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err error)) (Result[T], error) {
+// gets the fresh value (the zero T for a missing file), which it may change,
+// and a Snapshot of the file it came from. When fn returns an error, or
+// changed == false, nothing is written. Otherwise the changed value is run
+// through the Validate hook (an *InvalidValueError writes nothing), encoded as
+// indented JSON, and atomically replaces the file. On error the Result is the
+// zero value.
+func (s *Store[T]) Update(ctx context.Context, fn func(v *T, cur Snapshot) (changed bool, err error)) (Result[T], error) {
 	path, err := resolveLinks(s.path)
 	if err != nil {
 		return Result[T]{}, err
@@ -205,11 +224,12 @@ func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err 
 	}
 	defer unlock()
 
-	v, read, err := s.read(path)
+	v, cur, err := s.read(path)
 	if err != nil {
 		return Result[T]{}, err
 	}
-	changed, err := fn(&v)
+	read := cur.Fingerprint
+	changed, err := fn(&v, cur)
 	if err != nil {
 		return Result[T]{}, err
 	}
@@ -299,28 +319,31 @@ func holdsFileAt(fl *flock.Flock, path string) (bool, error) {
 }
 
 // read reads, fingerprints, decodes and validates the file at path (the
-// Store's path, or the file it links to).
-func (s *Store[T]) read(path string) (T, Fingerprint, error) {
+// Store's path, or the file it links to), and returns the value with a
+// Snapshot of the file. The Snapshot is filled in as far as the read got, so
+// an invalid file still has its fingerprint.
+func (s *Store[T]) read(path string) (T, Snapshot, error) {
 	var zero T
+	cur := Snapshot{Path: path}
 	data, err := os.ReadFile(path) //nolint:gosec // path is the Store's own file (Config.Path or the file it links to)
 	if errors.Is(err, fs.ErrNotExist) {
-		return zero, Fingerprint{}, nil
+		return zero, cur, nil
 	}
 	if err != nil {
-		return zero, Fingerprint{}, err
+		return zero, cur, err
 	}
-	fp := Fingerprint(sha256.Sum256(data))
+	cur.Exists, cur.Bytes, cur.Fingerprint = true, data, sha256.Sum256(data)
 
 	var v T
 	if err := json.Unmarshal(data, &v); err != nil {
-		return zero, fp, &InvalidError{Err: err}
+		return zero, cur, &InvalidError{Err: err}
 	}
 	if s.validate != nil {
 		if err := s.validate(&v); err != nil {
-			return zero, fp, &InvalidError{Err: err}
+			return zero, cur, &InvalidError{Err: err}
 		}
 	}
-	return v, fp, nil
+	return v, cur, nil
 }
 
 // encode renders v as 2-space indented JSON with a trailing newline, without

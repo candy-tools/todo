@@ -76,7 +76,7 @@ func runHelper(spec string) error {
 			return err
 		}
 		for range n {
-			if _, err := s.Update(context.Background(), func(v *doc) (bool, error) {
+			if _, err := s.Update(context.Background(), func(v *doc, _ jsonfile.Snapshot) (bool, error) {
 				v.N++
 				return true, nil
 			}); err != nil {
@@ -85,7 +85,7 @@ func runHelper(spec string) error {
 		}
 		return nil
 	case "hold":
-		_, err := s.Update(context.Background(), func(*doc) (bool, error) {
+		_, err := s.Update(context.Background(), func(*doc, jsonfile.Snapshot) (bool, error) {
 			if err := os.WriteFile(second, nil, 0o644); err != nil {
 				return false, err
 			}

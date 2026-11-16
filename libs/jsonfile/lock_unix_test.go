@@ -48,7 +48,7 @@ func TestLockRetriesWhenLockFileReplaced(t *testing.T) {
 			t.Errorf("remove lock file: %v", err)
 		}
 		go func() {
-			_, err := b.Update(context.Background(), func(v *counter) (bool, error) {
+			_, err := b.Update(context.Background(), func(v *counter, _ Snapshot) (bool, error) {
 				incr(v)
 				close(bIn)
 				select { // stay in fn while A would run, if it does
@@ -68,7 +68,7 @@ func TestLockRetriesWhenLockFileReplaced(t *testing.T) {
 	}
 	t.Cleanup(func() { afterLock = nil })
 
-	if _, err := a.Update(context.Background(), func(v *counter) (bool, error) {
+	if _, err := a.Update(context.Background(), func(v *counter, _ Snapshot) (bool, error) {
 		aOnce.Do(func() { close(aIn) })
 		incr(v)
 		inFn.Add(-1)

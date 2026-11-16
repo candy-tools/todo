@@ -168,7 +168,7 @@ func TestTwoSymlinksShareOneLock(t *testing.T) {
 				defer wg.Done()
 				s := jsonfile.New(jsonfile.Config[doc]{Path: l, LockTimeout: 30 * time.Second})
 				for range rounds {
-					if _, err := s.Update(context.Background(), func(v *doc) (bool, error) {
+					if _, err := s.Update(context.Background(), func(v *doc, _ jsonfile.Snapshot) (bool, error) {
 						v.N++
 						return true, nil
 					}); err != nil {
@@ -235,5 +235,25 @@ func TestLockPath(t *testing.T) {
 	b, errB := os.Stat(real + ".lock")
 	if errA != nil || errB != nil || !os.SameFile(a, b) {
 		t.Errorf("LockPath(link) = %q is not the target's lock file %q (%v, %v)", got, real+".lock", errA, errB)
+	}
+}
+
+// TestUpdateSnapshotThroughSymlink: through a link, the Snapshot describes the
+// file linked to, so fn can copy its bytes without reading the link again.
+func TestUpdateSnapshotThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.json")
+	link := filepath.Join(dir, "link.json")
+	mustUpdate(t, jsonfile.New(jsonfile.Config[doc]{Path: real}), setN(1))
+	symlink(t, "real.json", link)
+
+	snap, _ := snapshotOf(t, jsonfile.New(jsonfile.Config[doc]{Path: link}))
+	got, errA := os.Lstat(snap.Path)
+	want, errB := os.Lstat(real)
+	if errA != nil || errB != nil || !os.SameFile(got, want) {
+		t.Errorf("Snapshot.Path = %q, want the target %q (%v, %v)", snap.Path, real, errA, errB)
+	}
+	if !snap.Exists || string(snap.Bytes) != string(readBytes(t, real)) {
+		t.Errorf("Snapshot = %+v, want the target's bytes", snap)
 	}
 }

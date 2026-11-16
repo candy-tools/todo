@@ -154,7 +154,7 @@ func (s *Store) LastWrite() WriteResult {
 // written. A successful write is recorded as LastWrite. Errors are mapped as
 // mapErr does.
 func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, err error)) error {
-	res, err := s.file.Update(ctx, func(l *diskList) (bool, error) {
+	res, err := s.file.Update(ctx, func(l *diskList, _ jsonfile.Snapshot) (bool, error) {
 		d := fromDisk(*l)
 		changed, err := fn(d)
 		if err != nil || !changed {

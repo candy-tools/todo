@@ -27,14 +27,14 @@ func tempPath(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "list.json")
 }
 
-func setN(n int) func(*doc) (bool, error) {
-	return func(v *doc) (bool, error) {
+func setN(n int) func(*doc, jsonfile.Snapshot) (bool, error) {
+	return func(v *doc, _ jsonfile.Snapshot) (bool, error) {
 		v.N = n
 		return true, nil
 	}
 }
 
-func mustUpdate(t *testing.T, s *jsonfile.Store[doc], fn func(*doc) (bool, error)) jsonfile.Result[doc] {
+func mustUpdate(t *testing.T, s *jsonfile.Store[doc], fn func(*doc, jsonfile.Snapshot) (bool, error)) jsonfile.Result[doc] {
 	t.Helper()
 	res, err := s.Update(context.Background(), fn)
 	if err != nil {
@@ -102,6 +102,43 @@ func TestUpdateCreatesAndLoads(t *testing.T) {
 	}
 }
 
+// snapshotOf runs an Update that changes nothing and returns the Snapshot fn
+// got.
+func snapshotOf(t *testing.T, s *jsonfile.Store[doc]) (jsonfile.Snapshot, jsonfile.Result[doc]) {
+	t.Helper()
+	var snap jsonfile.Snapshot
+	res := mustUpdate(t, s, func(_ *doc, cur jsonfile.Snapshot) (bool, error) {
+		snap = cur
+		return false, nil
+	})
+	return snap, res
+}
+
+func TestUpdateSnapshotOfMissingFile(t *testing.T) {
+	path := tempPath(t)
+	snap, _ := snapshotOf(t, jsonfile.New(jsonfile.Config[doc]{Path: path}))
+	if snap.Path != path || snap.Exists || snap.Bytes != nil || !snap.Fingerprint.IsMissing() {
+		t.Errorf("Snapshot = %+v, want {Path: %q, Exists: false, no bytes, missing fingerprint}", snap, path)
+	}
+}
+
+func TestUpdateSnapshotOfExistingFile(t *testing.T) {
+	path := tempPath(t)
+	s := jsonfile.New(jsonfile.Config[doc]{Path: path})
+	wrote := mustUpdate(t, s, setN(1)).Wrote
+
+	snap, res := snapshotOf(t, s)
+	if snap.Path != path || !snap.Exists {
+		t.Errorf("Snapshot Path, Exists = %q, %v; want %q, true", snap.Path, snap.Exists, path)
+	}
+	if want := readBytes(t, path); !bytes.Equal(snap.Bytes, want) {
+		t.Errorf("Snapshot.Bytes = %q, want the file's %q", snap.Bytes, want)
+	}
+	if snap.Fingerprint != wrote || snap.Fingerprint != res.Read {
+		t.Errorf("Snapshot.Fingerprint = %x, want the file's %x (Result.Read %x)", snap.Fingerprint, wrote, res.Read)
+	}
+}
+
 func TestUpdateNoChangeDoesNotWrite(t *testing.T) {
 	path := tempPath(t)
 	s := jsonfile.New(jsonfile.Config[doc]{Path: path})
@@ -120,7 +157,7 @@ func TestUpdateNoChangeDoesNotWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := mustUpdate(t, s, func(*doc) (bool, error) { return false, nil })
+	res := mustUpdate(t, s, func(*doc, jsonfile.Snapshot) (bool, error) { return false, nil })
 	if res.Written {
 		t.Error("Written = true, want false")
 	}
@@ -146,7 +183,7 @@ func TestUpdateFnErrorWritesNothing(t *testing.T) {
 	before := readBytes(t, path)
 
 	boom := errors.New("boom")
-	_, err := s.Update(context.Background(), func(v *doc) (bool, error) {
+	_, err := s.Update(context.Background(), func(v *doc, _ jsonfile.Snapshot) (bool, error) {
 		v.N = 99
 		return true, boom
 	})
@@ -184,7 +221,7 @@ func TestUpdateRefusesInvalidFile(t *testing.T) {
 			}
 			s := jsonfile.New(jsonfile.Config[doc]{Path: path, Validate: tc.validate})
 			called := false
-			_, err := s.Update(context.Background(), func(*doc) (bool, error) {
+			_, err := s.Update(context.Background(), func(*doc, jsonfile.Snapshot) (bool, error) {
 				called = true
 				return true, nil
 			})
@@ -250,7 +287,7 @@ func TestUpdateReportsOutsideWrite(t *testing.T) {
 	mustUpdate(t, b, setN(2))
 
 	var seen int
-	res := mustUpdate(t, a, func(v *doc) (bool, error) {
+	res := mustUpdate(t, a, func(v *doc, _ jsonfile.Snapshot) (bool, error) {
 		seen = v.N
 		return false, nil
 	})
@@ -273,7 +310,7 @@ func TestConcurrentUpdatesLoseNothing(t *testing.T) {
 			defer wg.Done()
 			s := jsonfile.New(jsonfile.Config[doc]{Path: path, LockTimeout: 30 * time.Second})
 			for range rounds {
-				if _, err := s.Update(context.Background(), func(v *doc) (bool, error) {
+				if _, err := s.Update(context.Background(), func(v *doc, _ jsonfile.Snapshot) (bool, error) {
 					v.N++
 					return true, nil
 				}); err != nil {
@@ -335,7 +372,7 @@ func TestUpdateCancelledWhileWaiting(t *testing.T) {
 func TestNoHTMLEscape(t *testing.T) {
 	path := tempPath(t)
 	s := jsonfile.New(jsonfile.Config[doc]{Path: path})
-	mustUpdate(t, s, func(v *doc) (bool, error) {
+	mustUpdate(t, s, func(v *doc, _ jsonfile.Snapshot) (bool, error) {
 		v.Tags = []string{"<a&b>"}
 		return true, nil
 	})
@@ -399,7 +436,7 @@ func TestNoTempFileLeftOnWriteFailure(t *testing.T) {
 	s := jsonfile.New(jsonfile.Config[doc]{Path: path})
 	mustUpdate(t, s, setN(1))
 
-	_, err := s.Update(context.Background(), func(v *doc) (bool, error) {
+	_, err := s.Update(context.Background(), func(v *doc, _ jsonfile.Snapshot) (bool, error) {
 		if err := os.Remove(path); err != nil {
 			return false, err
 		}
