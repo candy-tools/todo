@@ -7,7 +7,7 @@
 // still lose the rename on some file systems. Reads (Load) and change polling
 // (Changed) take no lock. The package is generic over the stored type and
 // knows nothing about what it stores: the path, the lock timeout and the
-// validation hook all come from Config.
+// decode and validation hooks all come from Config.
 //
 // The lock file is left in place after a write and must not be deleted while
 // the data file is in use: a writer that locked a deleted lock file does not
@@ -107,6 +107,11 @@ type Config[T any] struct {
 	// LockTimeout is how long Update waits for the lock before failing with
 	// ErrBusy. Zero or negative means DefaultLockTimeout.
 	LockTimeout time.Duration
+	// Decode, when not nil, decodes the file's bytes into a zero value in
+	// place of json.Unmarshal, so the caller can word its decode errors (say,
+	// with a line and column). An error from it makes the file invalid, as a
+	// Validate error does. Writing always encodes with encoding/json.
+	Decode func(data []byte, v *T) error
 	// Validate, when not nil, checks every decoded value and every value
 	// Update is about to write. An error on a decoded value makes the file
 	// invalid: Load and Update return it as an *InvalidError. An error on a
@@ -121,6 +126,7 @@ type Config[T any] struct {
 type Store[T any] struct {
 	path        string
 	lockTimeout time.Duration
+	decode      func([]byte, *T) error
 	validate    func(*T) error
 
 	// mu guards the stat cache used by Changed: the last stat, the fingerprint
@@ -187,14 +193,18 @@ func New[T any](cfg Config[T]) *Store[T] {
 	if timeout <= 0 {
 		timeout = DefaultLockTimeout
 	}
-	return &Store[T]{path: cfg.Path, lockTimeout: timeout, validate: cfg.Validate}
+	decode := cfg.Decode
+	if decode == nil {
+		decode = func(data []byte, v *T) error { return json.Unmarshal(data, v) }
+	}
+	return &Store[T]{path: cfg.Path, lockTimeout: timeout, decode: decode, validate: cfg.Validate}
 }
 
 // Path returns the JSON file's path.
 func (s *Store[T]) Path() string { return s.path }
 
-// Load reads the file without taking the lock, decodes it and runs the
-// Validate hook. A missing file gives the zero T, the zero (missing)
+// Load reads the file without taking the lock, decodes it (with the Decode
+// hook, or json.Unmarshal) and runs the Validate hook. A missing file gives the zero T, the zero (missing)
 // fingerprint and a nil error. A file that fails to decode or validate gives
 // an *InvalidError, along with the fingerprint of the bytes read.
 func (s *Store[T]) Load() (T, Fingerprint, error) {
@@ -368,7 +378,7 @@ func (s *Store[T]) read(path string) (T, Snapshot, error) {
 	cur.Exists, cur.Bytes, cur.Fingerprint = true, data, sha256.Sum256(data)
 
 	var v T
-	if err := json.Unmarshal(data, &v); err != nil {
+	if err := s.decode(data, &v); err != nil {
 		return zero, cur, &InvalidError{Err: err}
 	}
 	if s.validate != nil {

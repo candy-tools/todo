@@ -252,6 +252,41 @@ func TestUpdateRefusesInvalidFile(t *testing.T) {
 	}
 }
 
+// A Decode hook replaces json.Unmarshal for Load and Update: what it decodes
+// is the value, and its error makes the file invalid.
+func TestDecodeHook(t *testing.T) {
+	path := tempPath(t)
+	if err := os.WriteFile(path, []byte(`{"n": 1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	refuse := errors.New("refused by the hook")
+	s := jsonfile.New(jsonfile.Config[doc]{Path: path, Decode: func(data []byte, v *doc) error {
+		if bytes.Contains(data, []byte("bad")) {
+			return refuse
+		}
+		v.N = 40 + len(data)
+		return nil
+	}})
+	if v, _, err := s.Load(); err != nil || v.N != 48 {
+		t.Fatalf("Load = %+v, %v; want the hook's value N 48", v, err)
+	}
+	res := mustUpdate(t, s, func(v *doc, _ jsonfile.Snapshot) (bool, error) {
+		if v.N != 48 {
+			t.Errorf("Update fn got N %d, want the hook's 48", v.N)
+		}
+		v.Tags = []string{"bad"}
+		return true, nil
+	})
+	if res.Value.N != 48 {
+		t.Errorf("Update value N = %d, want 48", res.Value.N)
+	}
+	_, _, err := s.Load()
+	var inv *jsonfile.InvalidError
+	if !errors.As(err, &inv) || !errors.Is(err, refuse) {
+		t.Fatalf("Load of a file the hook refuses = %v, want an *InvalidError wrapping its error", err)
+	}
+}
+
 func TestInvalidErrorUnwrap(t *testing.T) {
 	inner := errors.New("inner")
 	err := error(&jsonfile.InvalidError{Err: inner})
