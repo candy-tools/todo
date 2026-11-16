@@ -268,6 +268,8 @@ func TestListFileErrorMessages(t *testing.T) {
 			`invalid list file: no "version" field; this todo reads format version 3`},
 		{"older version", `{"version": 2, "categories": [], "tasks": []}`,
 			"invalid list file: unsupported format version 2"},
+		{"older version with other fields", `{"version": 2, "items": []}`,
+			"invalid list file: unsupported format version 2"},
 		{"newer version", `{"version": 4, "categories": [], "tasks": [], "tags": []}`,
 			"list was written by a newer todo (format version 4); upgrade todo"},
 		{"unknown top-level field", strings.Replace(good, `{"version": 3,`, `{"version": 3, "tags": [],`, 1),

@@ -191,9 +191,10 @@ func endsEarly(data []byte) bool {
 func (l *diskList) UnmarshalJSON(b []byte) error { return l.decode(b) }
 
 // decode decodes strictly: unknown fields fail. The version is read
-// first: a missing or non-integer one fails, and one newer than fileVersion
-// is reported as ErrNewerSchema before anything else, since a newer file may
-// hold fields this binary does not know. A value of the wrong type is reported
+// first: a missing or non-integer one fails, one newer than fileVersion is
+// reported as ErrNewerSchema and an older one as an unsupported format
+// version, before anything else, since such a file may hold fields this
+// binary does not know. A value of the wrong type is reported
 // at its line and column, by its JSON path and the kind expected; an unknown
 // field by its name and the item holding it. "Strict" stops at key case:
 // encoding/json matches keys to fields case-insensitively, so a hand-edited
@@ -211,8 +212,11 @@ func (l *diskList) decode(b []byte) error {
 	if err != nil {
 		return err
 	}
-	if version > fileVersion {
+	switch {
+	case version > fileVersion:
 		return newerSchemaError(version)
+	case version < fileVersion: // before any field of a format this todo does not read
+		return invalidf("unsupported format version %d", version)
 	}
 	type plain diskList
 	// A Decoder counts its offsets from the start of the value, after any
