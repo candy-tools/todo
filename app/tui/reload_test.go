@@ -1008,6 +1008,24 @@ func TestFailedUndoKeepsSnapshot(t *testing.T) {
 	}
 }
 
+// TestClearDoneKeepsExternalNotice: a prune whose write finds an outside
+// change made since the last poll reports both how many tasks it removed and
+// that the list changed externally.
+func TestClearDoneKeepsExternalNotice(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [x] a\n- [ ] b\n")
+	b := find(m.doc, "b").ID
+	if _, err := openSecond(t, path).SetState(context.Background(), b, todo.Review, todo.StateOptions{}); err != nil {
+		t.Fatalf("other writer: %v", err)
+	}
+	m = press(m, "D", "y")
+	if m.err != nil {
+		t.Fatalf("prune: %v", m.err)
+	}
+	if want := "Removed 1 completed task(s). reloaded — list changed externally"; m.status != want {
+		t.Errorf("status = %q, want %q", m.status, want)
+	}
+}
+
 // TestOwnWriteDetectsExternalWriteBeforePoll covers an external write landing
 // between polls: the app's next own write must notice that the file it found
 // is not the one it last loaded, treat its result as external and drop the

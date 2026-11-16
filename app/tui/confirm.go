@@ -144,7 +144,9 @@ func (m model) doConfirm() (tea.Model, tea.Cmd) {
 // doClearDone removes every completed task from the store (which works out the
 // fully-done subtrees itself, as they are at write time), reloads, and keeps
 // the selection on the previously selected item when it survived (otherwise the
-// top row). Like a delete, it ends the accidental-complete undo window.
+// top row). Like a delete, it ends the accidental-complete undo window. The
+// footer says how many tasks went, and keeps the notice that the list changed
+// externally when the write found it so.
 func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	m.mode = modeMain
 	var focus string
@@ -152,6 +154,7 @@ func (m model) doClearDone() (tea.Model, tea.Cmd) {
 		focus = sel.ID
 	}
 	m.snapshots = map[string]todo.DoneStates{}
+	m.status = "" // so that only the write's own notice is kept below
 	var removed int
 	saved := m.commit(focus, func(ctx context.Context, st *todo.Store) (res todo.WriteResult, err error) {
 		removed, res, err = st.Prune(ctx)
@@ -161,7 +164,8 @@ func (m model) doClearDone() (tea.Model, tea.Cmd) {
 		m.focused().selectTop() // sel was removed
 	}
 	if saved {
-		m.status = fmt.Sprintf("Removed %d completed task(s).", removed)
+		// The write's external-change notice, when it found one, stays.
+		m.status = strings.TrimSpace(fmt.Sprintf("Removed %d completed task(s). %s", removed, m.status))
 	}
 	return m, nil
 }

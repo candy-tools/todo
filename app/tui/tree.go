@@ -117,9 +117,9 @@ func (t *tree) useFolds(k viewKey) {
 // row.
 func (t *tree) filtering() bool { return t.vs.filtering() }
 
-// shownID returns whether the tab showed the item with a given ID at the last
-// rebuild, for a move step to skip the items it hides (see
-// todo.Document.StepPlacement).
+// shownID returns a predicate that reports whether the tab showed the item
+// with a given ID at the last rebuild, for a move step to skip the items it
+// hides (see todo.Document.StepPlacement).
 func (t *tree) shownID() func(id string) bool {
 	ids := make(map[string]bool, len(t.shown))
 	for it := range t.shown {
