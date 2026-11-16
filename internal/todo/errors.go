@@ -69,6 +69,11 @@ var ErrInvalidTitle = classed(ErrBadRequest, "invalid title")
 // class is ErrBadRequest.
 var ErrRestoreAndCascade = classed(ErrBadRequest, "a reopen cannot both restore the subtasks and open them all")
 
+// ErrNowhere is returned by StepPlacement for a step with nowhere to go: the
+// item is already first or last that way, has no sibling of its kind before
+// it to nest under, or no parent it may leave. Its class is ErrBadRequest.
+var ErrNowhere = classed(ErrBadRequest, "nowhere to move the item that way")
+
 // ErrWrongParent is returned by a write that would place a task at the root or
 // a category under a task: a task always sits under a category or a task, and
 // a category under a category or at the root. Its class is ErrWrongKind.

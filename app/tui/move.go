@@ -2,7 +2,7 @@ package tui
 
 import (
 	"context"
-	"slices"
+	"errors"
 
 	"github.com/candy-tools/todo/internal/todo"
 	tea "github.com/charmbracelet/bubbletea"
@@ -50,37 +50,28 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // applyIndent indents the grabbed item under the item just above it among its
-// siblings. A subtask, or a task with subtasks, never indents (tasks nest one
-// level only, so Move refuses it), and neither does an item whose
-// new parent the tab hides, since it would vanish into that hidden task; the
-// footer says why. Any other refusal (nothing above to nest under) stays
-// silent, as before.
+// siblings. When the list refuses it as too deep (a subtask, or a task with
+// subtasks: tasks nest one level only), or the new parent is hidden in the tab
+// (the item would vanish into it), nothing moves and the footer says why. Any
+// other refusal (nothing above to nest under) stays silent.
 func (m model) applyIndent() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	if it == nil {
 		return m, nil
 	}
-	if it.IsTask() && (it.IsSubtask() || len(it.Children) > 0) {
+	parentID, afterID, err := m.doc.StepPlacement(it.ID, todo.StepIn, nil)
+	switch {
+	case errors.Is(err, todo.ErrTooDeep):
 		m.status = "subtasks can't have subtasks"
 		return m, nil
+	case err != nil:
+		return m, nil
 	}
-	if prev := prevSibling(it); prev != nil && prev.Kind == it.Kind && !m.focused().shown[prev] {
+	if p, ok := m.doc.ByID(parentID); ok && !m.focused().shown[p] {
 		m.status = "can't nest under a task hidden in this tab"
 		return m, nil
 	}
-	return m.applyMove(todo.StepIn)
-}
-
-// prevSibling returns the sibling just before it under the same parent, or nil
-// when it is first or a root item.
-func prevSibling(it *todo.Item) *todo.Item {
-	if it.Parent == nil {
-		return nil
-	}
-	if i := slices.Index(it.Parent.Children, it); i > 0 {
-		return it.Parent.Children[i-1]
-	}
-	return nil
+	return m.moveTo(it.ID, parentID, afterID)
 }
 
 // applyMove makes one step s of the grabbed item. The list works out where
@@ -100,11 +91,16 @@ func (m model) applyMove(s todo.MoveStep) (tea.Model, tea.Cmd) {
 	if it == nil {
 		return m, nil
 	}
-	id := it.ID
-	parentID, afterID, ok := m.doc.StepPlacement(id, s, m.focused().shownID())
-	if !ok {
+	parentID, afterID, err := m.doc.StepPlacement(it.ID, s, m.focused().shownID())
+	if err != nil {
 		return m, nil
 	}
+	return m.moveTo(it.ID, parentID, afterID)
+}
+
+// moveTo moves the grabbed item id under parentID after afterID, as
+// applyMove describes.
+func (m model) moveTo(id, parentID, afterID string) (tea.Model, tea.Cmd) {
 	m.snapshots = map[string]todo.DoneStates{}
 	delete(m.focused().collapsed, parentID) // reveal the item under its (possibly new) parent
 	m.commit(id, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {

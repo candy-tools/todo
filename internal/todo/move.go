@@ -32,30 +32,37 @@ const (
 )
 
 // StepPlacement returns where step s takes item id, as the parentID and
-// afterID Move takes, without changing d. ok is false when the step has
-// nowhere to go, or Move refuses it: the step is made with Move on a copy of
-// d, so the op stays the one judge of what is valid.
+// afterID Move takes, without changing d. The step is made with Move on a copy
+// of d, so the op stays the one judge of what is valid: a step Move refuses
+// fails with Move's error (ErrTooDeep for a nesting too deep, say), a step
+// with nowhere to go with ErrNowhere, and a missing id with ErrNotFound.
 //
 // For StepUp and StepDown, shown, when not nil, says which items a view shows:
 // the step repeats until the item has passed one more shown item in document
 // order, or has entered another parent (one category per step, as when
 // nothing is hidden). When it runs out of room first, it only passed hidden
-// items, and ok is false. StepIn and StepOut ignore shown.
-func (d *Document) StepPlacement(id string, s MoveStep, shown func(id string) bool) (parentID, afterID string, ok bool) {
+// items, and the step fails with ErrNowhere. StepIn and StepOut ignore shown.
+func (d *Document) StepPlacement(id string, s MoveStep, shown func(id string) bool) (parentID, afterID string, err error) {
 	c := d.Clone()
-	it, found := c.ByID(id)
-	if !found {
-		return "", "", false
+	it, err := c.lookup(id)
+	if err != nil {
+		return "", "", err
+	}
+	if s == StepIn || s == StepOut {
+		shown = nil
 	}
 	parent, before := it.Parent, c.shownBefore(it, shown)
 	for {
 		p, a, can := c.nextPlacement(it, s)
-		if !can || c.Move(id, p, a) != nil {
-			return "", "", false
+		if !can {
+			return "", "", ErrNowhere
 		}
-		if shown == nil || s == StepIn || s == StepOut || it.Parent != parent || c.shownBefore(it, shown) != before {
+		if err := c.Move(id, p, a); err != nil {
+			return "", "", err
+		}
+		if shown == nil || it.Parent != parent || c.shownBefore(it, shown) != before {
 			p, a = c.Placement(it)
-			return p, a, true
+			return p, a, nil
 		}
 	}
 }

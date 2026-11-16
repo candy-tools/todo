@@ -24,6 +24,7 @@ func TestErrorClasses(t *testing.T) {
 		{todo.ErrInvalidMove, todo.ErrBadRequest},
 		{todo.ErrInvalidTitle, todo.ErrBadRequest},
 		{todo.ErrRestoreAndCascade, todo.ErrBadRequest},
+		{todo.ErrNowhere, todo.ErrBadRequest},
 		{todo.ErrNotFound, todo.ErrNotFound},
 		{todo.ErrWrongParent, todo.ErrWrongKind},
 		{todo.ErrNotTask, todo.ErrWrongKind},

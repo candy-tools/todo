@@ -1,6 +1,7 @@
 package todo_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -31,8 +32,8 @@ func find(d *todo.Document, title string) *todo.Item {
 func step(t *testing.T, d *todo.Document, it *todo.Item, s todo.MoveStep) bool {
 	t.Helper()
 	d.AssignIDs()
-	parentID, afterID, ok := d.StepPlacement(it.ID, s, nil)
-	if !ok {
+	parentID, afterID, err := d.StepPlacement(it.ID, s, nil)
+	if err != nil {
 		return false
 	}
 	if err := d.Move(it.ID, parentID, afterID); err != nil {
@@ -49,8 +50,8 @@ func TestStepPlacementLeavesDocumentUnchanged(t *testing.T) {
 	want := todotest.Render(d)
 	for _, it := range d.Enumerate() {
 		for _, s := range []todo.MoveStep{todo.StepUp, todo.StepDown, todo.StepIn, todo.StepOut} {
-			d.StepPlacement(it.ID, s, nil)
-			d.StepPlacement(it.ID, s, func(string) bool { return false })
+			_, _, _ = d.StepPlacement(it.ID, s, nil)
+			_, _, _ = d.StepPlacement(it.ID, s, func(string) bool { return false })
 		}
 	}
 	if got := todotest.Render(d); got != want {
@@ -58,43 +59,109 @@ func TestStepPlacementLeavesDocumentUnchanged(t *testing.T) {
 	}
 }
 
-// TestStepPlacementSkipsHiddenItems hides b: a step down from a passes it and
-// the shown c, landing after c, and a step down from c, with only hidden
-// items left below it, goes nowhere.
+// TestStepPlacementSkipsHiddenItems hides b and d: a step down from a
+// passes b and the shown c, landing after c, and a step down from c, with
+// only hidden items left below it, goes nowhere.
 func TestStepPlacementSkipsHiddenItems(t *testing.T) {
 	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n")
 	d.AssignIDs()
 	hidden := map[string]bool{find(d, "b").ID: true, find(d, "d").ID: true}
 	shown := func(id string) bool { return !hidden[id] }
 
-	parentID, afterID, ok := d.StepPlacement(find(d, "a").ID, todo.StepDown, shown)
-	if !ok || parentID != find(d, "Work").ID || afterID != find(d, "c").ID {
-		t.Errorf("a down = (%q, %q, %v), want after c in Work", parentID, afterID, ok)
+	parentID, afterID, err := d.StepPlacement(find(d, "a").ID, todo.StepDown, shown)
+	if err != nil || parentID != find(d, "Work").ID || afterID != find(d, "c").ID {
+		t.Errorf("a down = (%q, %q, %v), want after c in Work", parentID, afterID, err)
 	}
-	if _, _, ok := d.StepPlacement(find(d, "c").ID, todo.StepDown, shown); ok {
-		t.Error("c down past only hidden items must go nowhere")
+	if _, _, err := d.StepPlacement(find(d, "c").ID, todo.StepDown, shown); !errors.Is(err, todo.ErrNowhere) {
+		t.Errorf("c down past only hidden items = %v, want ErrNowhere", err)
 	}
-	if _, _, ok := d.StepPlacement(find(d, "c").ID, todo.StepDown, nil); !ok {
-		t.Error("without a view, c steps down past d")
+	if _, _, err := d.StepPlacement(find(d, "c").ID, todo.StepDown, nil); err != nil {
+		t.Errorf("without a view, c steps down past d: %v", err)
 	}
 }
 
-// TestStepPlacementStopsAtNewParent crosses a task into the next category:
-// entering another parent ends the step even though no shown item was passed.
+// TestStepPlacementSkipsHiddenItemsUp mirrors the step down: with a and c
+// hidden, a step up from d passes c and the shown b, landing after a, and a
+// step up from b, with only hidden items above it, goes nowhere.
+func TestStepPlacementSkipsHiddenItemsUp(t *testing.T) {
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n")
+	d.AssignIDs()
+	hidden := map[string]bool{find(d, "a").ID: true, find(d, "c").ID: true}
+	shown := func(id string) bool { return !hidden[id] }
+
+	parentID, afterID, err := d.StepPlacement(find(d, "d").ID, todo.StepUp, shown)
+	if err != nil || parentID != find(d, "Work").ID || afterID != find(d, "a").ID {
+		t.Errorf("d up = (%q, %q, %v), want after a in Work", parentID, afterID, err)
+	}
+	if _, _, err := d.StepPlacement(find(d, "b").ID, todo.StepUp, shown); !errors.Is(err, todo.ErrNowhere) {
+		t.Errorf("b up past only hidden items = %v, want ErrNowhere", err)
+	}
+	if _, _, err := d.StepPlacement(find(d, "b").ID, todo.StepUp, nil); err != nil {
+		t.Errorf("without a view, b steps up past a: %v", err)
+	}
+}
+
+// TestStepPlacementStopsAtNewParent crosses a task into the next category,
+// and back up into the one before: entering another parent ends the step even
+// though no shown item was passed.
 func TestStepPlacementStopsAtNewParent(t *testing.T) {
 	d := todotest.Parse(t, "# Work\n\n- [ ] a\n\n# Personal\n\n- [ ] p1\n")
 	d.AssignIDs()
-	parentID, afterID, ok := d.StepPlacement(find(d, "a").ID, todo.StepDown, func(string) bool { return false })
-	if !ok || parentID != find(d, "Personal").ID || afterID != "" {
-		t.Errorf("a down = (%q, %q, %v), want first in Personal", parentID, afterID, ok)
+	none := func(string) bool { return false }
+	parentID, afterID, err := d.StepPlacement(find(d, "a").ID, todo.StepDown, none)
+	if err != nil || parentID != find(d, "Personal").ID || afterID != "" {
+		t.Errorf("a down = (%q, %q, %v), want first in Personal", parentID, afterID, err)
+	}
+	parentID, afterID, err = d.StepPlacement(find(d, "p1").ID, todo.StepUp, none)
+	if err != nil || parentID != find(d, "Work").ID || afterID != find(d, "a").ID {
+		t.Errorf("p1 up = (%q, %q, %v), want last in Work, after a", parentID, afterID, err)
+	}
+}
+
+// TestStepPlacementInAndOutIgnoreShown: a step in nests under the sibling
+// before even when the view hides it, and a step out lifts the item out of
+// its parent whatever the view shows; the caller decides what a hidden parent
+// means for its view.
+func TestStepPlacementInAndOutIgnoreShown(t *testing.T) {
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n  - [ ] s\n")
+	d.AssignIDs()
+	none := func(string) bool { return false }
+	if p, a, err := d.StepPlacement(find(d, "b").ID, todo.StepIn, none); !errors.Is(err, todo.ErrTooDeep) {
+		t.Errorf("b (with a subtask) in = (%q, %q, %v), want ErrTooDeep", p, a, err)
+	}
+	d = todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n- [ ] c\n  - [ ] s\n")
+	d.AssignIDs()
+	parentID, afterID, err := d.StepPlacement(find(d, "b").ID, todo.StepIn, none)
+	if err != nil || parentID != find(d, "a").ID || afterID != "" {
+		t.Errorf("b in = (%q, %q, %v), want under a", parentID, afterID, err)
+	}
+	parentID, afterID, err = d.StepPlacement(find(d, "s").ID, todo.StepOut, none)
+	if err != nil || parentID != find(d, "Work").ID || afterID != find(d, "c").ID {
+		t.Errorf("s out = (%q, %q, %v), want after c in Work", parentID, afterID, err)
+	}
+}
+
+// TestStepPlacementReportsMoveError: a step Move refuses reports Move's error,
+// so a caller can word it, and a step with nowhere to go reports ErrNowhere.
+func TestStepPlacementReportsMoveError(t *testing.T) {
+	d := todotest.Parse(t, "# Work\n\n- [ ] a\n  - [ ] s1\n  - [ ] s2\n")
+	d.AssignIDs()
+	if _, _, err := d.StepPlacement(find(d, "s2").ID, todo.StepIn, nil); !errors.Is(err, todo.ErrTooDeep) {
+		t.Errorf("s2 in under s1 = %v, want ErrTooDeep", err)
+	}
+	if _, _, err := d.StepPlacement(find(d, "a").ID, todo.StepIn, nil); !errors.Is(err, todo.ErrNowhere) {
+		t.Errorf("a in with no sibling before = %v, want ErrNowhere", err)
+	}
+	if _, _, err := d.StepPlacement(find(d, "a").ID, todo.StepOut, nil); !errors.Is(err, todo.ErrNowhere) {
+		t.Errorf("a out of its category = %v, want ErrNowhere", err)
 	}
 }
 
 // TestStepPlacementMissingItem asks about an ID the document does not hold.
 func TestStepPlacementMissingItem(t *testing.T) {
 	d := todotest.Parse(t, "# Work\n\n- [ ] a\n")
-	if _, _, ok := d.StepPlacement("zzzzzzz", todo.StepDown, nil); ok {
-		t.Error("a missing item has nowhere to go")
+	if _, _, err := d.StepPlacement("zzzzzzz", todo.StepDown, nil); !errors.Is(err, todo.ErrNotFound) {
+		t.Errorf("a missing item = %v, want ErrNotFound", err)
 	}
 }
 
