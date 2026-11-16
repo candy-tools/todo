@@ -144,23 +144,53 @@ func statusFromDisk(name string) (Status, bool) {
 	return Open, false
 }
 
+// byteOrderMark is the UTF-8 byte order mark some Windows editors put at the
+// start of a file.
+var byteOrderMark = []byte("\ufeff")
+
 // decodeList decodes the list file's bytes into l (it is the store's
-// jsonfile Decode hook): json.Unmarshal, with a syntax error reported at its
-// line and column. The other decode errors are worded by UnmarshalJSON.
+// jsonfile Decode hook). A leading byte order mark is dropped; a syntax error
+// is reported at its line and column; the rest is decode, so positions count
+// from the start of the file.
 func decodeList(data []byte, l *diskList) error {
-	err := json.Unmarshal(data, l)
-	var se *json.SyntaxError
-	if !errors.As(err, &se) {
+	data = bytes.TrimPrefix(data, byteOrderMark)
+	var raw json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		var se *json.SyntaxError
+		if errors.As(err, &se) {
+			return syntaxErr(data, se)
+		}
 		return err
 	}
-	at := int(se.Offset) - 1 // the offending character
-	if se.Error() == "unexpected end of JSON input" {
-		at = len(data) // just past the end
+	return l.decode(data)
+}
+
+// syntaxErr reports se at the character it is about: the offending one, or
+// just past the end when the input ends too early.
+func syntaxErr(data []byte, se *json.SyntaxError) error {
+	end := min(int(se.Offset), len(data))
+	at := len(data)
+	if !endsEarly(data) {
+		_, size := utf8.DecodeLastRune(data[:end]) // the offset is just past it
+		at = end - size
 	}
 	return fmt.Errorf("%s: %w", position(data, at), se)
 }
 
-// UnmarshalJSON decodes strictly: unknown fields fail. The version is read
+// endsEarly reports whether data, which fails to parse, fails because it ends
+// too early: one more byte, which no JSON text may hold, moves the error past
+// the end. It does not depend on encoding/json's message texts.
+func endsEarly(data []byte) bool {
+	var raw json.RawMessage
+	err := json.Unmarshal(append(slices.Clip(data), 0x01), &raw)
+	var se *json.SyntaxError
+	return errors.As(err, &se) && se.Offset > int64(len(data))
+}
+
+// UnmarshalJSON decodes b as decode does, for a caller of json.Unmarshal.
+func (l *diskList) UnmarshalJSON(b []byte) error { return l.decode(b) }
+
+// decode decodes strictly: unknown fields fail. The version is read
 // first: a missing or non-integer one fails, and one newer than fileVersion
 // is reported as ErrNewerSchema before anything else, since a newer file may
 // hold fields this binary does not know. A value of the wrong type is reported
@@ -169,13 +199,13 @@ func decodeList(data []byte, l *diskList) error {
 // encoding/json matches keys to fields case-insensitively, so a hand-edited
 // "Version" or "TITLE" is accepted as the field it folds to. That is harmless:
 // the value lands in the right field, and the next write rewrites the
-// canonical lowercase keys.
-func (l *diskList) UnmarshalJSON(b []byte) error {
+// canonical lowercase keys. b must be well-formed JSON.
+func (l *diskList) decode(b []byte) error {
 	var peek struct {
 		Version json.RawMessage `json:"version"`
 	}
 	if err := json.Unmarshal(b, &peek); err != nil {
-		return decodeErr(b, err)
+		return decodeErr(b, 0, err)
 	}
 	version, err := parseVersion(peek.Version)
 	if err != nil {
@@ -185,11 +215,14 @@ func (l *diskList) UnmarshalJSON(b []byte) error {
 		return newerSchemaError(version)
 	}
 	type plain diskList
-	dec := json.NewDecoder(bytes.NewReader(b))
+	// A Decoder counts its offsets from the start of the value, after any
+	// leading white space, so it gets b from there.
+	lead := len(b) - len(bytes.TrimLeft(b, " \t\r\n"))
+	dec := json.NewDecoder(bytes.NewReader(b[lead:]))
 	dec.DisallowUnknownFields()
 	var p plain
 	if err := dec.Decode(&p); err != nil {
-		return decodeErr(b, err)
+		return decodeErr(b, lead, err)
 	}
 	*l = diskList(p)
 	return nil
@@ -214,12 +247,13 @@ func parseVersion(raw json.RawMessage) (int, error) {
 
 // decodeErr words a decode error of the list file b for a person: a value of
 // the wrong type at its line and column, by its JSON path and the kind
-// expected, and an unknown field with the item that holds it. Other errors
-// pass through.
-func decodeErr(b []byte, err error) error {
+// expected, and an unknown field with the item that holds it. shift is added
+// to the error's offset (for a Decoder that started past leading white
+// space). Other errors pass through.
+func decodeErr(b []byte, shift int, err error) error {
 	var te *json.UnmarshalTypeError
 	if errors.As(err, &te) {
-		at := position(b, max(int(te.Offset)-1, 0))
+		at := position(b, valueStart(b, shift+int(te.Offset), te.Value))
 		got := jsonKind(te.Value)
 		if te.Field == "" {
 			return fmt.Errorf("%s: the file must hold a JSON object, not %s", at, got)
@@ -232,6 +266,41 @@ func decodeErr(b []byte, err error) error {
 		}
 	}
 	return err
+}
+
+// valueStart returns the offset of the first character of the JSON value a
+// type error was reported for, from the error's offset end and its value
+// description (encoding/json's "string", "number 3.5", "bool", "array", ...).
+// For a scalar the offset is just past the value; for an array or object it is
+// just past its opening bracket.
+func valueStart(b []byte, end int, value string) int {
+	end = min(end, len(b))
+	kind, _, _ := strings.Cut(value, " ")
+	i := end - 1
+	switch kind {
+	case "string": // back from the closing quote to the unescaped opening one
+		for i--; i >= 0; i-- {
+			if b[i] == '"' && escapes(b[:i])%2 == 0 {
+				break
+			}
+		}
+	case "number":
+		for i > 0 && strings.IndexByte("0123456789+-.eE", b[i-1]) >= 0 {
+			i--
+		}
+	case "bool":
+		if bytes.HasSuffix(b[:end], []byte("false")) {
+			i = end - len("false")
+		} else {
+			i = end - len("true")
+		}
+	}
+	return max(i, 0)
+}
+
+// escapes counts the backslashes that end b.
+func escapes(b []byte) int {
+	return len(b) - len(bytes.TrimRight(b, `\`))
 }
 
 // position returns where byte offset at of data sits, as "line L, column C",

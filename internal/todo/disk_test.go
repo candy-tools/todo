@@ -212,6 +212,19 @@ func TestUnmarshalUnknownField(t *testing.T) {
 	}
 }
 
+// A list file that starts with a UTF-8 byte order mark, as some Windows
+// editors write, loads.
+func TestListFileWithByteOrderMarkLoads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	content := "\ufeff" + `{"version": 3, "categories": [{"id": "aaaaaaa", "title": "C"}], "tasks": []}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if doc := loadList(t, path); len(doc.Roots) != 1 || doc.Roots[0].Title != "C" {
+		t.Fatalf("roots = %v, want category C", doc.Roots)
+	}
+}
+
 // A hand-edited list file that does not load fails with a message a person
 // can act on: where the problem is (line and column, or the item), in JSON
 // terms rather than Go's, and with the "invalid list file" prefix once.
@@ -226,9 +239,23 @@ func TestListFileErrorMessages(t *testing.T) {
 		{"wrong type", `{"version": 3, "categories": [{"id": "aaaaaaa", "title": 5}], "tasks": []}`,
 			"invalid list file: line 1, column 58: categories[0].title must be a string, not a number"},
 		{"wrong type in a subtask", strings.Replace(good, `"title": "S"`, `"title": "S", "done": "yes"`, 1),
-			"invalid list file: line 1, column 205: tasks[0].subtasks[0].done must be true or false, not a string"},
+			"invalid list file: line 1, column 201: tasks[0].subtasks[0].done must be true or false, not a string"},
+		{"wrong type, a string with an escaped quote", strings.Replace(good, `"title": "S"`, `"title": "S", "done": "x\"y"`, 1),
+			"invalid list file: line 1, column 201: tasks[0].subtasks[0].done must be true or false, not a string"},
+		{"wrong type, a number", `{"version": 3, "categories": [{"id": "aaaaaaa", "title": 12.5}], "tasks": []}`,
+			"invalid list file: line 1, column 58: categories[0].title must be a string, not a number"},
+		{"wrong type, a boolean", `{"version": 3, "categories": [{"id": "aaaaaaa", "title": true}], "tasks": []}`,
+			"invalid list file: line 1, column 58: categories[0].title must be a string, not true or false"},
+		{"non-ASCII invalid character", `{"version": 3, é}`,
+			"invalid list file: line 1, column 16: invalid character 'é' looking for beginning of object key string"},
+		{"syntax error after a byte order mark", "\ufeff{\"version\": 3,\n  \"categories\": [,\n",
+			"invalid list file: line 2, column 18: invalid character ',' looking for beginning of value"},
+		{"truncated in an escape", `{"version": 3, "categories": [{"id": "a\`,
+			"invalid list file: line 1, column 41: unexpected end of JSON input"},
 		{"wrong type on a later line", "{\n  \"version\": 3,\n  \"categories\": {},\n  \"tasks\": []\n}",
 			"invalid list file: line 3, column 17: categories must be an array, not an object"},
+		{"wrong type after a blank first line", "\n{\"version\": 3, \"categories\": {}, \"tasks\": []}",
+			"invalid list file: line 2, column 30: categories must be an array, not an object"},
 		{"not an object", `[]`,
 			"invalid list file: line 1, column 1: the file must hold a JSON object, not an array"},
 		{"version a string", `{"version": "3", "categories": [], "tasks": []}`,
