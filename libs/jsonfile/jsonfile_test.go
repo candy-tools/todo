@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -349,5 +350,68 @@ func TestNoTempFilesLeft(t *testing.T) {
 	want := []string{"list.json", "list.json.lock"}
 	if len(names) != len(want) || names[0] != want[0] || names[1] != want[1] {
 		t.Errorf("dir = %v, want %v", names, want)
+	}
+}
+
+// TestNoTempFileLeftOnWriteFailure makes the write itself fail: fn swaps the
+// file for a non-empty directory, so every rename attempt fails, and the temp
+// file must still be cleaned up.
+func TestNoTempFileLeftOnWriteFailure(t *testing.T) {
+	path := tempPath(t)
+	s := jsonfile.New(jsonfile.Config[doc]{Path: path})
+	mustUpdate(t, s, setN(1))
+
+	_, err := s.Update(context.Background(), func(v *doc) (bool, error) {
+		if err := os.Remove(path); err != nil {
+			return false, err
+		}
+		if err := os.Mkdir(path, 0o755); err != nil {
+			return false, err
+		}
+		if err := os.WriteFile(filepath.Join(path, "keep"), nil, 0o644); err != nil {
+			return false, err
+		}
+		v.N = 2
+		return true, nil
+	})
+	if err == nil {
+		t.Fatal("Update over a non-empty directory returned nil error")
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".list.json.tmp-") {
+			t.Errorf("temp file left behind: %s", e.Name())
+		}
+	}
+}
+
+func TestUpdateValidatesBeforeWriting(t *testing.T) {
+	path := tempPath(t)
+	s := jsonfile.New(jsonfile.Config[doc]{
+		Path: path,
+		Validate: func(v *doc) error {
+			if v.N == 7 {
+				return errors.New("n must not be 7")
+			}
+			return nil
+		},
+	})
+	mustUpdate(t, s, setN(1))
+	before := readBytes(t, path)
+
+	_, err := s.Update(context.Background(), setN(7))
+	if !errors.Is(err, jsonfile.ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid", err)
+	}
+	var inv *jsonfile.InvalidError
+	if !errors.As(err, &inv) {
+		t.Fatalf("err = %T, want *InvalidError", err)
+	}
+	if after := readBytes(t, path); !bytes.Equal(before, after) {
+		t.Errorf("file changed: %q -> %q", before, after)
 	}
 }

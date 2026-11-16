@@ -68,8 +68,9 @@ type Config[T any] struct {
 	// LockTimeout is how long Update waits for the lock before failing with
 	// ErrBusy. Zero or negative means DefaultLockTimeout.
 	LockTimeout time.Duration
-	// Validate, when not nil, checks every decoded value. An error makes the
-	// file invalid: Load and Update return it as an *InvalidError.
+	// Validate, when not nil, checks every decoded value and every value
+	// Update is about to write. An error makes the value invalid: Load and
+	// Update return it as an *InvalidError, and Update writes nothing.
 	Validate func(*T) error
 }
 
@@ -130,8 +131,9 @@ func (s *Store[T]) Load() (T, Fingerprint, error) {
 // invalid file is returned as an error and never overwritten. Otherwise fn
 // gets the fresh value (the zero T for a missing file) and may change it. When
 // fn returns an error, or changed == false, nothing is written. Otherwise the
-// value is encoded as indented JSON and atomically replaces the file. On error
-// the Result is the zero value.
+// changed value is run through the Validate hook (an *InvalidError writes
+// nothing), encoded as indented JSON, and atomically replaces the file. On
+// error the Result is the zero value.
 func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err error)) (Result[T], error) {
 	unlock, err := s.lock(ctx)
 	if err != nil {
@@ -149,6 +151,13 @@ func (s *Store[T]) Update(ctx context.Context, fn func(v *T) (changed bool, err 
 	}
 	if !changed {
 		return Result[T]{Value: v, Read: read, Wrote: read}, nil
+	}
+	// Validate what fn produced too: a value that fails here would make every
+	// later Load and Update refuse the file.
+	if s.validate != nil {
+		if err := s.validate(&v); err != nil {
+			return Result[T]{}, &InvalidError{Err: err}
+		}
 	}
 
 	data, err := encode(&v)

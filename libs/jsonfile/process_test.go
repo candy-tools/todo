@@ -102,14 +102,24 @@ func TestMultiProcessUpdates(t *testing.T) {
 	path := tempPath(t)
 	const procs, rounds = 4, 50
 	cmds := make([]*exec.Cmd, procs)
+	waited := make([]bool, procs)
 	for i := range cmds {
 		cmds[i] = helperCmd(fmt.Sprintf("incr:%s:%d", path, rounds))
 		if err := cmds[i].Start(); err != nil {
 			t.Fatalf("start helper: %v", err)
 		}
+		// Kill and reap the helper if the test bails out before waiting.
+		t.Cleanup(func() {
+			if !waited[i] {
+				_ = cmds[i].Process.Kill()
+				_ = cmds[i].Wait()
+			}
+		})
 	}
-	for _, cmd := range cmds {
-		if err := cmd.Wait(); err != nil {
+	for i, cmd := range cmds {
+		err := cmd.Wait()
+		waited[i] = true
+		if err != nil {
 			t.Errorf("helper: %v", err)
 		}
 	}

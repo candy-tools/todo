@@ -25,6 +25,9 @@ func (s *Store[T]) Changed(since Fingerprint) (changed bool, now Fingerprint, er
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Caveat: if the inode is reused by a new file of the same size within
+	// one mtime tick, this reuses a stale fingerprint. That is acceptable for
+	// a poller, which catches the next real change.
 	if s.statInfo != nil && os.SameFile(s.statInfo, info) &&
 		s.statInfo.ModTime().Equal(info.ModTime()) && s.statInfo.Size() == info.Size() {
 		return s.statFP != since, s.statFP, nil
