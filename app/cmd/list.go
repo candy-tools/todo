@@ -23,7 +23,7 @@ func listCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			doc, err := openForRead(cmd, path, isDefault)
+			_, doc, err := loadList(cmd, path, isDefault)
 			if err != nil {
 				return err
 			}

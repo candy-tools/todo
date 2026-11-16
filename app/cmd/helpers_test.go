@@ -8,10 +8,10 @@ import (
 	"github.com/candy-tools/todo/internal/todo"
 )
 
-// idOf returns the id of the item titled title in the store at dbPath.
-func idOf(t *testing.T, dbPath, title string) string {
+// idOf returns the id of the item titled title in the list file at path.
+func idOf(t *testing.T, path, title string) string {
 	t.Helper()
-	s := todo.NewStore(dbPath)
+	s := todo.NewStore(path)
 	doc, _, err := s.Load(context.Background())
 	if err != nil {
 		t.Fatalf("load: %v", err)

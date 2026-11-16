@@ -8,29 +8,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// importFile imports a markdown file into a store; tests replace it to make
-// the import fail the way a store can.
-var importFile = todo.ImportFile
-
 func importCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "import <file.md>",
 		Short: "import a markdown TODO file into the JSON list",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			db, isDefault, err := resolvePath(cmd, nil)
+			path, isDefault, err := resolvePath(cmd, nil)
 			if err != nil {
 				return err
 			}
-			notice, err := legacyDBNotice(db, isDefault)
+			notice, err := legacyDBNotice(path, isDefault)
 			if err != nil {
 				return err
 			}
 			printNotice(cmd, notice)
 			force, _ := cmd.Flags().GetBool("force")
-			_, rep, err := importFile(db, args[0], force)
+			_, rep, err := todo.ImportFile(path, args[0], force)
 			if errors.Is(err, todo.ErrNotEmpty) {
-				return &cliError{exitGeneric, fmt.Sprintf("%s already has items; use --force to replace them", db)}
+				return &cliError{exitGeneric, fmt.Sprintf("%s already has items; use --force to replace them", path)}
 			}
 			if err != nil {
 				return storeErr(err)

@@ -19,66 +19,50 @@ func writeMD(t *testing.T, md string) string {
 }
 
 func TestImportCmd(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "x.json")
+	path := filepath.Join(t.TempDir(), "x.json")
 	md := writeMD(t, "# Work\n\n- [ ] a\n- [x] b\n")
-	out, err := runCmd(t, "import", md, "-f", db)
+	out, err := runCmd(t, "import", md, "-f", path)
 	if err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	if want := "imported 1 categories, 2 tasks from " + md + "\n"; out != want {
 		t.Errorf("out = %q, want %q", out, want)
 	}
-	if got := todotest.Dump(t, db); !contains(got, "- [x] b") {
+	if got := todotest.Dump(t, path); !contains(got, "- [x] b") {
 		t.Errorf("imported content wrong:\n%s", got)
 	}
 }
 
 func TestImportCmdRefusesNonEmpty(t *testing.T) {
-	db := todotest.Seed(t, "# Old\n")
-	_, err := runCmd(t, "import", writeMD(t, "# New\n"), "-f", db)
+	path := todotest.Seed(t, "# Old\n")
+	_, err := runCmd(t, "import", writeMD(t, "# New\n"), "-f", path)
 	if codeOf(t, err) != exitGeneric || !contains(err.Error(), "--force") {
 		t.Errorf("want exit 1 mentioning --force, got %v", err)
 	}
 }
 
 func TestImportCmdForce(t *testing.T) {
-	db := todotest.Seed(t, "# Old\n")
-	if _, err := runCmd(t, "import", writeMD(t, "# New\n"), "-f", db, "--force"); err != nil {
+	path := todotest.Seed(t, "# Old\n")
+	if _, err := runCmd(t, "import", writeMD(t, "# New\n"), "-f", path, "--force"); err != nil {
 		t.Fatalf("import --force: %v", err)
 	}
-	got := todotest.Dump(t, db)
+	got := todotest.Dump(t, path)
 	if contains(got, "Old") || !contains(got, "# New") {
 		t.Errorf("content should be replaced:\n%s", got)
 	}
 }
 
 func TestImportCmdForceNamesBackup(t *testing.T) {
-	db := todotest.Seed(t, "# Old\n")
-	out, err := runCmd(t, "import", writeMD(t, "# New\n"), "-f", db, "--force")
+	path := todotest.Seed(t, "# Old\n")
+	out, err := runCmd(t, "import", writeMD(t, "# New\n"), "-f", path, "--force")
 	if err != nil {
 		t.Fatalf("import --force: %v", err)
 	}
-	bak := todo.BackupPath(db, 0)
+	bak := todo.BackupPath(path, 0)
 	if !contains(out, bak) {
 		t.Errorf("output does not name the backup %s:\n%s", bak, out)
 	}
 	if got := todotest.Dump(t, bak); got != "# Old\n" {
 		t.Errorf("backup holds %q", got)
-	}
-}
-
-// An import that gives up waiting for another todo's writer lock fails with
-// the CLI's conflict error and the store's busy message, like the other write
-// commands, so a script knows to re-run it.
-func TestImportCmdBusyIsConflict(t *testing.T) {
-	db := todotest.Seed(t, "# Old\n")
-	orig := importFile
-	importFile = func(string, string, bool, ...todo.Option) (*todo.Store, todo.ImportReport, error) {
-		return nil, todo.ImportReport{}, todo.ErrBusy
-	}
-	t.Cleanup(func() { importFile = orig })
-	_, err := runCmd(t, "import", writeMD(t, "# New\n"), "-f", db, "--force")
-	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
-		t.Errorf("import that found the list busy = %v, want a conflict error with the busy message", err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
@@ -88,9 +89,9 @@ func TestAutoImportOnlyForDefaultPath(t *testing.T) {
 		t.Errorf("no import expected: out=%q err=%q", out, errOut)
 	}
 	if _, err := os.Stat(defaultFile); !os.IsNotExist(err) {
-		t.Error("the default db must not be created")
+		t.Error("the default list file must not be created")
 	}
-	// A write on the explicit path starts an empty db too.
+	// A write on the explicit path starts an empty list too.
 	if _, err := runCmd(t, "add-category", "-f", "other.json", "--title", "X"); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +101,7 @@ func TestAutoImportOnlyForDefaultPath(t *testing.T) {
 	}
 }
 
-func TestFailingWriteCreatesNoDB(t *testing.T) {
+func TestFailingWriteCreatesNoList(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if _, err := runCmd(t, "done", "--id", "zzzzzzz"); codeOf(t, err) != exitNotFound {
 		t.Errorf("done on an empty dir: want not-found, got %v", err)
@@ -143,70 +144,17 @@ func TestAddCategoryAutoImportsFirst(t *testing.T) {
 	}
 }
 
-// A store that is busy when a command opens it (another process holds the
-// writer lock while the open needs it) fails every command, the TUI start
-// included, with the conflict error and the message a busy write shows.
-func TestOpenBusyIsConflict(t *testing.T) {
-	for _, args := range [][]string{
-		{"list"},
-		{"done", "--title", "a"},
-		nil, // the TUI
-	} {
-		t.Run(fmt.Sprint(args), func(t *testing.T) {
-			db := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-			orig := openDB
-			openDB = func(string, ...todo.Option) (*todo.Store, error) { return nil, todo.ErrBusy }
-			t.Cleanup(func() { openDB = orig })
-			_, err := runCmd(t, append(args, "-f", db)...)
-			if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
-				t.Errorf("%v with a busy open = %v, want a conflict error with ErrBusy's message", args, err)
-			}
-		})
-	}
-}
-
-// Reading commands work while another process holds the writer lock on a store
-// already in the current format: opening it writes nothing.
+// Reading commands work while another process holds the list's write lock: a
+// read takes no lock.
 func TestListWhileAnotherProcessWrites(t *testing.T) {
-	db := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-	todotest.HoldWriteLock(t, db)
-	out, err := runCmd(t, "list", "-f", db)
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	todotest.HoldWriteLock(t, path)
+	out, err := runCmd(t, "list", "-f", path)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if !contains(out, "a") || !contains(out, "Work") {
 		t.Errorf("list output misses the items:\n%s", out)
-	}
-}
-
-// Each write command opens the database once and writes through the handle it
-// loaded from, rather than reopening it for the write.
-func TestWriteCommandsOpenTheStoreOnce(t *testing.T) {
-	for _, args := range [][]string{
-		{"done", "--title", "a"},
-		{"status", "--title", "a", "--to", "review"},
-		{"add", "--parent-title", "Work", "--title", "c"},
-		{"add-category", "--title", "Other"},
-		{"edit", "--title", "a", "--set-title", "A"},
-		{"rm", "--title", "b"},
-		{"prune"},
-	} {
-		t.Run(args[0], func(t *testing.T) {
-			db := todotest.Seed(t, "# Work\n\n- [ ] a\n- [x] b\n")
-			opens := 0
-			orig := openDB
-			openDB = func(path string, opts ...todo.Option) (*todo.Store, error) {
-				opens++
-				return orig(path, opts...)
-			}
-			t.Cleanup(func() { openDB = orig })
-			if _, err := runCmd(t, append(args, "-f", db)...); err != nil {
-				t.Fatalf("%v: %v", args, err)
-			}
-			if opens != 1 {
-				t.Errorf("%v opened the store %d times, want 1", args, opens)
-			}
-		})
 	}
 }
 
@@ -327,10 +275,28 @@ func TestStoreErrorsMapByClass(t *testing.T) {
 	} {
 		t.Run(c.err.Error(), func(t *testing.T) {
 			t.Chdir(t.TempDir())
-			err := withStore(newRootCommand(), func(context.Context, storeOpener, *todo.Document) error { return c.err })
+			err := withStore(newRootCommand(), func(context.Context, *todo.Store, *todo.Document) error { return c.err })
 			if codeOf(t, err) != c.code || err.Error() != c.msg {
 				t.Errorf("withStore with %v = %v (exit %d), want exit %d with %q", c.err, err, codeOf(t, err), c.code, c.msg)
 			}
 		})
+	}
+}
+
+// The first-run import of TODO.md waits for the list's write lock like any
+// write: when another process holds it past the timeout, opening the list
+// fails with the conflict exit and the busy message, and creates no list.
+func TestFirstRunImportBusyIsConflict(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(legacyFile, []byte("# Work\n\n- [ ] alpha\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	todotest.HoldWriteLock(t, defaultFile)
+	_, _, err := openList(defaultFile, true, todo.WithBusyTimeout(time.Millisecond))
+	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
+		t.Errorf("first-run import on a busy list = %v, want a conflict error with the busy message", err)
+	}
+	if _, err := os.Stat(defaultFile); !os.IsNotExist(err) {
+		t.Errorf("a busy import must not create %s (stat err: %v)", defaultFile, err)
 	}
 }

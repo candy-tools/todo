@@ -21,12 +21,6 @@ const (
 	legacyDBFile = ".todo.db"
 )
 
-// openDB returns the store on path; tests replace it to observe how often a
-// command opens the store.
-var openDB = func(path string, opts ...todo.Option) (*todo.Store, error) {
-	return todo.NewStore(path, opts...), nil
-}
-
 // fileExists reports whether a file exists at path.
 func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
@@ -39,8 +33,8 @@ func fileExists(path string) (bool, error) {
 	return true, nil
 }
 
-// resolvePath returns the store a command operates on: the positional argument,
-// else the --file flag, else defaultFile. isDefault reports that none of them
+// resolvePath returns the list file a command operates on: the positional
+// argument, else the --file flag, else defaultFile. isDefault reports that none of them
 // was given, which is what allows the automatic TODO.md import. A markdown path
 // is a usage error that points at `todo import`.
 func resolvePath(cmd *cobra.Command, args []string) (path string, isDefault bool, err error) {
@@ -107,25 +101,15 @@ func joinNotices(notices ...string) string {
 	return strings.Join(lines, "\n")
 }
 
-// openStore opens the store at path with opts (opening does no I/O; the first
-// write creates the file). When isDefault and the store does not exist but
-// TODO.md does, it imports TODO.md instead and returns the import notice,
-// after the .todo.db notice (see legacyDBNotice) when that applies; otherwise
-// the notice is that one or "". When
-// another process creates the store first (it ran the same first-run import),
-// that store is opened as is, without a notice. A store too busy to open
-// (another process holds the writer lock) is the CLI's conflict error, as a
-// busy write is.
-func openStore(_ *cobra.Command, path string, isDefault bool, opts ...todo.Option) (*todo.Store, string, error) {
-	s, notice, err := openOrImport(path, isDefault, opts...)
-	if err != nil {
-		return nil, "", storeErr(err)
-	}
-	return s, notice, nil
-}
-
-// openOrImport is openStore before its busy store becomes the conflict error.
-func openOrImport(path string, isDefault bool, opts ...todo.Option) (*todo.Store, string, error) {
+// openList returns the store of the list file at path; making it does no I/O,
+// and the first write creates the file. When isDefault and the file does not
+// exist but TODO.md does, it imports TODO.md into it first and returns the
+// import notice, after the .todo.db notice (see legacyDBNotice) when that
+// applies; otherwise the notice is that one or "". When another process
+// creates the list first (it ran the same first-run import), that list is used
+// as is, without a notice. An import that fails, say on a list busy past the
+// timeout in opts, fails with the CLI error of its class (see storeErr).
+func openList(path string, isDefault bool, opts ...todo.Option) (*todo.Store, string, error) {
 	dbNote, err := legacyDBNotice(path, isDefault)
 	if err != nil {
 		return nil, "", err
@@ -134,53 +118,26 @@ func openOrImport(path string, isDefault bool, opts ...todo.Option) (*todo.Store
 	if err != nil {
 		return nil, "", err
 	}
-	if imp {
-		s, rep, err := todo.ImportFile(path, legacyFile, false, opts...)
-		if errors.Is(err, todo.ErrNotEmpty) {
-			// The store appeared, already filled, after legacyImportable looked.
-			s, err := openDB(path, opts...)
-			return s, "", err
-		}
-		if err != nil {
-			return nil, "", err
-		}
-		return s, joinNotices(dbNote, importNotice(rep, legacyFile)), nil
+	if !imp {
+		return todo.NewStore(path, opts...), dbNote, nil
 	}
-	s, err := openDB(path, opts...)
-	return s, dbNote, err
+	s, rep, err := todo.ImportFile(path, legacyFile, false, opts...)
+	switch {
+	case errors.Is(err, todo.ErrNotEmpty):
+		// The list appeared, already filled, after legacyImportable looked.
+		return todo.NewStore(path, opts...), "", nil
+	case err != nil:
+		return nil, "", storeErr(err)
+	}
+	return s, joinNotices(dbNote, importNotice(rep, legacyFile)), nil
 }
 
-// openForRead loads the document without creating anything: with no store and
-// nothing to import it returns an empty document. An automatic import notice,
-// and the .todo.db notice, are written to stderr.
-func openForRead(cmd *cobra.Command, path string, isDefault bool) (*todo.Document, error) {
-	_, doc, err := loadStore(cmd, path, isDefault)
-	return doc, err
-}
-
-// loadStore is openForRead that also returns the store: it returns the store
-// and its document, or a nil store and an empty document when there is no store
-// and nothing to import.
-func loadStore(cmd *cobra.Command, path string, isDefault bool) (*todo.Store, *todo.Document, error) {
-	exists, err := fileExists(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !exists {
-		imp, err := legacyImportable(path, isDefault)
-		if err != nil {
-			return nil, nil, err
-		}
-		if !imp {
-			notice, err := legacyDBNotice(path, isDefault)
-			if err != nil {
-				return nil, nil, err
-			}
-			printNotice(cmd, notice)
-			return nil, &todo.Document{}, nil
-		}
-	}
-	s, notice, err := openStore(cmd, path, isDefault)
+// loadList returns the store of the list file at path and the list it holds,
+// running the automatic import first (see openList) and printing its notice,
+// and the .todo.db notice, to stderr. A missing file is an empty list, and
+// nothing is created unless TODO.md is imported.
+func loadList(cmd *cobra.Command, path string, isDefault bool) (*todo.Store, *todo.Document, error) {
+	s, notice, err := openList(path, isDefault)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -192,39 +149,21 @@ func loadStore(cmd *cobra.Command, path string, isDefault bool) (*todo.Store, *t
 	return s, doc, nil
 }
 
-// storeOpener returns the store a write command writes to: the one its
-// document was loaded from, or, when there was none, a new one created on the
-// first call.
-type storeOpener func() (*todo.Store, error)
-
-// withStore loads the document the command resolves to (running the automatic
-// import and printing its notice to stderr, like openForRead) and runs fn on
-// it. open returns the store the document was loaded from; only when there was
-// none does it create one, and fn calls open only once it is about to write, so
-// a command that fails earlier — a selector that matches nothing, a usage error
-// — never creates the store. A store error fn returns becomes the CLI error
-// of its class (see storeErr).
-func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener, doc *todo.Document) error) error {
+// withStore loads the list the command resolves to (see loadList) and runs fn
+// on its store and document. A write fn makes goes to that store, and only a
+// write that succeeds creates a missing file, so a command that fails before
+// it writes (a selector that matches nothing, a usage error) creates nothing.
+// A store error fn returns becomes the CLI error of its class (see storeErr).
+func withStore(cmd *cobra.Command, fn func(ctx context.Context, s *todo.Store, doc *todo.Document) error) error {
 	path, isDefault, err := resolvePath(cmd, nil)
 	if err != nil {
 		return err
 	}
-	s, doc, err := loadStore(cmd, path, isDefault)
+	s, doc, err := loadList(cmd, path, isDefault)
 	if err != nil {
 		return err
 	}
-	open := func() (*todo.Store, error) {
-		if s != nil {
-			return s, nil
-		}
-		st, err := openDB(path)
-		if err != nil {
-			return nil, err
-		}
-		s = st
-		return s, nil
-	}
-	return storeErr(fn(storeCtx(cmd), open, doc))
+	return storeErr(fn(storeCtx(cmd), s, doc))
 }
 
 // storeErr returns a store error as the CLI error of its class (see the todo

@@ -15,7 +15,7 @@ func addCmd() *cobra.Command {
 		Short: "add a task under a category (or as a subtask of a task)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 				parent, err := resolveSelector(cmd, doc, "parent-")
 				if err != nil {
 					return err
@@ -32,10 +32,6 @@ func addCmd() *cobra.Command {
 				}
 				plan, _ := cmd.Flags().GetString("plan")
 				task := &todo.Item{Kind: todo.Task, Title: title, Status: st, Parent: parent}
-				s, err := open()
-				if err != nil {
-					return err
-				}
 				// The store places the task after the parent's last task as the tree
 				// is when it writes, so a sibling changed meanwhile does not matter.
 				if _, _, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parent.ID); err != nil {
@@ -60,7 +56,7 @@ func addCategoryCmd() *cobra.Command {
 		Short: "add a category (top-level, or nested under a parent category)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 				title, _ := cmd.Flags().GetString("title")
 				title, err := todo.CleanTitle(title)
 				if err != nil {
@@ -85,10 +81,6 @@ func addCategoryCmd() *cobra.Command {
 				// finds the tree when it writes, so a concurrent change cannot
 				// make the add fail.
 				parentID, _ := doc.Placement(cat)
-				s, err := open()
-				if err != nil {
-					return err
-				}
 				if _, _, err := s.AppendCategory(ctx, title, parentID); err != nil {
 					return err
 				}

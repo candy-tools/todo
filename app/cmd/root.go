@@ -45,7 +45,7 @@ func newRootCommand() *cobra.Command {
 			// and nothing is created until the first write (unless TODO.md is
 			// imported first). Its writes wait only tui.BusyTimeout for another
 			// writer, so a stuck one elsewhere does not freeze the UI.
-			st, notice, err := openStore(c, path, isDefault, todo.WithBusyTimeout(tui.BusyTimeout))
+			st, notice, err := openList(path, isDefault, todo.WithBusyTimeout(tui.BusyTimeout))
 			if err != nil {
 				return err
 			}

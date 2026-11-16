@@ -16,17 +16,13 @@ type statusWrite func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.W
 // setStatus resolves the selector to a task, writes its new state through
 // write, and prints a confirmation with the state the write left.
 func setStatus(cmd *cobra.Command, verb string, write statusWrite) error {
-	return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
+	return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 		it, err := resolveSelector(cmd, doc, "")
 		if err != nil {
 			return err
 		}
 		if !it.IsTask() {
 			return wrongKind("set the status of", it, "task")
-		}
-		s, err := open()
-		if err != nil {
-			return err
 		}
 		res, err := write(ctx, s, it)
 		if err != nil {
