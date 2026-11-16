@@ -29,6 +29,14 @@ const racyWindow = 2 * time.Second
 // size whose mtime was set back on purpose (touch -r, a restore tool), or a
 // new file of the same size and mtime that got the old one's inode number.
 // That is acceptable for a poller: it catches the next real change.
+//
+// The racy-stat rule compares the file's mtime with this machine's clock.
+// An mtime in the future (clock skew, a file copied from a machine ahead in
+// time) makes every poll re-read and re-hash the file until the local clock
+// passes mtime + racyWindow: correct, only slower. On a network file system
+// the mtime comes from the server's clock; when it runs behind the local one
+// by more than racyWindow, a fresh mtime looks old and a same-size rewrite in
+// the same tick can go unnoticed. That is a known limit.
 func (s *Store[T]) Changed(since Fingerprint) (changed bool, now Fingerprint, err error) {
 	info, err := os.Stat(s.path)
 	if errors.Is(err, fs.ErrNotExist) {
