@@ -55,12 +55,13 @@ func (m model) complete(it *todo.Item) (tea.Model, tea.Cmd) {
 // snapshot from completing it, its subtasks get their snapshot states back,
 // but only when the list is still the one the model shows (RestoreSince):
 // after any other write the store makes it a plain reopen. Without a snapshot
-// the subtasks keep their states. The snapshot is used up either way.
+// the subtasks keep their states. A write that succeeds uses the snapshot up;
+// one that fails (the list busy, say) keeps it, so the user can retry.
 func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 	id := it.ID
-	restore := m.snapshots[id]
-	delete(m.snapshots, id)
-	m.commitStatus(id, stateWrite(id, st, todo.StateOptions{Restore: restore, RestoreSince: m.lastFP}))
+	if m.commitStatus(id, stateWrite(id, st, todo.StateOptions{Restore: m.snapshots[id], RestoreSince: m.lastFP})) {
+		delete(m.snapshots, id)
+	}
 	return m, nil
 }
 

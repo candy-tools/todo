@@ -12,10 +12,12 @@ import (
 // commit. When the change took the task out of the tab, the cursor keeps its
 // row index (clamped), now on the row that took the task's place, and the
 // footer says where the task went, e.g. "moved to Next — new". A failed write
-// or an external-reload notice takes the footer instead.
-func (m *model) commitStatus(id string, write storeWrite) {
-	m.commit(id, write)
+// or an external-reload notice takes the footer instead. It reports whether
+// the write succeeded, as commit does.
+func (m *model) commitStatus(id string, write storeWrite) (saved bool) {
+	saved = m.commit(id, write)
 	m.noteLeftTab(id)
+	return saved
 }
 
 // noteLeftTab reports whether item id, after a commit, is no longer shown in

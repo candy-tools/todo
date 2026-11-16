@@ -960,6 +960,32 @@ func TestUndoKeepsOtherWritersChanges(t *testing.T) {
 	}
 }
 
+// TestFailedUndoKeepsSnapshot: an undo whose write fails (another process
+// holds the lock past the busy timeout) changes nothing and keeps the undo
+// snapshot, so the same t, enter retries it once the lock is free.
+func TestFailedUndoKeepsSnapshot(t *testing.T) {
+	m, path := completedWithSnapshot(t)
+	t.Run("busy", func(t *testing.T) {
+		todotest.HoldWriteLock(t, path) // released when this subtest ends
+		m = press(m, "t", "enter")
+		if !errors.Is(m.err, todo.ErrBusy) {
+			t.Fatalf("the undo on a locked list = %v, want ErrBusy", m.err)
+		}
+		if len(m.snapshots) != 1 {
+			t.Errorf("a failed undo must keep its snapshot, got %d", len(m.snapshots))
+		}
+	})
+	m = press(m, "t", "enter")
+	if m.err != nil {
+		t.Fatalf("the retried undo failed: %v", m.err)
+	}
+	for title, want := range map[string]todo.Status{"parent": todo.Working, "c1": todo.Open, "c2": todo.Open} {
+		if got := statusIn(t, path, title); got != want {
+			t.Errorf("%s = %v after the retried undo, want %v", title, got, want)
+		}
+	}
+}
+
 // TestOwnWriteDetectsExternalWriteBeforePoll covers an external write landing
 // between polls: the app's next own write must notice that the file it found
 // is not the one it last loaded, treat its result as external and drop the
