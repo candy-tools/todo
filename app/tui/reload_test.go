@@ -1,21 +1,23 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
-	"github.com/go-bumbu/db/gormdb"
-	"github.com/go-bumbu/db/gormdb/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
+
+// halfWritten is a list file cut off mid-write, as another tool writing in
+// place could leave it for a moment.
+const halfWritten = `{"version":3,`
 
 // externalAddTask adds a task through a second store handle, standing in for a
 // CLI command or an agent writing while the TUI runs.
@@ -28,90 +30,15 @@ func externalAddTask(t *testing.T, path, title string, parentID, afterID string)
 	return id
 }
 
-// pollOnce runs one revision probe and feeds its message, which must not be
+// pollOnce runs one change probe and feeds its message, which must not be
 // nil, to the model.
 func pollOnce(t *testing.T, m model) model {
 	t.Helper()
-	msg := reloadCheck(m.store, m.lastRev)
+	msg := reloadCheck(m.store, m.lastFP)
 	if msg == nil {
 		t.Fatal("expected the poll to report a change")
 	}
 	return send(m, msg)
-}
-
-// --- reloadCheck: the revision probe ---
-
-func TestReloadCheckUnchangedIsNil(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	if msg := reloadCheck(m.store, m.lastRev); msg != nil {
-		t.Errorf("an unchanged store must yield no reload, got %#v", msg)
-	}
-}
-
-func TestReloadCheckDetectsChange(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	work, a := find(m.doc, "Work"), find(m.doc, "a")
-	externalAddTask(t, path, "b", work.ID, a.ID)
-	msg := reloadCheck(m.store, m.lastRev)
-	r, ok := msg.(storeReloadedMsg)
-	if !ok {
-		t.Fatalf("a changed store must yield a storeReloadedMsg, got %#v", msg)
-	}
-	if r.rev <= m.lastRev {
-		t.Errorf("reload must carry the new revision, got %d (last %d)", r.rev, m.lastRev)
-	}
-	if find(r.doc, "b") == nil {
-		t.Errorf("reloaded document must include the new task b")
-	}
-}
-
-func TestReloadCheckErrorIsReported(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	if err := m.store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	msg := reloadCheck(m.store, m.lastRev-1)
-	if f, ok := msg.(reloadFailedMsg); !ok || f.err == nil {
-		t.Errorf("an unreadable store must be reported as a reloadFailedMsg, got %#v", msg)
-	}
-}
-
-// openRaw opens a plain database handle on the store file at path, bypassing
-// the store's checks; it is closed when the test ends.
-func openRaw(t *testing.T, path string) *gorm.DB {
-	t.Helper()
-	db, err := gormdb.Open(gormdb.Cfg{
-		Driver: gormdb.DriverSqlite,
-		Sqlite: gormdb.SqliteCfg{Path: path},
-		Logger: logger.Discard,
-	}, gormdb.Drivers{Sqlite: sqlite.Driver{}})
-	if err != nil {
-		t.Fatalf("open raw handle: %v", err)
-	}
-	t.Cleanup(func() { _ = gormdb.Close(db) })
-	return db
-}
-
-// setSchemaVersion records schema version v in the store at path through a
-// second database handle, standing in for a newer todo that migrated the file
-// (or, set back, for the file becoming readable again) while the TUI runs.
-func setSchemaVersion(t *testing.T, path string, v int) {
-	t.Helper()
-	db := openRaw(t, path)
-	if err := db.Exec("UPDATE meta SET schema_version = ? WHERE id = 1", v).Error; err != nil {
-		t.Fatalf("set schema version: %v", err)
-	}
-}
-
-// schemaVersionOf reads the schema version recorded in the store at path.
-func schemaVersionOf(t *testing.T, path string) int {
-	t.Helper()
-	db := openRaw(t, path)
-	var v int
-	if err := db.Raw("SELECT schema_version FROM meta WHERE id = 1").Scan(&v).Error; err != nil {
-		t.Fatalf("read schema version: %v", err)
-	}
-	return v
 }
 
 // pollCmdOnce runs one poll the way the tick does and feeds its message, if
@@ -123,15 +50,325 @@ func pollCmdOnce(m model) model {
 	return m
 }
 
-// TestReloadFailureShownAndCleared upgrades the store under the running TUI:
-// the failing poll must put the error in the footer instead of dropping it,
-// and the next poll that succeeds must clear it again.
-func TestReloadFailureShownAndCleared(t *testing.T) {
+// readList returns the bytes of the list file at path.
+func readList(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read list: %v", err)
+	}
+	return data
+}
+
+// writeList puts data at path in place, past the store, standing in for
+// another tool writing the file.
+func writeList(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write list: %v", err)
+	}
+}
+
+// withVersion returns the list file data with its format version set to v,
+// standing in for a file a newer todo wrote.
+func withVersion(t *testing.T, data []byte, v int) []byte {
+	t.Helper()
+	out := bytes.Replace(data, []byte(`"version": 3`), fmt.Appendf(nil, `"version": %d`, v), 1)
+	if bytes.Equal(out, data) {
+		t.Fatalf("no version in the list file:\n%s", data)
+	}
+	return out
+}
+
+// --- reloadCheck: the change probe ---
+
+func TestReloadCheckUnchangedIsNil(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	if msg := reloadCheck(m.store, m.lastFP); msg != nil {
+		t.Errorf("an unchanged store must yield no reload, got %#v", msg)
+	}
+}
+
+func TestReloadCheckDetectsChange(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	v := schemaVersionOf(t, path)
-	setSchemaVersion(t, path, v+1)
+	work, a := find(m.doc, "Work"), find(m.doc, "a")
+	externalAddTask(t, path, "b", work.ID, a.ID)
+	msg := reloadCheck(m.store, m.lastFP)
+	r, ok := msg.(storeReloadedMsg)
+	if !ok {
+		t.Fatalf("a changed store must yield a storeReloadedMsg, got %#v", msg)
+	}
+	if r.fp == m.lastFP {
+		t.Errorf("the reload must carry the new fingerprint")
+	}
+	if changed, _, err := m.store.Changed(context.Background(), r.fp); err != nil || changed {
+		t.Errorf("the reload's fingerprint must be the file's (changed %v, err %v)", changed, err)
+	}
+	if find(r.doc, "b") == nil {
+		t.Errorf("reloaded document must include the new task b")
+	}
+}
+
+func TestReloadCheckInvalidFileIsReported(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	writeList(t, path, []byte(halfWritten))
+	msg := reloadCheck(m.store, m.lastFP)
+	if f, ok := msg.(reloadFailedMsg); !ok || !errors.Is(f.err, todo.ErrInvalidList) {
+		t.Errorf("an invalid list file must be reported as a reloadFailedMsg, got %#v", msg)
+	}
+}
+
+func TestReloadCheckRemovedFileIsReported(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	msg := reloadCheck(m.store, m.lastFP)
+	if f, ok := msg.(reloadFailedMsg); !ok || !errors.Is(f.err, errListRemoved) {
+		t.Errorf("a removed list file must be reported as errListRemoved, got %#v", msg)
+	}
+}
+
+// --- live reload and the app's own writes ---
+
+// TestReloadPicksUpOutsideWrite has a second store add a task: one poll shows
+// it, keeps the selection on the same item and says the list changed.
+func TestReloadPicksUpOutsideWrite(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] c\n")
+	m = selectTitle(t, m, "c")
+	want := m.tree.selected().ID
+	externalAddTask(t, path, "b", find(m.doc, "Work").ID, find(m.doc, "a").ID)
 
 	m = pollCmdOnce(m)
+	if find(m.doc, "b") == nil || !hasRow(m, "b") {
+		t.Fatalf("the outside write must be shown, rows %v", rowTitles(m.tree))
+	}
+	if sel := m.tree.selected(); sel == nil || sel.ID != want {
+		t.Errorf("selection = %v, want the same item c", sel)
+	}
+	if m.status != "reloaded — list changed externally" {
+		t.Errorf("status = %q, want the external-reload notice", m.status)
+	}
+}
+
+// TestOwnWriteIsNotExternal completes a task: the app's own write shows no
+// external notice, keeps the undo snapshot, and the next poll sees no change.
+func TestOwnWriteIsNotExternal(t *testing.T) {
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n", todo.ColInProgress)
+	before := m.lastFP
+	m = pickState(t, selectTitle(t, m, "parent"), todo.Done)
+	if m.err != nil {
+		t.Fatalf("the write failed: %v", m.err)
+	}
+	if strings.Contains(m.status, "changed externally") {
+		t.Errorf("status = %q, an own write must not be reported as external", m.status)
+	}
+	if len(m.snapshots) != 1 {
+		t.Errorf("an own write must keep the undo snapshot, got %d", len(m.snapshots))
+	}
+	if m.lastFP == before {
+		t.Errorf("an own write must record the fingerprint it wrote")
+	}
+	if msg := reloadCheck(m.store, m.lastFP); msg != nil {
+		t.Errorf("after our own write, a poll must see no change, got %#v", msg)
+	}
+}
+
+// TestCommitAfterOutsideWriteIsExternal has a second store rename a task, then
+// the TUI complete another without polling first: the write finds the file
+// changed, so the result is handled as external and keeps both changes.
+func TestCommitAfterOutsideWriteIsExternal(t *testing.T) {
+	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n  - [ ] a1\n- [/] b\n", todo.ColInProgress)
+	m = pickState(t, selectTitle(t, m, "a"), todo.Done) // leaves an undo snapshot
+	if len(m.snapshots) != 1 {
+		t.Fatalf("precondition: the complete must leave a snapshot, got %d", len(m.snapshots))
+	}
+	title := "b renamed"
+	if err := openSecond(t, path).Edit(context.Background(), find(m.doc, "b").ID, todo.Changes{Title: &title}); err != nil {
+		t.Fatalf("external edit: %v", err)
+	}
+
+	m = pickState(t, selectTitle(t, m, "b"), todo.Done)
+	if m.err != nil {
+		t.Fatalf("the write failed: %v", m.err)
+	}
+	if m.status != "reloaded — list changed externally" {
+		t.Errorf("status = %q, want the external-reload notice", m.status)
+	}
+	if len(m.snapshots) != 0 {
+		t.Errorf("a write that found an outside change must drop the snapshots, got %d", len(m.snapshots))
+	}
+	if b := find(m.doc, title); b == nil || b.Status != todo.Done {
+		t.Errorf("m.doc must hold both changes, b renamed = %v", b)
+	}
+	if msg := reloadCheck(m.store, m.lastFP); msg != nil {
+		t.Errorf("the write's result is what the file holds, got %#v", msg)
+	}
+}
+
+// TestHalfWrittenFileKeepsView breaks the file: the first two failed polls
+// show nothing, the third shows the error, and the view never changes. A
+// valid file again is reloaded and clears the error.
+func TestHalfWrittenFileKeepsView(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	good := readList(t, path)
+	rows := rowTitles(m.tree)
+	writeList(t, path, []byte(halfWritten))
+
+	for tick := 1; tick <= 2; tick++ {
+		m = pollCmdOnce(m)
+		if m.err != nil {
+			t.Fatalf("tick %d: a transient read failure must not be shown yet, got %v", tick, m.err)
+		}
+		if got := rowTitles(m.tree); !slices.Equal(got, rows) {
+			t.Fatalf("tick %d: rows = %v, want %v", tick, got, rows)
+		}
+	}
+	m = pollCmdOnce(m)
+	if m.err == nil || !strings.Contains(m.err.Error(), "reload failed") {
+		t.Fatalf("tick 3: m.err = %v, want the reload failure", m.err)
+	}
+	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
+		t.Errorf("tick 3: rows = %v, want %v", got, rows)
+	}
+
+	writeList(t, path, good)
+	externalAddTask(t, path, "b", find(m.doc, "Work").ID, find(m.doc, "a").ID)
+	m = pollCmdOnce(m)
+	if m.err != nil || m.pollFails != 0 {
+		t.Errorf("the reload must clear the error: err %v, pollFails %d", m.err, m.pollFails)
+	}
+	if !hasRow(m, "b") {
+		t.Errorf("the valid file must be reloaded, rows %v", rowTitles(m.tree))
+	}
+}
+
+// TestRestoredFileClearsPollError breaks the file until the error shows, then
+// puts back its exact bytes: the poll finds the file unchanged, and must
+// still take the error out of the footer.
+func TestRestoredFileClearsPollError(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	good := readList(t, path)
+	writeList(t, path, []byte(halfWritten))
+	for range 3 {
+		m = pollCmdOnce(m)
+	}
+	if m.err == nil {
+		t.Fatal("precondition: three failed polls must show the error")
+	}
+
+	writeList(t, path, good)
+	m = pollCmdOnce(m)
+	if m.err != nil || m.pollErr != nil || m.pollFails != 0 {
+		t.Errorf("an unchanged poll after failures must clear them: err %v, pollErr %v, pollFails %d",
+			m.err, m.pollErr, m.pollFails)
+	}
+}
+
+// TestRemovedFileKeepsView removes the list file: after three polls the footer
+// says so, the rows stay and no file is created; a file written back is
+// reloaded.
+func TestRemovedFileKeepsView(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	rows := rowTitles(m.tree)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		m = pollCmdOnce(m)
+	}
+	if got := m.footer(200); !strings.Contains(got, "list file was removed") {
+		t.Errorf("footer = %q, want the removed-file error", got)
+	}
+	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
+		t.Errorf("rows = %v, want %v", got, rows)
+	}
+	if ok, err := todo.StoreExists(path); err != nil || ok {
+		t.Fatalf("a list file exists at the path after the polls (%v, %v); none may be created", ok, err)
+	}
+
+	// A save finds no task to change: it fails, and the view keeps the list
+	// rather than show the empty one a missing file reads as.
+	m = pickState(t, selectTitle(t, m, "a"), todo.Done)
+	if !errors.Is(m.err, todo.ErrNotFound) {
+		t.Errorf("m.err = %v, want the failed save (ErrNotFound)", m.err)
+	}
+	if got := rowTitles(m.tree); !slices.Equal(got, rows) {
+		t.Errorf("after the failed save rows = %v, want %v", got, rows)
+	}
+	if ok, err := todo.StoreExists(path); err != nil || ok {
+		t.Fatalf("a list file exists at the path after the failed save (%v, %v)", ok, err)
+	}
+
+	if _, err := openSecond(t, path).AppendCategory(context.Background(), "Back", ""); err != nil {
+		t.Fatalf("write the file back: %v", err)
+	}
+	m = pollCmdOnce(m)
+	if m.pollErr != nil || find(m.doc, "Back") == nil || find(m.doc, "a") != nil {
+		t.Errorf("the file written back must be reloaded: poll error %v, rows %v", m.pollErr, rowTitles(m.tree))
+	}
+}
+
+// TestSaveFailsOnInvalidFile breaks the file and completes a task: the write
+// is refused, the file is left alone, and the view shows the last good list.
+func TestSaveFailsOnInvalidFile(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	writeList(t, path, []byte(halfWritten))
+
+	m = pickState(t, selectTitle(t, m, "a"), todo.Done)
+	got := m.footer(200)
+	if !strings.Contains(got, "save failed:") || !strings.Contains(got, todo.ErrInvalidList.Error()) {
+		t.Errorf("footer = %q, want the refused save naming the invalid list file", got)
+	}
+	if data := readList(t, path); string(data) != halfWritten {
+		t.Errorf("the refused save changed the file: %q", data)
+	}
+	if a := find(m.doc, "a"); a == nil || a.Status != todo.Open || !hasRow(m, "a") {
+		t.Errorf("the view must show the last good list, a = %v, rows %v", a, rowTitles(m.tree))
+	}
+}
+
+// TestSaveBusy completes a task while another process holds the write lock:
+// the save fails fast with the busy message, instead of freezing the UI for
+// the CLI's busy timeout, and the task stays as it was.
+func TestSaveBusy(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m = selectTitle(t, m, "a")
+	todotest.HoldWriteLock(t, path)
+
+	start := time.Now()
+	m = pickState(t, m, todo.Done)
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("the save blocked the UI for %v", elapsed)
+	}
+	if got := m.footer(200); !strings.Contains(got, "save failed: list busy") {
+		t.Errorf("footer = %q, want the busy message", got)
+	}
+	if st := find(m.doc, "a").Status; st != todo.Open || !hasRow(m, "a") {
+		t.Errorf("a shows %v after the failed save, want open and shown", st)
+	}
+}
+
+// --- poll failures in the footer ---
+
+// failPolls runs n polls on a list file a newer todo wrote (format version v),
+// enough to show the failure once n reaches 3.
+func failPolls(t *testing.T, m model, path string, good []byte, v, n int) model {
+	t.Helper()
+	writeList(t, path, withVersion(t, good, v))
+	for range n {
+		m = pollCmdOnce(m)
+	}
+	return m
+}
+
+// TestReloadFailureShownAndCleared has a newer todo write the file: the
+// failing polls put the error in the footer, and the next poll that loads the
+// list clears it.
+func TestReloadFailureShownAndCleared(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	good := readList(t, path)
+	m = failPolls(t, m, path, good, 4, 3)
 	if !errors.Is(m.err, todo.ErrNewerSchema) {
 		t.Fatalf("m.err = %v, want the failed reload (ErrNewerSchema)", m.err)
 	}
@@ -139,7 +376,8 @@ func TestReloadFailureShownAndCleared(t *testing.T) {
 		t.Errorf("footer should report the failed reload, got %q", got)
 	}
 
-	setSchemaVersion(t, path, v)
+	writeList(t, path, good)
+	externalAddTask(t, path, "b", find(m.doc, "Work").ID, "")
 	m = pollCmdOnce(m)
 	if m.err != nil {
 		t.Errorf("a successful poll must clear the reload error, got %v", m.err)
@@ -151,10 +389,8 @@ func TestReloadFailureShownAndCleared(t *testing.T) {
 // save) stays in the footer; a poll that succeeds must not clear that one.
 func TestReloadFailureShownOnce(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	v := schemaVersionOf(t, path)
-	setSchemaVersion(t, path, v+1)
-
-	m = pollCmdOnce(m)
+	good := readList(t, path)
+	m = failPolls(t, m, path, good, 4, 3)
 	if !errors.Is(m.err, todo.ErrNewerSchema) {
 		t.Fatalf("m.err = %v, want the failed reload", m.err)
 	}
@@ -165,7 +401,7 @@ func TestReloadFailureShownOnce(t *testing.T) {
 		t.Errorf("a repeated reload failure must not replace another error, got %v", m.err)
 	}
 
-	setSchemaVersion(t, path, v)
+	writeList(t, path, good)
 	m = pollCmdOnce(m)
 	if !errors.Is(m.err, saveErr) {
 		t.Errorf("a successful poll must not clear an unrelated error, got %v", m.err)
@@ -176,13 +412,11 @@ func TestReloadFailureShownOnce(t *testing.T) {
 // replaces the one shown.
 func TestReloadFailureDistinctShown(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	v := schemaVersionOf(t, path)
-	setSchemaVersion(t, path, v+1)
-	m = pollCmdOnce(m)
+	good := readList(t, path)
+	m = failPolls(t, m, path, good, 4, 3)
 	m.err = errors.New("save failed: boom")
-	setSchemaVersion(t, path, v+2)
-	m = pollCmdOnce(m)
-	if got := m.footer(200); !strings.Contains(got, fmt.Sprintf("schema %d", v+2)) {
+	m = failPolls(t, m, path, good, 5, 1)
+	if got := m.footer(200); !strings.Contains(got, "schema 5") {
 		t.Errorf("a distinct reload failure must be shown, got %q", got)
 	}
 }
@@ -332,23 +566,11 @@ func TestReloadDeferredWhileGrabbed(t *testing.T) {
 	}
 }
 
-func TestReloadIgnoresOwnRevision(t *testing.T) {
+func TestReloadIgnoresOwnFingerprint(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = send(m, storeReloadedMsg{doc: parseDoc(t, "# Work\n\n- [ ] zzz\n"), rev: m.lastRev})
+	m = send(m, storeReloadedMsg{doc: parseDoc(t, "# Work\n\n- [ ] zzz\n"), fp: m.lastFP})
 	if find(m.doc, "zzz") != nil {
-		t.Errorf("a reload at the revision the model already has must be ignored")
-	}
-}
-
-func TestOwnWriteDoesNotReportReload(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	before := m.lastRev
-	m = pickState(t, press(m, "down"), todo.Done) // complete a -> a store write
-	if m.lastRev == before {
-		t.Fatalf("an own write must record the revision it produced")
-	}
-	if msg := reloadCheck(m.store, m.lastRev); msg != nil {
-		t.Errorf("after our own write, a poll must see no change, got %#v", msg)
+		t.Errorf("a reload at the fingerprint the model already has must be ignored")
 	}
 }
 
@@ -430,9 +652,9 @@ func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
 }
 
 // TestOwnWriteDetectsExternalWriteBeforePoll covers an external write landing
-// between polls: the app's next own write must notice that the revision moved
-// by more than its own bump, treat the reload as external and drop the undo
-// snapshots, so un-toggling the parent never writes old statuses over it.
+// between polls: the app's next own write must notice that the file it found
+// is not the one it last loaded, treat its result as external and drop the
+// undo snapshots, so un-toggling the parent never writes old statuses over it.
 func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 	m, path := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n- [ ] other\n", todo.ColInProgress)
 	m = pickState(t, press(m, "down"), todo.Done) // cascade-complete parent
@@ -468,11 +690,11 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 	}
 }
 
+// --- failed writes ---
+
 func TestWriteErrorShowsAndReloads(t *testing.T) {
-	m, _ := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
-	if err := m.store.Close(); err != nil {
-		t.Fatal(err)
-	}
+	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
+	writeList(t, path, []byte(halfWritten))
 	m = pickState(t, press(m, "down"), todo.Done)
 	if m.err == nil {
 		t.Fatal("a failed write must set m.err")
@@ -490,16 +712,14 @@ func TestWriteErrorShowsAndReloads(t *testing.T) {
 	}
 }
 
-// TestFailedWriteAndReloadRestoresTree deletes an item while the store is
-// unreachable: the write and the reload both fail, so the view goes back to the
+// TestFailedWriteAndReloadRestoresTree deletes an item while the file is
+// invalid: the write and the reload both fail, so the view goes back to the
 // document as last loaded — the item is still there, its rows rebuilt — and
 // the selection stays valid.
 func TestFailedWriteAndReloadRestoresTree(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	m = press(m, "down", "down") // b
-	if err := m.store.Close(); err != nil {
-		t.Fatal(err)
-	}
+	writeList(t, path, []byte(halfWritten))
 	m = press(m, "d", "y")
 	if m.err == nil || !strings.Contains(m.footer(200), "save failed:") {
 		t.Errorf("footer should report the failed save, got %q", m.footer(200))
@@ -512,14 +732,12 @@ func TestFailedWriteAndReloadRestoresTree(t *testing.T) {
 	}
 }
 
-// TestFailedWriteAndReloadRestoresEdit edits a task while the store is
-// unreachable: the edited title must not stay on screen as if saved, and a
-// second failed write must still restore the same, last loaded document.
+// TestFailedWriteAndReloadRestoresEdit edits a task while the file is
+// invalid: the edited title must not stay on screen as if saved, and a second
+// failed write must still restore the same, last loaded document.
 func TestFailedWriteAndReloadRestoresEdit(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	if err := m.store.Close(); err != nil {
-		t.Fatal(err)
-	}
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	writeList(t, path, []byte(halfWritten))
 	m = press(m, "down") // a
 	for range 2 {
 		m = press(m, "e")
@@ -540,123 +758,29 @@ func TestFailedWriteAndReloadRestoresEdit(t *testing.T) {
 	}
 }
 
-// TestReloadFailureAfterSavedWrite has the write succeed and only the reload
-// fail: the footer must say the reload failed, not the save, and the rows must
-// match the in-memory change.
-func TestReloadFailureAfterSavedWrite(t *testing.T) {
+// TestSavedWriteAdoptsWriteResult breaks the file right after a write: commit
+// takes the list from the write itself, so it neither reads the file again
+// nor reports an error, and the view shows the write's result.
+func TestSavedWriteAdoptsWriteResult(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
 	a, b := find(m.doc, "a"), find(m.doc, "b")
 	m.doc.Remove(b)
-	m.commit(a.ID, func(ctx context.Context) error {
+	saved := m.commit(a.ID, func(ctx context.Context) error {
 		err := m.store.Delete(ctx, b.ID)
-		_ = m.store.Close() // the reload that follows fails
+		writeList(t, path, []byte(halfWritten)) // a read after the write fails
 		return err
 	})
-	if got := m.footer(200); !strings.Contains(got, "reload failed:") || strings.Contains(got, "save failed") {
-		t.Errorf("footer should report the failed reload, got %q", got)
+	if !saved || m.err != nil {
+		t.Fatalf("the write must succeed without error: saved %v, err %v", saved, m.err)
 	}
-	if hasRow(m, "b") {
-		t.Errorf("the tree rows must be rebuilt after a failed reload")
+	if hasRow(m, "b") || find(m.doc, "b") != nil {
+		t.Errorf("the view must show the write's result, rows %v", rowTitles(m.tree))
 	}
 	if got := m.tree.selected().Title; got != "a" {
 		t.Errorf("selection = %q, want a", got)
 	}
-	if got := todotest.Dump(t, path); strings.Contains(got, "b") {
-		t.Errorf("the delete must be saved:\n%s", got)
-	}
-}
-
-// TestOwnWriteWithFailedReloadNotExternal has an own add succeed while the
-// reload after it fails once. The next poll must load the list (the added task
-// gets its stored ID) as the app's own write: no external-reload notice, and
-// the undo snapshots kept.
-func TestOwnWriteWithFailedReloadNotExternal(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	v := schemaVersionOf(t, path)
-	work, a := find(m.doc, "Work"), find(m.doc, "a")
-	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
-	added := todo.NewTask("b", "", false)
-	work.AppendTask(added)
-	m.commit("", func(ctx context.Context) error {
-		_, err := m.store.AppendTask(ctx, todo.Fields{Title: "b"}, todo.Open, work.ID)
-		setSchemaVersion(t, path, v+1) // the reload that follows fails
-		return err
-	})
-	if !strings.Contains(m.footer(200), "reload failed:") {
-		t.Fatalf("precondition: footer should report the failed reload, got %q", m.footer(200))
-	}
-	setSchemaVersion(t, path, v)
-
-	m = pollCmdOnce(m)
-	if m.status == "reloaded — list changed externally" {
-		t.Errorf("the app's own write must not be reported as an external change")
-	}
-	if len(m.snapshots) != 1 {
-		t.Errorf("the app's own write must keep the undo snapshots, got %d", len(m.snapshots))
-	}
-	if b := find(m.doc, "b"); b == nil || b.ID == "" {
-		t.Errorf("the poll must load the list the write left, got b = %v", b)
-	}
-	if msg := reloadCheck(m.store, m.lastRev); msg != nil {
-		t.Errorf("once loaded, a poll must see no change, got %#v", msg)
-	}
-}
-
-// commitWithFailedReload has an own add of title succeed while the reload
-// after it fails (the schema is bumped by the write), and returns the schema
-// version to restore so the next reload works again.
-func commitWithFailedReload(t *testing.T, m *model, path, title string) int {
-	t.Helper()
-	v := schemaVersionOf(t, path)
-	work := find(m.doc, "Work")
-	work.AppendTask(todo.NewTask(title, "", false))
-	m.commit("", func(ctx context.Context) error {
-		_, err := m.store.AppendTask(ctx, todo.Fields{Title: title}, todo.Open, work.ID)
-		setSchemaVersion(t, path, v+1)
-		return err
-	})
-	if !strings.Contains(m.footer(200), "reload failed:") {
-		t.Fatalf("precondition: footer should report the failed reload, got %q", m.footer(200))
-	}
-	return v
-}
-
-// TestOwnWriteFailedReloadClearedOnRecovery has an own write succeed while its
-// reload fails: once a poll reloads the list, the footer must no longer show
-// the reload error, whether the poll reads back the app's own write or an
-// external one that landed meanwhile.
-func TestOwnWriteFailedReloadClearedOnRecovery(t *testing.T) {
-	for _, external := range []bool{false, true} {
-		m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-		v := commitWithFailedReload(t, &m, path, "b")
-		setSchemaVersion(t, path, v)
-		if external {
-			externalAddTask(t, path, "c", find(m.doc, "Work").ID, "")
-		}
-
-		m = pollCmdOnce(m)
-		if find(m.doc, "b") == nil || find(m.doc, "b").ID == "" {
-			t.Fatalf("external=%v: the poll must load the list the write left", external)
-		}
-		if m.err != nil || strings.Contains(m.footer(200), "reload failed:") {
-			t.Errorf("external=%v: the recovered reload must clear the error, got m.err=%v footer %q",
-				external, m.err, m.footer(200))
-		}
-	}
-}
-
-// TestOwnWriteFailedReloadRecoveryKeepsLaterError has an own write's reload
-// fail, then a save be refused: the poll that recovers must clear only the
-// reload error, not the refused save shown since.
-func TestOwnWriteFailedReloadRecoveryKeepsLaterError(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	v := commitWithFailedReload(t, &m, path, "b")
-	m.commit("", func(context.Context) error { return errors.New("refused") })
-	setSchemaVersion(t, path, v)
-
-	m = pollCmdOnce(m)
-	if got := m.footer(200); !strings.Contains(got, "save failed: refused") {
-		t.Errorf("the recovery must keep the refused save in the footer, got %q", got)
+	if m.lastFP != m.store.LastWrite().Wrote {
+		t.Errorf("lastFP must be the fingerprint the write left")
 	}
 }
 
@@ -678,10 +802,30 @@ func TestFailedWriteRevertsToStore(t *testing.T) {
 	}
 }
 
+// TestFailedWriteReloadsOutsideChange has a write fail after another process
+// changed the list: the reload shows that change and drops the undo
+// snapshots, as a poll would.
+func TestFailedWriteReloadsOutsideChange(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
+	a := find(m.doc, "a")
+	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
+	externalAddTask(t, path, "b", find(m.doc, "Work").ID, a.ID)
+	m.commit(a.ID, func(context.Context) error { return errors.New("boom") })
+	if find(m.doc, "b") == nil || !hasRow(m, "b") {
+		t.Errorf("the reload must show the outside change, rows %v", rowTitles(m.tree))
+	}
+	if len(m.snapshots) != 0 {
+		t.Errorf("an outside change must drop the snapshots, got %d", len(m.snapshots))
+	}
+	if msg := reloadCheck(m.store, m.lastFP); msg != nil {
+		t.Errorf("the reload must record the file's fingerprint, got %#v", msg)
+	}
+}
+
 func TestInitStartsPolling(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n")
 	if m.Init() == nil {
-		t.Errorf("Init must start the revision-poll loop")
+		t.Errorf("Init must start the change-poll loop")
 	}
 }
 
@@ -693,77 +837,6 @@ func hasRow(m model, title string) bool {
 		}
 	}
 	return false
-}
-
-// TestReplacedFileShowsErrorAndRefusesWrite swaps another store in over the
-// open one by rename, as `git checkout` or a sync tool would: the poll must
-// report it, and a write must be refused rather than land in the unlinked file
-// and vanish when the TUI quits.
-func TestReplacedFileShowsErrorAndRefusesWrite(t *testing.T) {
-	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
-	// A second link keeps the file the store holds reachable once another is
-	// renamed over its path, so the end of the test can read it.
-	held := path + ".held"
-	if err := os.Link(path, held); err != nil {
-		t.Fatal(err)
-	}
-	other := todotest.Seed(t, "# Other\n")
-	if err := os.Rename(other, path); err != nil {
-		t.Fatal(err)
-	}
-
-	msg := reloadCheck(m.store, m.lastRev)
-	if msg == nil {
-		t.Fatal("the poll must report a replaced store file")
-	}
-	m = send(m, msg)
-	if m.err == nil || !errors.Is(m.err, todo.ErrFileReplaced) {
-		t.Fatalf("m.err = %v, want ErrFileReplaced", m.err)
-	}
-
-	m = pickState(t, press(m, "down"), todo.Done)
-	if !errors.Is(m.err, todo.ErrFileReplaced) || !strings.Contains(m.footer(200), "save failed:") {
-		t.Errorf("footer should report the refused save, got %q", m.footer(200))
-	}
-	if _, _, err := m.store.Load(context.Background()); !errors.Is(err, todo.ErrFileReplaced) {
-		t.Fatalf("Load = %v, want ErrFileReplaced (a read may run on the file now at the path)", err)
-	}
-	if err := m.store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	st, err := todo.OpenStore(held)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	doc, _, err := st.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := find(doc, "a").Status; got != todo.Working {
-		t.Errorf("a = %v in the unlinked file, want working (the write must be refused)", got)
-	}
-}
-
-// A status change while another process holds the writer lock fails fast with
-// the store's busy message in the footer, instead of freezing the UI for the
-// 5 s busy timeout, and leaves the task where it was.
-func TestStatusChangeWhileLockedShowsBusy(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n")
-	m = selectTitle(t, m, "a")
-	todotest.HoldWriteLock(t, path)
-
-	start := time.Now()
-	m = press(m, "p")
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Errorf("the status change blocked the UI for %v", elapsed)
-	}
-	if got := m.footer(200); !strings.Contains(got, "save failed: "+todo.ErrBusy.Error()) {
-		t.Errorf("footer = %q, want the busy message", got)
-	}
-	if st := find(m.doc, "a").Status; st != todo.Open {
-		t.Errorf("a shows %v after the failed save, want open", st)
-	}
 }
 
 // statusIn reads the status of the item titled title from the store file at
@@ -781,26 +854,19 @@ func statusIn(t *testing.T, path, title string) todo.Status {
 	return it.Status
 }
 
-// TestReplacedFileIsReopened renames another store in over the open one after
-// the TUI wrote to it: the next poll must reopen the store at the path, show
-// the new file's list as an external change, clear the error, and send the
-// writes that follow into the new file.
-func TestReplacedFileIsReopened(t *testing.T) {
+// TestReplacedFileIsReloaded renames another list in over the file, as `git
+// checkout` or a sync tool would: the next poll shows the new list as an
+// external change, and the writes that follow go to the file at the path.
+func TestReplacedFileIsReloaded(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(selectTitle(t, m, "a"), "p") // a write, so the old store has a WAL
-	other := todotest.Seed(t, "# Other\n\n- [ ] b\n")
-	if err := os.Rename(other, path); err != nil {
+	m = press(selectTitle(t, m, "a"), "p")
+	if err := os.Rename(todotest.Seed(t, "# Other\n\n- [ ] b\n"), path); err != nil {
 		t.Fatal(err)
-	}
-	m = send(m, reloadCheck(m.store, m.lastRev))
-	if !errors.Is(m.err, todo.ErrFileReplaced) {
-		t.Fatalf("m.err = %v, want ErrFileReplaced", m.err)
 	}
 
 	m = pollCmdOnce(m)
-	t.Cleanup(func() { _ = m.store.Close() })
 	if m.err != nil {
-		t.Errorf("the reopen must clear the error, got %v", m.err)
+		t.Errorf("a replaced file is a change, not an error: %v", m.err)
 	}
 	if find(m.doc, "b") == nil || find(m.doc, "a") != nil || !hasRow(m, "b") {
 		t.Fatalf("the view must show the new file's list, rows %v", rowTitles(m.tree))
@@ -811,59 +877,9 @@ func TestReplacedFileIsReopened(t *testing.T) {
 
 	m = press(selectTitle(t, m, "b"), "p")
 	if m.err != nil {
-		t.Fatalf("a write after the reopen failed: %v", m.err)
+		t.Fatalf("a write after the replacement failed: %v", m.err)
 	}
 	if got := statusIn(t, path, "b"); got == todo.Open {
 		t.Errorf("b = %v in the file at the path, want the status change written there", got)
-	}
-}
-
-// TestRemovedFileIsNotRecreated removes the store file under the TUI: the
-// poll must keep reporting it and never create a new database at the path;
-// once a store file is put back, the next poll reopens it.
-func TestRemovedFileIsNotRecreated(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	if err := os.Rename(path, path+".moved"); err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		m = pollCmdOnce(m)
-		if !errors.Is(m.err, todo.ErrFileReplaced) {
-			t.Fatalf("m.err = %v, want ErrFileReplaced", m.err)
-		}
-		if ok, err := todo.StoreExists(path); err != nil || ok {
-			t.Fatalf("a store file exists at the path after the poll (%v, %v); none may be created", ok, err)
-		}
-	}
-
-	if err := os.Rename(todotest.Seed(t, "# Other\n\n- [ ] b\n"), path); err != nil {
-		t.Fatal(err)
-	}
-	m = pollCmdOnce(m)
-	t.Cleanup(func() { _ = m.store.Close() })
-	if m.err != nil || find(m.doc, "b") == nil {
-		t.Errorf("the file put back must be reopened: err %v, rows %v", m.err, rowTitles(m.tree))
-	}
-}
-
-// TestReopenDeferredWhileModal replaces the store file while a dialog is open:
-// the reopen must wait for plain navigation, so a dialog opened on the old
-// list never writes to the new file, whose IDs name other items.
-func TestReopenDeferredWhileModal(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(selectTitle(t, m, "a"), "t")
-	if err := os.Rename(todotest.Seed(t, "# Other\n\n- [ ] b\n"), path); err != nil {
-		t.Fatal(err)
-	}
-	old := m.store
-	m = pollCmdOnce(m)
-	if m.store != old || find(m.doc, "a") == nil {
-		t.Fatalf("the store must not be reopened while a dialog is open")
-	}
-	m = press(m, "esc")
-	m = pollCmdOnce(m)
-	t.Cleanup(func() { _ = m.store.Close() })
-	if m.store == old || find(m.doc, "b") == nil {
-		t.Errorf("back in navigation, the poll must reopen the store")
 	}
 }

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,9 +10,9 @@ import (
 
 // Launching the app shows the store's base name in the header, the open
 // notice (e.g. the automatic TODO.md import summary) in the footer, and starts
-// from the store's current revision.
+// from the fingerprint of the store's file.
 func TestNewModelShowsNoticeAndStoreName(t *testing.T) {
-	st, err := todo.OpenStore(filepath.Join(t.TempDir(), ".todo.db"))
+	st, err := todo.OpenStore(filepath.Join(t.TempDir(), ".todo.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,15 +25,11 @@ func TestNewModelShowsNoticeAndStoreName(t *testing.T) {
 	if got := m.footer(200); !strings.Contains(got, notice) {
 		t.Errorf("footer should show the notice %q, got %q", notice, got)
 	}
-	if got := m.header(80); !strings.Contains(got, ".todo.db") {
+	if got := m.header(80); !strings.Contains(got, ".todo.json") {
 		t.Errorf("header should show the store's base name, got %q", got)
 	}
-	rev, err := st.Revision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m.lastRev != rev {
-		t.Errorf("lastRev = %d, want the store's revision %d", m.lastRev, rev)
+	if m.lastFP != todo.Missing {
+		t.Errorf("lastFP = %x, want Missing for a store with no file yet", m.lastFP)
 	}
 	if !m.tree.onPlaceholder() {
 		t.Errorf("an empty store should start on the placeholder row")

@@ -27,6 +27,20 @@ func setStatusExternally(t *testing.T, m model, path, title string, st todo.Stat
 	return pollOnce(t, m)
 }
 
+// setStatusInMemory sets the task titled title to st in m's list only, and
+// rebuilds the trees. Tests use it for a status a valid list file cannot hold
+// (an unknown one, such as a newer todo's), which the view must still handle.
+func setStatusInMemory(t *testing.T, m model, title string, st todo.Status) model {
+	t.Helper()
+	it := find(m.doc, title)
+	if it == nil {
+		t.Fatalf("no item %q", title)
+	}
+	it.Status = st
+	m.adoptAll(m.doc, "", false)
+	return m
+}
+
 // storedItem loads the store at path through a fresh handle and returns the item
 // titled title.
 func storedItem(t *testing.T, path, title string) *todo.Item {
@@ -348,8 +362,8 @@ func TestCategoryCountsPerTab(t *testing.T) {
 }
 
 func TestUnknownStatusRendersInBacklog(t *testing.T) {
-	m, path := newTestModel(t, board)
-	m = setStatusExternally(t, m, path, "backlogTask", todo.Status(9))
+	m, _ := newTestModel(t, board)
+	m = setStatusInMemory(t, m, "backlogTask", todo.Status(9))
 	if row := rowOf(t, m.tree, "backlogTask"); !strings.Contains(row, "status(9)") {
 		t.Errorf("an unknown status must render visibly in Backlog: %q", row)
 	}

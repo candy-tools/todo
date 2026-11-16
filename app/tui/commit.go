@@ -46,56 +46,69 @@ func (m *model) noteLeftTab(id string) bool {
 	return true
 }
 
-// commit runs write against the store and then reloads, so the view always
+// commit runs write, one store write, and shows its result, so the view always
 // shows what the store holds. A write error is kept for the footer (a success
-// clears the last one). The reload happens either way: it records the
-// revision this write produced (so the poll does not report it as an external
-// change) and rebuilds the tree, keeping the folds of the items that still
-// exist, the viewport, the filter and the grab state, and selecting focusID if
-// present (else keeping the cursor index, clamped). The undo snapshots are
-// kept, since this is the app's own write — unless the reload shows that
-// someone else wrote too: a successful store write bumps the revision exactly
-// once and a failed one rolls back, so any other revision than that means an
-// external write landed since the last load, and the reload is handled as
-// external (snapshots dropped, the status line says so). If the reload itself
-// fails, the error is shown (the write's when it failed, else the reload's) and
-// the trees are rebuilt with focusID selected, from the current document when
-// the write succeeded (the caller's in-memory change is what the store now
-// holds; its revision is recorded and the next poll loads it as the app's
-// own, see unsynced), else from a copy of the document as last loaded, so the change the
-// caller made in memory does not stay on screen as if it were saved.
+// clears the last one). Either way the trees are rebuilt, keeping the folds of
+// the items that still exist, the viewport, the filter and the grab state, and
+// selecting focusID if present (else keeping the cursor index, clamped).
 //
-// commit reports whether the write succeeded, whatever the reload did, so a
-// caller can keep the user's input to retry a failed save.
+// On success the list is the one the write left (the store's LastWrite), read
+// under the write's lock, so the file is not read again; its fingerprint is
+// recorded, so the poll does not report the app's own write as an external
+// change. The undo snapshots are kept — unless the write found the file other
+// than the model last loaded it: someone else wrote in between, so the result
+// is handled as external (snapshots dropped, the status line says so).
+//
+// On failure the list is loaded again, and handled the same way when it moved;
+// when that fails too, a copy of the document as last loaded is put back, so
+// the change the caller made in memory does not stay on screen as if saved.
+//
+// commit reports whether the write succeeded, so a caller can keep the user's
+// input to retry a failed save. write must run on the UI goroutine: LastWrite
+// is only this write's result while no other goroutine writes through the
+// store.
 func (m *model) commit(focusID string, write func(ctx context.Context) error) (saved bool) {
 	ctx := context.Background()
 	m.err = nil
-	expected := m.lastRev
+	onPH := m.focused().onPlaceholder()
+	before := m.store.LastWrite()
 	if err := write(ctx); err != nil {
 		m.err = fmt.Errorf("save failed: %w", err)
-	} else {
-		expected++
-		saved = true
-	}
-	onPH := m.focused().onPlaceholder()
-	doc, rev, err := m.store.Load(ctx)
-	if err != nil {
-		if m.err == nil {
-			m.err = fmt.Errorf("reload failed: %w", err)
-			m.pollErr = m.err // cleared by the next reload that succeeds (see clearPollErr)
-			m.saved = m.doc.Clone()
-			m.lastRev, m.unsynced = expected, true
-		} else {
-			m.doc = m.saved.Clone()
-		}
+		m.reload(ctx)
 		m.adoptAll(m.doc, focusID, onPH)
-		return saved
+		return false
 	}
-	m.doc, m.saved, m.lastRev, m.unsynced = doc, doc.Clone(), rev, false
-	m.adoptAll(doc, focusID, onPH)
-	if rev != expected {
-		m.snapshots = map[string]todo.DoneStates{}
-		m.status = "reloaded — list changed externally"
+	r := m.store.LastWrite()
+	if r.Doc == nil || r.Doc == before.Doc {
+		// write succeeded without a store write: there is no result to
+		// adopt, so read the list as it is.
+		m.reload(ctx)
+		m.adoptAll(m.doc, focusID, onPH)
+		return true
 	}
-	return saved
+	external := r.Read != m.lastFP
+	m.doc, m.saved, m.lastFP = r.Doc, r.Doc.Clone(), r.Wrote
+	m.adoptAll(m.doc, focusID, onPH)
+	if external {
+		m.noteExternal()
+	}
+	return true
+}
+
+// reload loads the list for commit when the write left no result to adopt
+// (it failed), taking it as an external change when its file moved since the
+// last load. When the load fails,
+// or finds the file removed (which the poll reports, keeping the view), m.doc
+// goes back to a copy of the list as last loaded.
+func (m *model) reload(ctx context.Context) {
+	doc, fp, err := m.store.Load(ctx)
+	if err != nil || (fp == todo.Missing && m.lastFP != todo.Missing) {
+		m.doc = m.saved.Clone()
+		return
+	}
+	external := fp != m.lastFP
+	m.doc, m.saved, m.lastFP = doc, doc.Clone(), fp
+	if external {
+		m.noteExternal()
+	}
 }

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -150,16 +151,13 @@ func TestEditTitleKeepsLongDescriptionAndPlan(t *testing.T) {
 	}
 }
 
-// Saving the edit form unchanged writes nothing: the store's revision stays
-// put and the undo snapshots survive.
+// Saving the edit form unchanged writes nothing: the list file stays put and
+// the undo snapshots survive.
 func TestEditSavedUnchangedWritesNothing(t *testing.T) {
-	m, _ := newTestModel(t, "# B\n- [ ] a\n  desc\n")
+	m, path := newTestModel(t, "# B\n- [ ] a\n  desc\n")
 	a := find(m.doc, "a")
 	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
-	before, err := m.store.Revision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := readList(t, path)
 	m = selectTitle(t, m, "a")
 	m = press(m, "e")
 	if m.mode != modeForm {
@@ -169,12 +167,8 @@ func TestEditSavedUnchangedWritesNothing(t *testing.T) {
 	if m.mode != modeMain {
 		t.Fatalf("enter should close the form, mode %v", m.mode)
 	}
-	after, err := m.store.Revision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after != before {
-		t.Errorf("an unchanged save moved the revision from %d to %d", before, after)
+	if after := readList(t, path); !bytes.Equal(after, before) || m.store.LastWrite().Doc != nil {
+		t.Errorf("an unchanged save wrote the list:\n%s", after)
 	}
 	if len(m.snapshots) != 1 {
 		t.Errorf("an unchanged save must keep the undo snapshots, got %d", len(m.snapshots))

@@ -1,7 +1,8 @@
 package tui
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode"
@@ -25,26 +26,16 @@ func assertNoEscapes(t *testing.T, what, s string) {
 	}
 }
 
+// TestStoredControlCharactersAreNotDrawn draws a list whose titles carry
+// terminal escapes. A valid list file cannot hold such a title any more, so
+// the list is built in memory: the tree must not draw them all the same.
 func TestStoredControlCharactersAreNotDrawn(t *testing.T) {
-	path := todotest.Seed(t, "# Cat\n\n- [ ] task\n")
-	db := openRaw(t, path)
-	if err := db.Exec("UPDATE items SET title = title || ?", hostile).Error; err != nil {
-		t.Fatalf("store raw titles: %v", err)
-	}
-	st, err := todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	m, err := newModel(st, "")
-	if err != nil {
-		t.Fatalf("newModel: %v", err)
-	}
-	if !strings.Contains(m.doc.Roots[0].Title, "\x1b") {
-		t.Fatal("the raw update should have stored an escape in the title")
+	doc := parseDoc(t, "# Cat\n\n- [ ] task\n")
+	for _, it := range doc.Enumerate() {
+		it.Title += hostile
 	}
 	for _, pane := range []paneKind{paneMixed, paneTasks} {
-		tr := newTree(m.doc, newViewState())
+		tr := newTree(doc, newViewState())
 		tr.setPane(pane)
 		for i, r := range tr.rows {
 			for _, sel := range []bool{false, true} {
@@ -68,16 +59,14 @@ const (
 	cleanLegacyPlan = "plan.md"
 )
 
-// newLegacyModel is newTestModel on a store whose task "task" holds the legacy
-// title, description and plan, written past the store's checks.
+// newLegacyModel is newTestModel on a list whose task "task" holds the legacy
+// description and plan, written to the file past the store's checks, and the
+// legacy title. A valid list file cannot hold that title, so it is set on the
+// loaded list in memory only, standing in for one an older version kept.
 func newLegacyModel(t *testing.T) (model, string) {
 	t.Helper()
 	path := todotest.Seed(t, "# Cat\n\n- [ ] task\n")
-	db := openRaw(t, path)
-	if err := db.Exec("UPDATE items SET title = ?, description = ?, plan = ? WHERE title = 'task'",
-		legacyTitle, legacyDesc, legacyPlan).Error; err != nil {
-		t.Fatalf("store raw fields: %v", err)
-	}
+	setRawTaskFields(t, path, "task", legacyDesc, legacyPlan)
 	st, err := todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -87,6 +76,8 @@ func newLegacyModel(t *testing.T) (model, string) {
 	if err != nil {
 		t.Fatalf("newModel: %v", err)
 	}
+	find(m.doc, "task").Title = legacyTitle
+	m.adoptAll(m.doc, "", false)
 	m = send(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = selectTitle(t, m, legacyTitle)
 	m = press(m, "e")
@@ -131,21 +122,14 @@ func TestEditFormShowsNoStoredControlCharacters(t *testing.T) {
 }
 
 func TestEditUntouchedLegacyItemWritesNothing(t *testing.T) {
-	m, _ := newLegacyModel(t)
-	before, err := m.store.Revision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	m, path := newLegacyModel(t)
+	before := readList(t, path)
 	m = press(m, "enter")
 	if m.mode != modeMain {
 		t.Fatalf("enter should close the form, mode %v", m.mode)
 	}
-	after, err := m.store.Revision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after != before {
-		t.Errorf("saving an untouched legacy item moved the revision from %d to %d", before, after)
+	if after := readList(t, path); !bytes.Equal(after, before) || m.store.LastWrite().Doc != nil {
+		t.Errorf("saving an untouched legacy item wrote the list:\n%s", after)
 	}
 }
 
@@ -162,11 +146,38 @@ func TestEditLegacyItemWritesOnlyTheEditedField(t *testing.T) {
 		t.Fatalf("Save should close the form, mode %v", m.mode)
 	}
 	// Found by its stored title, so the untouched title was not rewritten.
-	it := storedItem(t, path, legacyTitle)
+	it := storedItem(t, path, "task")
 	if it.Description != want {
 		t.Errorf("stored description = %q, want %q", it.Description, want)
 	}
 	if it.Plan != legacyPlan {
 		t.Errorf("the untouched plan was rewritten: %q, want %q", it.Plan, legacyPlan)
 	}
+}
+
+// setRawTaskFields sets the description and plan of the task titled title in
+// the list file at path, past the store's checks, standing in for another
+// tool (or an older version) that wrote them.
+func setRawTaskFields(t *testing.T, path, title, desc, plan string) {
+	t.Helper()
+	var l map[string]any
+	if err := json.Unmarshal(readList(t, path), &l); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	tasks, _ := l["tasks"].([]any)
+	found := false
+	for _, x := range tasks {
+		if task, ok := x.(map[string]any); ok && task["title"] == title {
+			task["description"], task["plan"] = desc, plan
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no task %q in the list file", title)
+	}
+	data, err := json.Marshal(l)
+	if err != nil {
+		t.Fatalf("encode list: %v", err)
+	}
+	writeList(t, path, data)
 }

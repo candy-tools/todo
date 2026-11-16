@@ -41,34 +41,27 @@ const (
 //   - An external reload is applied in modeMain and modeSearch, and deferred
 //     in the modal modes and while an item is grabbed (see handleReload).
 type model struct {
-	// Persistence: the store, the document loaded from it, and the revision
-	// and errors of the last load or write.
+	// Persistence: the store, the document loaded from it, and the
+	// fingerprint and errors of the last load or write.
 	store *todo.Store
 	doc   *todo.Document
-	// saved is an untouched copy of doc as the store last gave it (or, after a
-	// write that succeeded but could not be reloaded, as that write left it).
-	// The actions change doc in memory before they write, so when the write
-	// fails and the reload cannot replace doc either, commit puts a copy of
-	// saved back rather than show the unsaved change as if it were saved.
+	// saved is an untouched copy of doc as the store last gave it. The actions
+	// change doc in memory before they write, so when the write fails and the
+	// reload cannot replace doc either, commit puts a copy of saved back rather
+	// than show the unsaved change as if it were saved.
 	saved *todo.Document
-	// lastRev is the store revision doc reflects: the one todo last loaded,
-	// which after its own write is the revision that write produced. The poll
-	// loop compares the store against it to tell an external write (reload) from
-	// the app's own (ignore).
-	lastRev int64
-	// unsynced is set when the app's own write succeeded but the reload after
-	// it failed: lastRev is the revision that write produced, but doc is the
-	// in-memory change, not read back from the store (a new item has no ID
-	// yet). The next poll loads the list regardless, as the app's own write.
-	unsynced bool
-	err      error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
-	// pollErr is the reload failure last put in err, by the poll or by commit
-	// after a write that succeeded, kept to show each distinct poll failure once
-	// and to clear it when a later reload succeeds.
+	// lastFP is the fingerprint of the list file doc reflects: the one todo
+	// last loaded, which after its own write is the file that write left. The
+	// poll loop asks the store whether the file changed since, to tell an
+	// external write (reload) from the app's own (ignore).
+	lastFP todo.Fingerprint
+	err    error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
+	// pollErr is the poll failure last put in err, kept to show each distinct
+	// poll failure once and to clear it when a later poll succeeds.
 	pollErr error
-	// opener opens the store again at its path, the way the caller opened it,
-	// after the file there was replaced (see reopenStore).
-	opener func() (*todo.Store, error)
+	// pollFails counts the polls in a row that failed; a failure is shown only
+	// once pollFailsShown of them did (see handleReloadFailed).
+	pollFails int
 
 	// Layout: what the trees show and how the screen is split.
 	//
@@ -129,17 +122,13 @@ const BusyTimeout = 750 * time.Millisecond
 // Run loads the list from st and starts the interactive TUI. notice (e.g. the
 // automatic TODO.md import summary) is shown in the footer at start; it may be
 // empty. The caller owns st, opened with BusyTimeout, and closes it after Run
-// returns; a store the TUI reopened after the file was replaced is closed by
-// Run.
+// returns.
 func Run(st *todo.Store, notice string) error {
 	m, err := newModel(st, notice)
 	if err != nil {
 		return err
 	}
-	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
-	if fm, ok := final.(model); ok && fm.store != st {
-		_ = fm.store.Close()
-	}
+	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
 
@@ -149,15 +138,13 @@ func Run(st *todo.Store, notice string) error {
 // line. Split out from Run so tests can drive the model without starting a real
 // terminal program.
 func newModel(st *todo.Store, notice string) (model, error) {
-	doc, rev, err := st.Load(context.Background())
+	doc, fp, err := st.Load(context.Background())
 	if err != nil {
 		return model{}, err
 	}
 	v := newViewState()
-	path := st.Path()
 	return model{
 		store:     st,
-		opener:    func() (*todo.Store, error) { return todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout)) },
 		version:   metainfo.Version,
 		doc:       doc,
 		saved:     doc.Clone(),
@@ -166,12 +153,12 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		side:      newSidebar(doc, v),
 		mode:      modeMain,
 		snapshots: map[string]todo.DoneStates{},
-		lastRev:   rev,
+		lastFP:    fp,
 		status:    strings.ReplaceAll(notice, "\n", " · "),
 	}, nil
 }
 
-// Init starts the revision-poll loop that keeps the view in sync with external
+// Init starts the change-poll loop that keeps the view in sync with external
 // writes to the store.
 func (m model) Init() tea.Cmd { return pollCmd() }
 
@@ -199,8 +186,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleReload(msg)
 	case reloadFailedMsg:
 		return m.handleReloadFailed(msg)
-	case storeReopenedMsg:
-		return m.handleReopen(msg)
 	case reloadRecoveredMsg:
 		m.clearPollErr()
 		return m, nil
