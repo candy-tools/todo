@@ -296,8 +296,8 @@ func (it *Item) clone(parent *Item) *Item {
 	return &c
 }
 
-// AppendRoot appends it as the last top-level item of the document.
-func (d *Document) AppendRoot(it *Item) {
+// appendRoot appends it as the last top-level item of the document.
+func (d *Document) appendRoot(it *Item) {
 	it.Parent = nil
 	d.Roots = append(d.Roots, it)
 }
@@ -319,12 +319,12 @@ func (d *Document) siblings(it *Item) (list []*Item, idx int, found bool) {
 	return list, -1, false
 }
 
-// Remove detaches it from the tree. It is a no-op (returning false) if it is
-// not found among its peers.
-func (d *Document) Remove(it *Item) bool {
+// remove detaches it from the tree; it does nothing when it is not found
+// among its peers.
+func (d *Document) remove(it *Item) {
 	list, idx, ok := d.siblings(it)
 	if !ok {
-		return false
+		return
 	}
 	list = append(list[:idx], list[idx+1:]...)
 	if it.Parent != nil {
@@ -332,7 +332,6 @@ func (d *Document) Remove(it *Item) bool {
 	} else {
 		d.Roots = list
 	}
-	return true
 }
 
 // Descendants returns every item nested under it, depth-first, excluding it.

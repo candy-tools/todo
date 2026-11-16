@@ -82,7 +82,7 @@ func TestImportRejectsInvalidTitles(t *testing.T) {
 	s := newStore(t)
 	doc := &Document{}
 	cat := &Item{Kind: Category, Level: 1, Title: "C"}
-	doc.AppendRoot(cat)
+	doc.appendRoot(cat)
 	cat.AppendChild(&Item{Kind: Task, Title: "a\x1b]0;x\x07"})
 	rejects(t, s, ErrInvalidTitle, func() error {
 		return errOf(importInto(context.Background(), s, doc, false))

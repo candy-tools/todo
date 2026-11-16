@@ -2,38 +2,17 @@ package todo
 
 import (
 	"context"
-	"maps"
 
 	"github.com/candy-tools/todo/libs/jsonfile"
 )
 
-// ReopenTarget is the state reopening it lands on: Open for a subtask, which
+// reopenTarget is the state reopening it lands on: Open for a subtask, which
 // can only be open or done, and Working for any other task.
-func ReopenTarget(it *Item) Status {
+func reopenTarget(it *Item) Status {
 	if it.IsSubtask() {
 		return Open
 	}
 	return Working
-}
-
-// ReopenStates is the set of statuses that reopens task id into st and gives
-// the tasks in restore (an undo snapshot from SnapshotDone, nil for none) their
-// recorded states back. It returns a new map and never changes restore.
-func ReopenStates(id string, st Status, restore DoneStates) DoneStates {
-	states := make(DoneStates, len(restore)+1)
-	maps.Copy(states, restore)
-	states[id] = st
-	return states
-}
-
-// ReopenOptions say what a Reopen does to the subtasks. With neither set they
-// keep their states.
-type ReopenOptions struct {
-	// Restore gives the tasks it holds their recorded states back (see
-	// SnapshotDone and ReopenStates).
-	Restore DoneStates
-	// Cascade opens every task below the reopened one.
-	Cascade bool
 }
 
 // StateOptions say what a SetState does beyond setting the task's own state.
@@ -72,17 +51,9 @@ func (s *Store) SetState(ctx context.Context, id string, st Status, o StateOptio
 	})
 }
 
-// Complete sets task id to Done, in one write. With cascade every item below
-// it, as the list is at write time, is set to Done too (see CascadeStatus);
-// without it the subtasks keep their states. A category fails it with
-// ErrNotTask.
-func (s *Store) Complete(ctx context.Context, id string, cascade bool) (WriteResult, error) {
-	return s.change(ctx, func(d *Document) error { return d.Complete(id, cascade) })
-}
-
 // Reopen takes task id out of Done in one write, deciding under the lock from
 // the task as it is then, not the caller's copy: a done task goes to
-// ReopenTarget (Working, or Open for a subtask); with cascade every task below
+// reopenTarget (Working, or Open for a subtask); with cascade every task below
 // it is opened too. A task that is not done keeps its state: with cascade its
 // subtasks are opened, without it nothing is written. A missing id fails
 // with ErrNotFound and a category with ErrNotTask. It is the write-time form
@@ -99,7 +70,7 @@ func (s *Store) Reopen(ctx context.Context, id string, cascade bool) (WriteResul
 		st := it.Status
 		switch {
 		case st == Done:
-			st = ReopenTarget(it)
+			st = reopenTarget(it)
 		case !cascade:
 			return false, nil
 		}

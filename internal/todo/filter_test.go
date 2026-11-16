@@ -31,8 +31,8 @@ func buildFilterTree() (d *todo.Document, work, taskA, cata, buy, taskB, home, g
 	home.AppendChild(groc)
 
 	d = &todo.Document{}
-	d.AppendRoot(work)
-	d.AppendRoot(home)
+	d.Roots = append(d.Roots, work)
+	d.Roots = append(d.Roots, home)
 	return
 }
 
@@ -111,7 +111,7 @@ func TestVisibleItemsMatchesDescription(t *testing.T) {
 	work.AppendChild(taskA)
 	taskA.AppendChild(buy)
 	d := &todo.Document{}
-	d.AppendRoot(work)
+	d.Roots = append(d.Roots, work)
 
 	vis := d.VisibleItems("flashlight")
 	if !vis[buy] {

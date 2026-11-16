@@ -6,40 +6,18 @@ import (
 	"testing"
 )
 
-func TestReopenTarget(t *testing.T) {
+func TestReopenTargetIsWorkingOrOpen(t *testing.T) {
 	cat := &Item{Kind: Category, Title: "C"}
 	task := &Item{Kind: Task, Title: "task", Status: Done}
 	sub := &Item{Kind: Task, Title: "sub", Status: Done}
 	cat.AppendChild(task)
 	task.AppendChild(sub)
 
-	if got := ReopenTarget(task); got != Working {
-		t.Errorf("ReopenTarget(task) = %v, want working", got)
+	if got := reopenTarget(task); got != Working {
+		t.Errorf("reopenTarget(task) = %v, want working", got)
 	}
-	if got := ReopenTarget(sub); got != Open {
-		t.Errorf("ReopenTarget(subtask) = %v, want open", got)
-	}
-}
-
-func TestReopenStatesCopiesRestore(t *testing.T) {
-	restore := DoneStates{"1": Review, "2": Open, "3": Done}
-	got := ReopenStates("1", New, restore)
-
-	if want := (DoneStates{"1": New, "2": Open, "3": Done}); !reflect.DeepEqual(got, want) {
-		t.Fatalf("ReopenStates = %v, want %v", got, want)
-	}
-	if want := (DoneStates{"1": Review, "2": Open, "3": Done}); !reflect.DeepEqual(restore, want) {
-		t.Fatalf("restore after ReopenStates = %v, want it untouched: %v", restore, want)
-	}
-	got["2"] = Done
-	if restore["2"] != Open {
-		t.Fatalf("the result shares its map with restore")
-	}
-}
-
-func TestReopenStatesNilRestore(t *testing.T) {
-	if got, want := ReopenStates("7", Working, nil), (DoneStates{"7": Working}); !reflect.DeepEqual(got, want) {
-		t.Fatalf("ReopenStates(nil) = %v, want %v", got, want)
+	if got := reopenTarget(sub); got != Open {
+		t.Errorf("reopenTarget(subtask) = %v, want open", got)
 	}
 }
 
@@ -58,10 +36,10 @@ func TestCompleteTargetOnly(t *testing.T) {
 	s := newStore(t)
 	ids := addTaskTree(t, s, Working)
 
-	mustOK(t)(s.Complete(context.Background(), ids.task, false))
+	mustOK(t)(s.SetState(context.Background(), ids.task, Done, StateOptions{}))
 
 	if got, want := statuses(t, s, ids.task, ids.sub), []Status{Done, Open}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("task, sub after Complete without cascade = %v, want %v", got, want)
+		t.Fatalf("task, sub after completing without cascade = %v, want %v", got, want)
 	}
 }
 
@@ -69,10 +47,10 @@ func TestCompleteCascade(t *testing.T) {
 	s := newStore(t)
 	ids := addTaskTree(t, s, Working)
 
-	mustOK(t)(s.Complete(context.Background(), ids.task, true))
+	mustOK(t)(s.SetState(context.Background(), ids.task, Done, StateOptions{Cascade: true}))
 
 	if got, want := statuses(t, s, ids.task, ids.sub), []Status{Done, Done}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("task, sub after Complete with cascade = %v, want %v", got, want)
+		t.Fatalf("task, sub after completing with cascade = %v, want %v", got, want)
 	}
 }
 
@@ -83,7 +61,7 @@ func doneTaskTree(t *testing.T, s *Store) (ids taskTree, sub2 string) {
 	ctx := context.Background()
 	ids = addTaskTree(t, s, Working)
 	sub2 = mustID(t)(s.AddTask(ctx, Fields{Title: "sub2"}, Open, ids.task, ids.sub))
-	mustOK(t)(s.Complete(ctx, ids.task, true))
+	mustOK(t)(s.SetState(ctx, ids.task, Done, StateOptions{Cascade: true}))
 	return ids, sub2
 }
 
@@ -170,11 +148,11 @@ func TestReopenRestoreSkipsSubtaskChangedSince(t *testing.T) {
 	s := newStore(t)
 	ids := addTaskTree(t, s, Working)
 	sub2 := mustID(t)(s.AddTask(ctx, Fields{Title: "sub2"}, Open, ids.task, ids.sub))
-	mustOK(t)(s.SetStatuses(ctx, DoneStates{ids.sub: Done}))
+	mustOK(t)(s.SetState(ctx, ids.sub, Done, StateOptions{}))
 	snapshot := SnapshotDone(item(t, load(t, s), ids.task)) // task Working, sub Done, sub2 Open
-	mustOK(t)(s.Complete(ctx, ids.task, true))
+	mustOK(t)(s.SetState(ctx, ids.task, Done, StateOptions{Cascade: true}))
 
-	mustOK(t)(NewStore(s.Path()).SetStatuses(ctx, DoneStates{ids.sub: Open})) // another writer
+	mustOK(t)(NewStore(s.Path()).SetState(ctx, ids.sub, Open, StateOptions{})) // another writer
 	mustOK(t)(s.SetState(ctx, ids.task, Working, StateOptions{Restore: snapshot}))
 
 	if got, want := statuses(t, s, ids.task, ids.sub, sub2), []Status{Working, Open, Open}; !reflect.DeepEqual(got, want) {
@@ -204,13 +182,13 @@ func TestReopenRestoreAndCascadeIsRefused(t *testing.T) {
 	}
 }
 
-func TestCompleteAndReopenOnCategoryIsNotTask(t *testing.T) {
+func TestStateChangesOnCategoryAreNotTask(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	ids := addTaskTree(t, s, Open)
 
 	for _, cascade := range []bool{false, true} {
-		rejects(t, s, ErrNotTask, func() error { return errOf(s.Complete(ctx, ids.C, cascade)) })
+		rejects(t, s, ErrNotTask, func() error { return errOf(s.SetState(ctx, ids.C, Done, StateOptions{Cascade: cascade})) })
 		rejects(t, s, ErrNotTask, func() error { return errOf(s.Reopen(ctx, ids.C, cascade)) })
 	}
 	rejects(t, s, ErrNotTask, func() error {
@@ -222,7 +200,7 @@ func TestSubtaskReopensToOpenAndRefusesBoardStates(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	ids := addTaskTree(t, s, Working)
-	mustOK(t)(s.Complete(ctx, ids.sub, false))
+	mustOK(t)(s.SetState(ctx, ids.sub, Done, StateOptions{}))
 
 	rejects(t, s, ErrSubtaskStatus, func() error { return errOf(s.SetState(ctx, ids.sub, Working, StateOptions{})) })
 	rejects(t, s, ErrSubtaskStatus, func() error {

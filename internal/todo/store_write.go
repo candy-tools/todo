@@ -97,24 +97,6 @@ func (s *Store) Edit(ctx context.Context, id string, c Changes) (WriteResult, er
 	return s.write(ctx, func(d *Document) (bool, error) { return d.Edit(id, c) })
 }
 
-// SetStatuses sets the status of every item in states. Naming an ID the list
-// does not hold, such as a task another process deleted since the caller's
-// read, fails the whole write with ErrNotFound; giving a subtask a state other
-// than Open or Done fails it with ErrSubtaskStatus, and naming a category with
-// ErrNotTask.
-func (s *Store) SetStatuses(ctx context.Context, states map[string]Status) (WriteResult, error) {
-	return s.change(ctx, func(d *Document) error { return d.SetStatuses(states) })
-}
-
-// CascadeStatus sets item id to st and every item below it, as the list is at
-// write time, to Done when st is Done and to Open otherwise: a board state
-// never reaches a subtask. When id is itself a subtask, st must be Open or
-// Done, or the write fails with ErrSubtaskStatus. A category fails it with
-// ErrNotTask.
-func (s *Store) CascadeStatus(ctx context.Context, id string, st Status) (WriteResult, error) {
-	return s.change(ctx, func(d *Document) error { return d.CascadeStatus(id, st) })
-}
-
 // Move places item id, with its subtree, under parentID ("" for a root), after
 // the sibling afterID ("" places it first), resolving both in the list as it
 // is at write time. A missing item or parent is ErrNotFound, and an afterID no

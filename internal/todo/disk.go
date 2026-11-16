@@ -126,7 +126,7 @@ func fromDisk(l diskList) *Document {
 	for _, c := range l.Categories {
 		it := cats[c.ID]
 		if c.Parent == "" {
-			d.AppendRoot(it)
+			d.appendRoot(it)
 		} else {
 			cats[c.Parent].AppendChild(it)
 		}

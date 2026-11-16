@@ -31,7 +31,7 @@ func buildTree() (parent, c1, c2, g1 *todo.Item) {
 func TestCloneIsDeep(t *testing.T) {
 	parent, c1, _, g1 := buildTree()
 	d := &todo.Document{}
-	d.AppendRoot(parent)
+	d.Roots = append(d.Roots, parent)
 	c := d.Clone()
 	cp := c.Roots[0]
 	if cp == parent || cp.Title != "parent" || cp.Parent != nil || len(cp.Children) != 2 {
@@ -41,7 +41,7 @@ func TestCloneIsDeep(t *testing.T) {
 	if cc1 == c1 || cc1.Parent != cp || cc1.Children[0] == g1 || cc1.Children[0].Parent != cc1 {
 		t.Errorf("clone children must be copies linked to their cloned parents")
 	}
-	c.Remove(cc1)
+	cp.Children = cp.Children[1:]
 	cp.Title = "changed"
 	if len(parent.Children) != 2 || parent.Title != "parent" {
 		t.Errorf("changing the clone changed the original: %+v", parent)
@@ -121,33 +121,10 @@ func TestSnapshotDone(t *testing.T) {
 	}
 }
 
-func TestRemove(t *testing.T) {
-	d := &todo.Document{}
-	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
-	d.AppendRoot(cat)
-	a := newTask("a", "", todo.Open)
-	b := newTask("b", "", todo.Open)
-	cat.AppendChild(a)
-	cat.AppendChild(b)
-
-	if !d.Remove(a) {
-		t.Fatal("Remove returned false")
-	}
-	if len(cat.Children) != 1 || cat.Children[0] != b {
-		t.Errorf("remove wrong: %v", titles(cat.Children))
-	}
-	if !d.Remove(cat) {
-		t.Fatal("Remove of a root returned false")
-	}
-	if len(d.Roots) != 0 {
-		t.Errorf("root not removed")
-	}
-}
-
 func TestRemovableDoneCountsDoneLeaves(t *testing.T) {
 	d := &todo.Document{}
 	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
-	d.AppendRoot(cat)
+	d.Roots = append(d.Roots, cat)
 	cat.AppendChild(newTask("a", "", todo.Done)) // done
 	cat.AppendChild(newTask("b", "", todo.Open)) // open
 	cat.AppendChild(newTask("c", "", todo.Done)) // done
@@ -160,7 +137,7 @@ func TestRemovableDoneCountsDoneLeaves(t *testing.T) {
 func TestRemovableDoneKeepsUnfinishedSubtree(t *testing.T) {
 	d := &todo.Document{}
 	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
-	d.AppendRoot(cat)
+	d.Roots = append(d.Roots, cat)
 
 	// p1 is done and its whole subtree is done -> the subtree is removed.
 	p1 := newTask("p1", "", todo.Done)
@@ -183,7 +160,7 @@ func TestRemovableDoneKeepsUnfinishedSubtree(t *testing.T) {
 func TestRemovableDoneCountsNestedSubtree(t *testing.T) {
 	d := &todo.Document{}
 	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
-	d.AppendRoot(cat)
+	d.Roots = append(d.Roots, cat)
 	cat.AppendChild(newTask("x", "", todo.Done)) // done leaf
 	p := newTask("p", "", todo.Done)             // done parent, done child
 	p.AppendChild(newTask("pc", "", todo.Done))

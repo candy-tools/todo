@@ -239,7 +239,7 @@ func parseMarkdown(src string) (*Document, []string) {
 		if len(catStack) > 0 {
 			catStack[len(catStack)-1].AppendChild(it)
 		} else {
-			doc.AppendRoot(it)
+			doc.appendRoot(it)
 		}
 	}
 

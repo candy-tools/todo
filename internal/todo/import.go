@@ -46,7 +46,7 @@ func ImportMarkdown(src []byte) (*Document, ImportReport, error) {
 	doc.Roots = roots
 	if len(loose) > 0 {
 		cat := &Item{Kind: Category, Level: 1, Title: uncategorizedTitle}
-		doc.AppendRoot(cat)
+		doc.appendRoot(cat)
 		for _, t := range loose {
 			cat.AppendChild(t)
 		}

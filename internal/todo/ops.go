@@ -281,14 +281,10 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	return changed, nil
 }
 
-// SetStatuses sets the status of every task in states, or of none: an ID d
-// does not hold fails it with ErrNotFound, a category with ErrNotTask, and a
-// subtask given a state other than Open or Done with ErrSubtaskStatus.
-func (d *Document) SetStatuses(states DoneStates) error {
-	return d.setStatuses(states, d.index())
-}
-
-// setStatuses is SetStatuses on the index ix of d.
+// setStatuses sets the status of every task in states, or of none, on the
+// index ix of d: an ID d does not hold fails it with ErrNotFound, a category
+// with ErrNotTask, and a subtask given a state other than Open or Done with
+// ErrSubtaskStatus.
 func (d *Document) setStatuses(states DoneStates, ix itemIndex) error {
 	ids := slices.Sorted(maps.Keys(states))
 	for _, id := range ids {
@@ -312,11 +308,11 @@ func (d *Document) setStatuses(states DoneStates, ix itemIndex) error {
 	return nil
 }
 
-// CascadeStatus sets task id to st and every item below it to Done when st is
+// cascadeStatus sets task id to st and every item below it to Done when st is
 // Done and to Open otherwise: a board state never reaches a subtask. A missing
 // id is ErrNotFound, a category ErrNotTask, and a subtask given a state other
 // than Open or Done ErrSubtaskStatus.
-func (d *Document) CascadeStatus(id string, st Status) error {
+func (d *Document) cascadeStatus(id string, st Status) error {
 	it, err := d.lookup(id)
 	if err != nil {
 		return err
@@ -338,31 +334,14 @@ func (d *Document) CascadeStatus(id string, st Status) error {
 	return nil
 }
 
-// Complete sets task id to Done. With cascade every item below it is set to
-// Done too (see CascadeStatus); without it the subtasks keep their states.
-func (d *Document) Complete(id string, cascade bool) error {
-	if cascade {
-		return d.CascadeStatus(id, Done)
-	}
-	return d.SetStatuses(DoneStates{id: Done})
-}
-
-// Reopen sets task id to st and treats its subtasks as o says: o.Cascade opens
-// them all (see CascadeStatus), o.Restore gives them their snapshot states back
-// (see ReopenStates), and with neither they keep theirs. o.Restore undoes a
-// complete, so it gives back only what that complete left: an entry is
-// applied only to an item that is still below task id and still Done, and
-// skipped for one d no longer holds, that moved elsewhere or whose state
-// changed since (say, another writer reopened it). Setting both fails with
-// ErrRestoreAndCascade before anything else is checked; otherwise it fails as
-// SetStatuses or CascadeStatus does.
-func (d *Document) Reopen(id string, st Status, o ReopenOptions) error {
-	if o.Restore != nil && o.Cascade {
-		return ErrRestoreAndCascade
-	}
-	if o.Cascade {
-		return d.CascadeStatus(id, st)
-	}
+// reopen sets task id to st and gives the tasks in restore, an undo snapshot
+// (see SnapshotDone), their recorded states back; with no snapshot the
+// subtasks keep their states. restore undoes a complete, so it gives back
+// only what that complete left: an entry is applied only to an item that is
+// still below task id and still Done, and skipped for one d no longer holds,
+// that moved elsewhere or whose state changed since (say, another writer
+// reopened it). It fails as setStatuses does, and never changes restore.
+func (d *Document) reopen(id string, st Status, restore DoneStates) error {
 	ix := d.index()
 	below := map[*Item]bool{}
 	if it, ok := ix[id]; ok {
@@ -370,27 +349,27 @@ func (d *Document) Reopen(id string, st Status, o ReopenOptions) error {
 			below[c] = true
 		}
 	}
-	restore := make(DoneStates, len(o.Restore))
-	for rid, rst := range o.Restore {
+	states := DoneStates{id: st}
+	for rid, rst := range restore {
 		if it, ok := ix[rid]; ok && below[it] && it.Status == Done {
-			restore[rid] = rst
+			states[rid] = rst
 		}
 	}
-	return d.setStatuses(ReopenStates(id, st, restore), ix)
+	return d.setStatuses(states, ix)
 }
 
 // SetState sets task id to st, deciding from the state the task is in now what
 // that means, so one call serves every state change:
 //
-//   - into Done (st is Done) it completes the task, as Complete does;
-//   - out of Done (the task is Done and st is not) it reopens it, as Reopen
-//     does, giving back o.Restore's states to the tasks the complete left
-//     done;
+//   - into Done (st is Done) it completes the task;
+//   - out of Done (the task is Done and st is not) it reopens it, giving back
+//     o.Restore's states to the tasks the complete left done that are still
+//     below the task and still Done;
 //   - any other change just sets st; o.Restore is not used, as there is no
 //     complete to undo.
 //
 // With o.Cascade every task below it is set too, to Done when st is Done and
-// to Open otherwise (see CascadeStatus), whichever case applies; without it the
+// to Open otherwise, whichever case applies; without it the
 // subtasks keep their states (but for a restore). changed is false when every
 // status already held its value. Setting both o.Restore and o.Cascade fails
 // with ErrRestoreAndCascade before anything else is checked; a missing id is
@@ -407,11 +386,11 @@ func (d *Document) SetState(id string, st Status, o StateOptions) (changed bool,
 	before := d.statuses()
 	switch {
 	case o.Cascade:
-		err = d.CascadeStatus(id, st)
+		err = d.cascadeStatus(id, st)
 	case it.Status == Done && st != Done:
-		err = d.Reopen(id, st, ReopenOptions{Restore: o.Restore})
+		err = d.reopen(id, st, o.Restore)
 	default:
-		err = d.SetStatuses(DoneStates{id: st})
+		err = d.setStatuses(DoneStates{id: st}, d.index())
 	}
 	if err != nil {
 		return false, err
@@ -472,7 +451,7 @@ func (d *Document) Move(id, parentID, afterID string) error {
 		}
 		it.Status = StatusAfterMove(it.Status, toSubtask, oldParent)
 	}
-	d.Remove(it)
+	d.remove(it)
 	d.place(parent, pos, it)
 	return nil
 }
@@ -484,7 +463,7 @@ func (d *Document) Delete(id string) error {
 	if err != nil {
 		return err
 	}
-	d.Remove(it)
+	d.remove(it)
 	return nil
 }
 
@@ -495,7 +474,7 @@ func (d *Document) Prune() int {
 	for _, it := range d.DoneSubtrees() {
 		_, total := it.TaskCounts()
 		n += 1 + total
-		d.Remove(it)
+		d.remove(it)
 	}
 	return n
 }

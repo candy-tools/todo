@@ -158,7 +158,7 @@ func TestStoreStaleCallerOps(t *testing.T) {
 	mustOK(t)(b.Delete(ctx, tk))
 
 	want := fileBytes(t, a.Path())
-	if _, err := a.Complete(ctx, tk, false); !errors.Is(err, ErrNotFound) {
+	if _, err := a.SetState(ctx, tk, Done, StateOptions{}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stale Complete = %v, want ErrNotFound", err)
 	}
 	if _, err := a.Move(ctx, x, cat, tk); !errors.Is(err, ErrConflict) {
@@ -229,7 +229,7 @@ func TestStoreRefusesInvalidFile(t *testing.T) {
 func TestStoreRefusedValueIsNotAnInvalidFile(t *testing.T) {
 	s := newStore(t)
 	doc := &Document{}
-	doc.AppendRoot(&Item{ID: "not-an-id", Kind: Category, Title: "New"})
+	doc.appendRoot(&Item{ID: "not-an-id", Kind: Category, Title: "New"})
 	_, err := importInto(context.Background(), s, doc, false)
 	if err == nil {
 		t.Fatal("Import of a list with a malformed ID returned nil error")
@@ -320,9 +320,7 @@ func everyWrite(s *Store, cat, task string) map[string]func() error {
 		"AddTask":        func() error { _, _, err := s.AddTask(ctx, Fields{Title: "x"}, Open, cat, ""); return err },
 		"AppendTask":     func() error { _, _, err := s.AppendTask(ctx, Fields{Title: "x"}, Open, cat); return err },
 		"Edit":           func() error { return errOf(s.Edit(ctx, task, Changes{Title: new("y")})) },
-		"SetStatuses":    func() error { return errOf(s.SetStatuses(ctx, map[string]Status{task: Done})) },
-		"CascadeStatus":  func() error { return errOf(s.CascadeStatus(ctx, task, Done)) },
-		"Complete":       func() error { return errOf(s.Complete(ctx, task, false)) },
+		"SetState done":  func() error { return errOf(s.SetState(ctx, task, Done, StateOptions{Cascade: true})) },
 		"Reopen":         func() error { return errOf(s.Reopen(ctx, task, false)) },
 		"SetState":       func() error { return errOf(s.SetState(ctx, task, Working, StateOptions{})) },
 		"Move":           func() error { return errOf(s.Move(ctx, task, cat, "")) },

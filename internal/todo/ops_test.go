@@ -476,107 +476,6 @@ func TestOpEditMissingNotFound(t *testing.T) {
 	wantErr(t, err, todo.ErrNotFound)
 }
 
-// --- SetStatuses / CascadeStatus / Complete ---
-
-func TestOpSetStatusesApplies(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] x\n  - [ ] s\n- [ ] y\n")
-	err := d.SetStatuses(todo.DoneStates{idOf(t, d, "x"): todo.Review, idOf(t, d, "s"): todo.Done})
-	wantNoErr(t, err)
-	wantDoc(t, d, "# A\n\n- [review] x\n  - [x] s\n- [ ] y\n")
-}
-
-func TestOpSetStatusesAllOrNothing(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] x\n")
-	err := d.SetStatuses(todo.DoneStates{idOf(t, d, "x"): todo.Done, "zzzzzzz": todo.Done})
-	wantErr(t, err, todo.ErrNotFound)
-	wantDoc(t, d, "# A\n\n- [ ] x\n")
-}
-
-func TestOpSetStatusesCategoryNotTask(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] x\n")
-	err := d.SetStatuses(todo.DoneStates{idOf(t, d, "x"): todo.Done, idOf(t, d, "A"): todo.Done})
-	wantErr(t, err, todo.ErrNotTask)
-	wantDoc(t, d, "# A\n\n- [ ] x\n")
-}
-
-func TestOpSetStatusesSubtaskBoardState(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] x\n  - [ ] s\n")
-	err := d.SetStatuses(todo.DoneStates{idOf(t, d, "x"): todo.Done, idOf(t, d, "s"): todo.Working})
-	wantErr(t, err, todo.ErrSubtaskStatus)
-	wantDoc(t, d, "# A\n\n- [ ] x\n  - [ ] s\n")
-}
-
-func TestOpCascadeBoardStateOpensSubtasks(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] x\n  - [x] s\n  - [ ] t\n")
-	wantNoErr(t, d.CascadeStatus(idOf(t, d, "x"), todo.Working))
-	wantDoc(t, d, "# A\n\n- [/] x\n  - [ ] s\n  - [ ] t\n")
-}
-
-func TestOpCascadeDoneCompletesSubtree(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] x\n  - [ ] s\n- [ ] y\n")
-	wantNoErr(t, d.CascadeStatus(idOf(t, d, "x"), todo.Done))
-	wantDoc(t, d, "# A\n\n- [x] x\n  - [x] s\n- [ ] y\n")
-}
-
-func TestOpCascadeRules(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] x\n  - [ ] s\n")
-	wantErr(t, d.CascadeStatus(idOf(t, d, "A"), todo.Done), todo.ErrNotTask)
-	wantErr(t, d.CascadeStatus(idOf(t, d, "s"), todo.Working), todo.ErrSubtaskStatus)
-	wantErr(t, d.CascadeStatus("zzzzzzz", todo.Done), todo.ErrNotFound)
-	wantNoErr(t, d.CascadeStatus(idOf(t, d, "s"), todo.Done))
-	wantDoc(t, d, "# A\n\n- [ ] x\n  - [x] s\n")
-}
-
-func TestOpComplete(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] x\n  - [ ] s\n- [/] y\n  - [ ] t\n")
-	wantNoErr(t, d.Complete(idOf(t, d, "x"), false))
-	wantNoErr(t, d.Complete(idOf(t, d, "y"), true))
-	wantDoc(t, d, "# A\n\n- [x] x\n  - [ ] s\n- [x] y\n  - [x] t\n")
-	wantErr(t, d.Complete(idOf(t, d, "A"), false), todo.ErrNotTask)
-	wantErr(t, d.Complete(idOf(t, d, "A"), true), todo.ErrNotTask)
-}
-
-// --- Reopen ---
-
-func TestOpReopenKeepsSubtasks(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [x] x\n  - [x] s\n")
-	wantNoErr(t, d.Reopen(idOf(t, d, "x"), todo.Working, todo.ReopenOptions{}))
-	wantDoc(t, d, "# A\n\n- [/] x\n  - [x] s\n")
-}
-
-func TestOpReopenCascadeOpensSubtasks(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [x] x\n  - [x] s\n")
-	wantNoErr(t, d.Reopen(idOf(t, d, "x"), todo.Working, todo.ReopenOptions{Cascade: true}))
-	wantDoc(t, d, "# A\n\n- [/] x\n  - [ ] s\n")
-}
-
-func TestOpReopenRestoreSkipsDeleted(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] x\n  - [ ] s\n  - [x] t\n  - [ ] u\n")
-	x := find(d, "x")
-	snap := todo.SnapshotDone(x)
-	wantNoErr(t, d.CascadeStatus(x.ID, todo.Done))
-	wantNoErr(t, d.Delete(idOf(t, d, "u")))
-	err := d.Reopen(x.ID, todo.Working, todo.ReopenOptions{Restore: snap})
-	wantNoErr(t, err)
-	wantDoc(t, d, "# A\n\n- [/] x\n  - [ ] s\n  - [x] t\n")
-}
-
-func TestOpReopenRestoreAndCascade(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [x] x\n")
-	o := todo.ReopenOptions{Restore: todo.DoneStates{}, Cascade: true}
-	wantErr(t, d.Reopen(idOf(t, d, "x"), todo.Working, o), todo.ErrRestoreAndCascade)
-	wantErr(t, d.Reopen("zzzzzzz", todo.Working, o), todo.ErrRestoreAndCascade)
-}
-
-func TestOpReopenRules(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [x] x\n  - [x] s\n")
-	wantErr(t, d.Reopen("zzzzzzz", todo.Working, todo.ReopenOptions{}), todo.ErrNotFound)
-	wantErr(t, d.Reopen(idOf(t, d, "A"), todo.Working, todo.ReopenOptions{}), todo.ErrNotTask)
-	wantErr(t, d.Reopen(idOf(t, d, "s"), todo.Working, todo.ReopenOptions{}), todo.ErrSubtaskStatus)
-	wantErr(t, d.Reopen(idOf(t, d, "s"), todo.Working, todo.ReopenOptions{Cascade: true}), todo.ErrSubtaskStatus)
-	wantDoc(t, d, "# A\n\n- [x] x\n  - [x] s\n")
-}
-
 // --- SetState ---
 
 // setState runs d.SetState and returns its error, failing the test when an
@@ -613,10 +512,31 @@ func TestOpSetStateOutOfDoneRestores(t *testing.T) {
 	x := find(d, "x")
 	snap := todo.SnapshotDone(x)
 	wantNoErr(t, setState(t, d, x.ID, todo.Done, todo.StateOptions{Cascade: true}))
-	wantNoErr(t, d.SetStatuses(todo.DoneStates{idOf(t, d, "u"): todo.Open})) // changed since
+	wantNoErr(t, setState(t, d, idOf(t, d, "u"), todo.Open, todo.StateOptions{})) // changed since
 	snap[idOf(t, d, "u")] = todo.Done
 	wantNoErr(t, setState(t, d, x.ID, todo.Review, todo.StateOptions{Restore: snap}))
 	wantDoc(t, d, "# A\n\n- [review] x\n  - [ ] s\n  - [x] t\n  - [ ] u\n")
+}
+
+// Out of Done with Restore, a snapshot entry for a subtask deleted since is
+// skipped.
+func TestOpSetStateRestoreSkipsDeleted(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [ ] x\n  - [ ] s\n  - [x] t\n  - [ ] u\n")
+	x := find(d, "x")
+	snap := todo.SnapshotDone(x)
+	wantNoErr(t, setState(t, d, x.ID, todo.Done, todo.StateOptions{Cascade: true}))
+	wantNoErr(t, d.Delete(idOf(t, d, "u")))
+	wantNoErr(t, setState(t, d, x.ID, todo.Working, todo.StateOptions{Restore: snap}))
+	wantDoc(t, d, "# A\n\n- [/] x\n  - [ ] s\n  - [x] t\n")
+}
+
+// A restore that would give a subtask a board state fails whole with
+// ErrSubtaskStatus: the task stays done too.
+func TestOpSetStateRestoreSubtaskBoardState(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [x] x\n  - [x] s\n")
+	o := todo.StateOptions{Restore: todo.DoneStates{idOf(t, d, "s"): todo.Working}}
+	wantErr(t, setState(t, d, idOf(t, d, "x"), todo.Open, o), todo.ErrSubtaskStatus)
+	wantDoc(t, d, "# A\n\n- [x] x\n  - [x] s\n")
 }
 
 // A task not in Done, set to another state that is not Done, just takes it:
@@ -784,26 +704,25 @@ func TestOpErrorsLeaveDocumentUnchanged(t *testing.T) {
 			_, err := d.Edit("zzzzzzz", todo.Changes{Title: str("n")})
 			return err
 		}},
-		{"SetStatuses missing", func(d *todo.Document, id func(string) string) error {
-			return d.SetStatuses(todo.DoneStates{id("y"): todo.Done, "zzzzzzz": todo.Done})
+		{"SetState missing", func(d *todo.Document, _ func(string) string) error {
+			_, err := d.SetState("zzzzzzz", todo.Done, todo.StateOptions{Cascade: true})
+			return err
 		}},
-		{"SetStatuses category", func(d *todo.Document, id func(string) string) error {
-			return d.SetStatuses(todo.DoneStates{id("y"): todo.Done, id("A"): todo.Done})
+		{"SetState category", func(d *todo.Document, id func(string) string) error {
+			_, err := d.SetState(id("A"), todo.Done, todo.StateOptions{})
+			return err
 		}},
-		{"SetStatuses subtask state", func(d *todo.Document, id func(string) string) error {
-			return d.SetStatuses(todo.DoneStates{id("y"): todo.Done, id("s"): todo.Review})
+		{"SetState cascade on category", func(d *todo.Document, id func(string) string) error {
+			_, err := d.SetState(id("A"), todo.Done, todo.StateOptions{Cascade: true})
+			return err
 		}},
-		{"CascadeStatus category", func(d *todo.Document, id func(string) string) error {
-			return d.CascadeStatus(id("A"), todo.Done)
+		{"SetState subtask state", func(d *todo.Document, id func(string) string) error {
+			_, err := d.SetState(id("s"), todo.Review, todo.StateOptions{})
+			return err
 		}},
-		{"Complete missing", func(d *todo.Document, _ func(string) string) error {
-			return d.Complete("zzzzzzz", true)
-		}},
-		{"Reopen restore and cascade", func(d *todo.Document, id func(string) string) error {
-			return d.Reopen(id("x"), todo.Open, todo.ReopenOptions{Restore: todo.DoneStates{id("s"): todo.Done}, Cascade: true})
-		}},
-		{"Reopen restore subtask state", func(d *todo.Document, id func(string) string) error {
-			return d.Reopen(id("x"), todo.Open, todo.ReopenOptions{Restore: todo.DoneStates{id("s"): todo.Working}})
+		{"SetState restore and cascade", func(d *todo.Document, id func(string) string) error {
+			_, err := d.SetState(id("x"), todo.Open, todo.StateOptions{Restore: todo.DoneStates{id("s"): todo.Done}, Cascade: true})
+			return err
 		}},
 		{"Delete missing", func(d *todo.Document, _ func(string) string) error {
 			return d.Delete("zzzzzzz")

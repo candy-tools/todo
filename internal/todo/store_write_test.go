@@ -149,13 +149,13 @@ func TestEditKeepsKind(t *testing.T) {
 	}
 }
 
-func TestSetStatusesBackToOpen(t *testing.T) {
+func TestSetStateBackToOpen(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
 	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "desc"}, Done, c, ""))
 
-	mustOK(t)(s.SetStatuses(ctx, map[string]Status{id: Open}))
+	mustOK(t)(s.SetState(ctx, id, Open, StateOptions{}))
 
 	got := item(t, load(t, s), id)
 	if got.Status != Open || got.Title != "t" || got.Description != "desc" {
@@ -163,10 +163,10 @@ func TestSetStatusesBackToOpen(t *testing.T) {
 	}
 }
 
-// TestSetStatusesRejectsMissingID: a write naming an item the store does not
+// TestStateWritesRejectMissingID: a write naming an item the store does not
 // hold, such as one another process deleted since the caller's read, fails
 // whole with ErrNotFound instead of reporting success for 0 rows.
-func TestSetStatusesRejectsMissingID(t *testing.T) {
+func TestStateWritesRejectMissingID(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
@@ -174,9 +174,8 @@ func TestSetStatusesRejectsMissingID(t *testing.T) {
 	gone := mustID(t)(s.AddTask(ctx, Fields{Title: "gone"}, Open, c, id))
 	mustOK(t)(s.Delete(ctx, gone))
 
-	rejects(t, s, ErrNotFound, func() error { return errOf(s.SetStatuses(ctx, map[string]Status{gone: Working})) })
-	rejects(t, s, ErrNotFound, func() error { return errOf(s.SetStatuses(ctx, map[string]Status{id: Open, "zzzzzzz": Done})) })
-	rejects(t, s, ErrNotFound, func() error { return errOf(s.Complete(ctx, gone, false)) })
+	rejects(t, s, ErrNotFound, func() error { return errOf(s.SetState(ctx, gone, Working, StateOptions{})) })
+	rejects(t, s, ErrNotFound, func() error { return errOf(s.SetState(ctx, gone, Done, StateOptions{})) })
 	rejects(t, s, ErrNotFound, func() error { return errOf(s.Reopen(ctx, gone, false)) })
 
 	if got := item(t, load(t, s), id); got.Status != Done {
@@ -192,7 +191,7 @@ func TestCascadeDoneAndReopen(t *testing.T) {
 	c1 := mustID(t)(s.AddTask(ctx, Fields{Title: "c1"}, Open, p, ""))
 	c2 := mustID(t)(s.AddTask(ctx, Fields{Title: "c2"}, Done, p, c1))
 
-	mustOK(t)(s.CascadeStatus(ctx, p, Done))
+	mustOK(t)(s.SetState(ctx, p, Done, StateOptions{Cascade: true}))
 	doc := load(t, s)
 	for _, id := range []string{p, c1, c2} {
 		if got := item(t, doc, id); got.Status != Done {
@@ -200,7 +199,7 @@ func TestCascadeDoneAndReopen(t *testing.T) {
 		}
 	}
 
-	mustOK(t)(s.CascadeStatus(ctx, p, Working))
+	mustOK(t)(s.SetState(ctx, p, Working, StateOptions{Cascade: true}))
 	doc = load(t, s)
 	if got := item(t, doc, p); got.Status != Working {
 		t.Fatalf("after Cascade(working): p status = %v, want working", got.Status)
@@ -327,18 +326,18 @@ func TestEveryWriteChangesFile(t *testing.T) {
 		{"Edit", func() (WriteResult, error) {
 			return s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("d")})
 		}},
-		{"SetStatuses", func() (WriteResult, error) { return s.SetStatuses(ctx, map[string]Status{task: Done}) }},
-		{"CascadeStatus", func() (WriteResult, error) { return s.CascadeStatus(ctx, task, Working) }},
-		{"Complete", func() (WriteResult, error) { return s.Complete(ctx, task, false) }},
+		{"SetState done", func() (WriteResult, error) { return s.SetState(ctx, task, Done, StateOptions{}) }},
+		{"SetState cascade", func() (WriteResult, error) { return s.SetState(ctx, task, Working, StateOptions{Cascade: true}) }},
+		{"SetState done again", func() (WriteResult, error) { return s.SetState(ctx, task, Done, StateOptions{}) }},
 		{"Reopen", func() (WriteResult, error) { return s.Reopen(ctx, task, false) }},
-		{"Complete cascade", func() (WriteResult, error) { return s.Complete(ctx, task, true) }},
-		{"Reopen restore", func() (WriteResult, error) {
+		{"SetState done cascade", func() (WriteResult, error) { return s.SetState(ctx, task, Done, StateOptions{Cascade: true}) }},
+		{"SetState restore", func() (WriteResult, error) {
 			return s.SetState(ctx, task, Working, StateOptions{Restore: DoneStates{task: Done}})
 		}},
-		{"CascadeStatus done", func() (WriteResult, error) { return s.CascadeStatus(ctx, task, Done) }},
+		{"SetState cascade done", func() (WriteResult, error) { return s.SetState(ctx, task, Done, StateOptions{Cascade: true}) }},
 		{"Reopen cascade", func() (WriteResult, error) { return s.Reopen(ctx, task, true) }},
 		{"Move", func() (WriteResult, error) { return s.Move(ctx, task, c, u) }},
-		{"Complete again", func() (WriteResult, error) { return s.Complete(ctx, task, false) }},
+		{"SetState done once more", func() (WriteResult, error) { return s.SetState(ctx, task, Done, StateOptions{}) }},
 		{"Prune", func() (WriteResult, error) { _, res, err := s.Prune(ctx); return res, err }},
 		{"Delete", func() (WriteResult, error) { return s.Delete(ctx, c) }},
 	}
@@ -610,24 +609,14 @@ func TestMoveTaskBetweenCategoriesKeepsStatus(t *testing.T) {
 	}
 }
 
-func TestSetStatusesRejectsBoardStateOnSubtask(t *testing.T) {
+func TestSetStateRejectsBoardStateOnSubtask(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	ids := addTaskTree(t, s, Open)
 
-	rejects(t, s, ErrSubtaskStatus, func() error {
-		return errOf(s.SetStatuses(ctx, map[string]Status{ids.task: Review, ids.sub: Review}))
-	})
-	if got := item(t, load(t, s), ids.task); got.Status != Open {
-		t.Fatalf("task status after the rejected write = %v, want open", got.Status)
-	}
-
-	mustOK(t)(s.SetStatuses(ctx, map[string]Status{ids.task: Review, ids.sub: Done}))
-	doc := load(t, s)
-	if got := item(t, doc, ids.task); got.Status != Review {
-		t.Fatalf("task status = %v, want review", got.Status)
-	}
-	if got := item(t, doc, ids.sub); got.Status != Done {
+	rejects(t, s, ErrSubtaskStatus, func() error { return errOf(s.SetState(ctx, ids.sub, Review, StateOptions{})) })
+	mustOK(t)(s.SetState(ctx, ids.sub, Done, StateOptions{}))
+	if got := item(t, load(t, s), ids.sub); got.Status != Done {
 		t.Fatalf("sub status = %v, want done", got.Status)
 	}
 }
@@ -637,8 +626,8 @@ func TestCascadeOnSubtaskWithBoardStateRejected(t *testing.T) {
 	ctx := context.Background()
 	ids := addTaskTree(t, s, Open)
 
-	rejects(t, s, ErrSubtaskStatus, func() error { return errOf(s.CascadeStatus(ctx, ids.sub, Review)) })
-	mustOK(t)(s.CascadeStatus(ctx, ids.sub, Done))
+	rejects(t, s, ErrSubtaskStatus, func() error { return errOf(s.SetState(ctx, ids.sub, Review, StateOptions{Cascade: true})) })
+	mustOK(t)(s.SetState(ctx, ids.sub, Done, StateOptions{Cascade: true}))
 	if got := item(t, load(t, s), ids.sub); got.Status != Done {
 		t.Fatalf("sub status = %v, want done", got.Status)
 	}
@@ -692,9 +681,8 @@ func TestStatusOnCategoryIsNotTask(t *testing.T) {
 	ctx := context.Background()
 	ids := addTaskTree(t, s, Open)
 
-	rejects(t, s, ErrNotTask, func() error { return errOf(s.SetStatuses(ctx, map[string]Status{ids.C: Done})) })
-	rejects(t, s, ErrNotTask, func() error { return errOf(s.SetStatuses(ctx, map[string]Status{ids.task: Done, ids.C: Working})) })
-	rejects(t, s, ErrNotTask, func() error { return errOf(s.CascadeStatus(ctx, ids.C, Done)) })
+	rejects(t, s, ErrNotTask, func() error { return errOf(s.SetState(ctx, ids.C, Done, StateOptions{})) })
+	rejects(t, s, ErrNotTask, func() error { return errOf(s.SetState(ctx, ids.C, Done, StateOptions{Cascade: true})) })
 	if got := item(t, load(t, s), ids.task); got.Status != Open {
 		t.Fatalf("task status after the rejected writes = %v, want open", got.Status)
 	}

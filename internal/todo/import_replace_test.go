@@ -144,7 +144,7 @@ func TestImportReplaceRemovesBackupWhenWriteFails(t *testing.T) {
 
 	// An ID the format refuses fails the write's validation, after fn ran.
 	doc := &Document{}
-	doc.AppendRoot(&Item{ID: "not-an-id", Kind: Category, Title: "New"})
+	doc.appendRoot(&Item{ID: "not-an-id", Kind: Category, Title: "New"})
 	_, backup, err := s.importDoc(context.Background(), doc, true, true)
 	if !errors.Is(err, ErrInternal) {
 		t.Fatalf("importDoc = %v, want ErrInternal (a refused value)", err)
@@ -168,7 +168,7 @@ func TestImportCleansTitlesAndAssignsIDs(t *testing.T) {
 	s := newStore(t)
 	doc := &Document{}
 	cat := &Item{Kind: Category, Level: 1, Title: "  A  "}
-	doc.AppendRoot(cat)
+	doc.appendRoot(cat)
 	cat.AppendChild(&Item{Kind: Task, Title: " t "})
 	if _, err := importInto(context.Background(), s, doc, false); err != nil {
 		t.Fatal(err)
@@ -184,6 +184,6 @@ func TestImportCleansTitlesAndAssignsIDs(t *testing.T) {
 	}
 
 	bad := &Document{}
-	bad.AppendRoot(&Item{Kind: Category, Level: 1, Title: " "})
+	bad.appendRoot(&Item{Kind: Category, Level: 1, Title: " "})
 	rejects(t, s, ErrInvalidTitle, func() error { return errOf(importInto(context.Background(), s, bad, true)) })
 }
