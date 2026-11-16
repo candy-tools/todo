@@ -127,17 +127,25 @@ func deferCmd() *cobra.Command {
 func reopenCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "reopen",
-		Short: "reopen a task: back to working (a subtask: open)",
-		Args:  cobra.NoArgs,
+		Short: "reopen a done task: back to working (a subtask: open)",
+		Long: "reopen takes a done task back to working (a subtask to open). A task that is\n" +
+			"not done keeps its state and nothing is written; with --cascade its subtasks\n" +
+			"are reopened.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cascade, _ := cmd.Flags().GetBool("cascade")
 			return setStatus(cmd, "reopen", func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.Status, error) {
-				st := todo.ReopenTarget(it)
+				st := it.Status
+				if st == todo.Done {
+					st = todo.ReopenTarget(it)
+				} else if !cascade {
+					return st, nil
+				}
 				return st, s.Reopen(ctx, it.ID, st, todo.ReopenOptions{Cascade: cascade})
 			})
 		},
 	}
 	addSelectorFlags(c, "")
-	c.Flags().Bool("cascade", false, "also open the subtasks")
+	c.Flags().Bool("cascade", false, "also open the subtasks (also on a task that is not done)")
 	return c
 }

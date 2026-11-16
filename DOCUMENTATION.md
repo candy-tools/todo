@@ -190,8 +190,10 @@ todo prune                # drop every fully-completed task
 `status --to <state>` sets any state: `open`, `working`, `deferred`, `done`,
 `new`, `ready`, `review`, `followup` or `wontdo` (`progress` is accepted for `working`).
 `add --status` defaults to `open`. `edit --set-plan ""` clears a task's plan.
-`reopen` sets a task `working`, or `open` for a subtask. `--cascade` on `done` /
-`reopen` applies the change to the task's subtasks too.
+`reopen` takes a done task back to `working` (a subtask to `open`); a task that
+is not done keeps its state and nothing is written (with `--cascade` its
+subtasks are reopened). `--cascade` on `done` / `reopen` applies the change to
+the task's subtasks too.
 
 Breaking the board's rules — a subtask under a subtask, or a board state on a
 subtask — exits with code `2`.
