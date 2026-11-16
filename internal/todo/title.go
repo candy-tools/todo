@@ -51,9 +51,10 @@ func unsafeRune(r rune) bool {
 }
 
 // importTitle makes a title the import parsed acceptable to CleanTitle: a tab
-// becomes a space, other control and unsafe characters are removed, the result is trimmed
-// and cut to MaxTitleLen characters, and an empty title becomes untitled. It
-// calls note with the reason for each change it makes beyond trimming.
+// becomes a space, other control and unsafe characters are removed, the
+// result is trimmed and cut to MaxTitleLen characters, and an empty title
+// becomes untitled. It calls note with the reason for each change it makes
+// beyond trimming.
 func importTitle(raw string, note func(string)) string {
 	t := strings.TrimSpace(raw)
 	if strings.IndexFunc(t, unsafeRune) >= 0 {
@@ -75,8 +76,7 @@ func importTitle(raw string, note func(string)) string {
 // becomes a space and every other control character (C0, DEL and C1, escape
 // among them) and unsafe character (see unsafeRune) is removed, so a title
 // stored before CleanTitle rejected them cannot inject terminal escapes or
-// reorder the row. It is for display only; stored data is left
-// as it is.
+// reorder the row. It is for display only; stored data is left as it is.
 func Printable(s string) string {
 	if strings.IndexFunc(s, unsafeRune) < 0 {
 		return s

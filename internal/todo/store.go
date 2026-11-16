@@ -126,10 +126,10 @@ func (s *Store) Changed(_ context.Context, since Fingerprint) (bool, Fingerprint
 
 // write runs fn as one store write: a single jsonfile Update that holds the
 // lock, reads the file as it is now into a Document (an empty one for a
-// missing file, or ErrListMissing for a store from Existing) and runs fn on it. When fn reports a change, the Document is
-// written back, validated first; when it reports none, or fails, nothing is
-// written. It returns the write's result, the zero one on error. Errors are
-// mapped as mapErr does.
+// missing file, or ErrListMissing for a store from Existing) and runs fn on
+// it. When fn reports a change, the Document is written back, validated
+// first; when it reports none, or fails, nothing is written. It returns the
+// write's result, the zero one on error. Errors are mapped as mapErr does.
 func (s *Store) write(ctx context.Context, fn func(d *Document) (changed bool, err error)) (WriteResult, error) {
 	return s.update(ctx, func(d *Document, _ jsonfile.Snapshot) (bool, error) { return fn(d) })
 }
