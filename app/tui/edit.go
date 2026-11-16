@@ -151,7 +151,11 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // stored there; the store appends a task after its parent's last task. An empty title
 // is ignored (the dialog stays open), and an edit that changed nothing closes it
 // without a write. Any structural or content change clears the undo snapshots —
-// the accidental-complete window is meant to be immediate.
+// the accidental-complete window is meant to be immediate. A failed write (the
+// store busy with another process's write, say) reopens the form with what was
+// typed, the error in the footer, so saving again retries it: an edit goes to
+// the same item, found again by ID in the reloaded list (the form stays closed
+// when the item is gone), and an add goes next to or under the same item.
 func (m model) submitForm() (tea.Model, tea.Cmd) {
 	title, desc, plan := m.form.values()
 	if title == "" {
@@ -159,18 +163,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeMain
 	if m.target == targetEdit {
-		// Only the fields the user changed are written: the reload is deferred
-		// while the form is open, so another field may have changed in the store.
-		ch := m.form.changes()
-		if ch == (todo.Changes{}) {
-			return m, nil
-		}
-		m.snapshots = map[uint]todo.DoneStates{}
-		applyChanges(m.editing, ch)
-		id := m.editing.ID
-		m.commit(id, func(ctx context.Context) error {
-			return m.store.Edit(ctx, id, ch)
-		})
+		m.submitEdit()
 		return m, nil
 	}
 
@@ -178,6 +171,12 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	sel := m.focused().selected()
 	if m.target != targetAddCategory {
 		sel = m.taskAnchor()
+	}
+	// The anchor is selected again if the write fails, so a retry adds at the
+	// same place even when the reload shifted the rows.
+	var anchorID uint
+	if sel != nil && !m.focused().onPlaceholder() {
+		anchorID = sel.ID
 	}
 	var added *todo.Item
 	switch m.target {
@@ -222,7 +221,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	// process moved or deleted does not matter.
 	parentID, _ := m.doc.Placement(added)
 	var newID uint
-	m.commit(0, func(ctx context.Context) error {
+	if !m.commit(0, func(ctx context.Context) error {
 		var err error
 		if added.Kind == todo.Category {
 			newID, err = m.store.AppendCategory(ctx, title, parentID)
@@ -230,13 +229,43 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 			newID, err = m.store.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, added.Status, parentID)
 		}
 		return err
-	})
+	}) {
+		if anchorID != 0 {
+			m.adoptAll(m.doc, anchorID, false)
+		}
+		m.mode = modeForm
+		return m, nil
+	}
 	// The ID is only known once the write ran. A task added from the sidebar
 	// shows in the task list, so look there too.
 	if !m.focused().selectID(newID) && m.split {
 		m.tree.selectID(newID)
 	}
 	return m, nil
+}
+
+// submitEdit stores the fields of m.editing the user changed in the open form,
+// for submitForm. Only those are written: the reload is deferred while the form
+// is open, so another field may have changed in the store. A failed write
+// reopens the form on the item found again by ID in the reloaded list, unless
+// it is gone.
+func (m *model) submitEdit() {
+	ch := m.form.changes()
+	if ch == (todo.Changes{}) {
+		return
+	}
+	m.snapshots = map[uint]todo.DoneStates{}
+	applyChanges(m.editing, ch)
+	id := m.editing.ID
+	if m.commit(id, func(ctx context.Context) error {
+		return m.store.Edit(ctx, id, ch)
+	}) {
+		return
+	}
+	if it, ok := m.doc.ByID(id); ok {
+		m.editing = it
+		m.mode = modeForm
+	}
 }
 
 // applyChanges sets on it, in memory, the fields ch names.

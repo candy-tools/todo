@@ -64,7 +64,10 @@ func (m *model) noteLeftTab(id uint) bool {
 // holds; its revision is recorded and the next poll loads it as the app's
 // own, see unsynced), else from a copy of the document as last loaded, so the change the
 // caller made in memory does not stay on screen as if it were saved.
-func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
+//
+// commit reports whether the write succeeded, whatever the reload did, so a
+// caller can keep the user's input to retry a failed save.
+func (m *model) commit(focusID uint, write func(ctx context.Context) error) (saved bool) {
 	ctx := context.Background()
 	m.err = nil
 	expected := m.lastRev
@@ -72,6 +75,7 @@ func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 		m.err = fmt.Errorf("save failed: %w", err)
 	} else {
 		expected++
+		saved = true
 	}
 	onPH := m.focused().onPlaceholder()
 	doc, rev, err := m.store.Load(ctx)
@@ -85,7 +89,7 @@ func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 			m.doc = m.saved.Clone()
 		}
 		m.adoptAll(m.doc, focusID, onPH)
-		return
+		return saved
 	}
 	m.doc, m.saved, m.lastRev, m.unsynced = doc, doc.Clone(), rev, false
 	m.adoptAll(doc, focusID, onPH)
@@ -93,4 +97,5 @@ func (m *model) commit(focusID uint, write func(ctx context.Context) error) {
 		m.snapshots = map[uint]todo.DoneStates{}
 		m.status = "reloaded — list changed externally"
 	}
+	return saved
 }

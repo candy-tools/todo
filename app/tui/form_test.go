@@ -2,11 +2,13 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/internal/todo/todotest"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -176,5 +178,115 @@ func TestEditSavedUnchangedWritesNothing(t *testing.T) {
 	}
 	if len(m.snapshots) != 1 {
 		t.Errorf("an unchanged save must keep the undo snapshots, got %d", len(m.snapshots))
+	}
+}
+
+// deleteStored deletes the item titled title from the store at path through a
+// second handle, standing in for another process removing it while the TUI's
+// form is open.
+func deleteStored(t *testing.T, path, title string) {
+	t.Helper()
+	if err := openSecond(t, path).Delete(context.Background(), storedItem(t, path, title).ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// submitLocked presses enter (Save) while another process holds the store's
+// writer lock, which it releases again before returning.
+func submitLocked(t *testing.T, m model, path string) model {
+	t.Helper()
+	t.Run("locked", func(t *testing.T) {
+		todotest.HoldWriteLock(t, path)
+		m = press(m, "enter")
+	})
+	return m
+}
+
+// wantFormKept fails the test unless a save that failed with ErrBusy left the
+// form open with title in it and the busy error in the footer.
+func wantFormKept(t *testing.T, m model, title string) {
+	t.Helper()
+	if m.mode != modeForm {
+		t.Fatalf("a busy save closed the form (mode %v), discarding what was typed", m.mode)
+	}
+	if got, _, _ := m.form.values(); got != title {
+		t.Errorf("form title = %q after the busy save, want %q", got, title)
+	}
+	if got := m.footer(200); !strings.Contains(got, "save failed: "+todo.ErrBusy.Error()) {
+		t.Errorf("footer = %q, want the busy message", got)
+	}
+}
+
+// An edit saved while another process holds the writer lock keeps the form
+// open with what was typed; saving again once the lock is gone renames the
+// edited item, even though the rows shifted (a row above it was deleted).
+func TestEditSaveWhileLockedKeepsForm(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] a\n- [ ] b\n- [ ] c\n")
+	bID := find(m.doc, "b").ID
+	m = press(selectTitle(t, m, "b"), "e")
+	m = typeText(m, "2")
+	deleteStored(t, path, "a")
+
+	m = submitLocked(t, m, path)
+	wantFormKept(t, m, "b2")
+	if m.editing == nil || m.editing != find(m.doc, "b") {
+		t.Fatalf("m.editing = %v, want b in the reloaded document", m.editing)
+	}
+
+	m = press(m, "enter")
+	if m.mode != modeMain || m.err != nil {
+		t.Fatalf("the retried save: mode %v, err %v", m.mode, m.err)
+	}
+	if got := storedItem(t, path, "b2").ID; got != bID {
+		t.Errorf("the retried edit renamed item %d, want b (%d)", got, bID)
+	}
+	storedItem(t, path, "c") // c keeps its title
+}
+
+// An add saved while another process holds the writer lock keeps the form
+// open with what was typed; saving again once the lock is gone adds the
+// subtask under the task the first attempt aimed at, though the rows shifted.
+func TestAddSaveWhileLockedKeepsForm(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] a\n- [ ] b\n- [ ] c\n")
+	m = press(selectTitle(t, m, "b"), "N")
+	m = typeText(m, "s")
+	deleteStored(t, path, "a")
+
+	m = submitLocked(t, m, path)
+	wantFormKept(t, m, "s")
+	if find(m.doc, "s") != nil {
+		t.Errorf("the failed add still shows s in the list")
+	}
+
+	m = press(m, "enter")
+	if m.mode != modeMain || m.err != nil {
+		t.Fatalf("the retried save: mode %v, err %v", m.mode, m.err)
+	}
+	if p := storedItem(t, path, "s").Parent; p == nil || p.Title != "b" {
+		t.Errorf("the retried add put s under %v, want b", p)
+	}
+	if s := find(m.doc, "s"); m.tree.selected() != s {
+		t.Errorf("the new subtask is not selected after the retried add")
+	}
+}
+
+// An edit whose item another process deleted while the form was open fails
+// with ErrNotFound; there is nothing left to edit, so the form closes and the
+// footer shows the error.
+func TestEditSaveOfDeletedItemClosesForm(t *testing.T) {
+	m, path := newTestModel(t, "# C\n- [ ] a\n- [ ] b\n")
+	m = press(selectTitle(t, m, "b"), "e")
+	m = typeText(m, "2")
+	deleteStored(t, path, "b")
+
+	m = press(m, "enter")
+	if m.mode != modeMain {
+		t.Errorf("mode = %v after editing a deleted item, want main", m.mode)
+	}
+	if !errors.Is(m.err, todo.ErrNotFound) {
+		t.Errorf("m.err = %v, want ErrNotFound", m.err)
+	}
+	if got := m.footer(200); !strings.Contains(got, "save failed: "+todo.ErrNotFound.Error()) {
+		t.Errorf("footer = %q, want the not-found error", got)
 	}
 }
