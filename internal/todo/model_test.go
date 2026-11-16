@@ -331,3 +331,15 @@ func TestDoneSubtrees(t *testing.T) {
 		t.Fatalf("got %v", titles(got))
 	}
 }
+
+// A task sits in its status's column and a subtask in its task's.
+func TestItemColumn(t *testing.T) {
+	d := todotest.Parse(t, "# A\n\n- [/] x\n  - [x] s\n- [x] y\n  - [ ] t\n")
+	for title, want := range map[string]todo.Column{
+		"x": todo.ColInProgress, "s": todo.ColInProgress, "y": todo.ColDone, "t": todo.ColDone,
+	} {
+		if got := find(d, title).Column(); got != want {
+			t.Errorf("%s.Column() = %v, want %v", title, got, want)
+		}
+	}
+}

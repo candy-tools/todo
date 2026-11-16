@@ -39,6 +39,26 @@ type ReopenOptions struct {
 	Cascade bool
 }
 
+// StateOptions say what a SetState does beyond setting the task's own state.
+// With neither set the subtasks keep their states.
+type StateOptions struct {
+	// Cascade sets every task below the task too: to Done when the new state
+	// is Done, to Open otherwise.
+	Cascade bool
+	// Restore is the undo snapshot (see SnapshotDone) of the complete a
+	// reopen takes back: the tasks it holds that are still Done get their
+	// recorded states back. It is only used when the task leaves Done.
+	Restore DoneStates
+}
+
+// SetState sets task id to st in one write, deciding from the task's state at
+// write time, not the caller's copy, whether that completes it, reopens it or
+// just changes its state (see Document.SetState). It is the one call for every
+// state change. A change that changes nothing writes nothing.
+func (s *Store) SetState(ctx context.Context, id string, st Status, o StateOptions) (WriteResult, error) {
+	return s.write(ctx, func(d *Document) (bool, error) { return d.SetState(id, st, o) })
+}
+
 // Complete sets task id to Done, in one write. With cascade every item below
 // it, as the list is at write time, is set to Done too (see CascadeStatus);
 // without it the subtasks keep their states. A category fails it with

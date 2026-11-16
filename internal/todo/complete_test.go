@@ -205,3 +205,35 @@ func TestReopenSubtaskToBoardStateIsRefused(t *testing.T) {
 		t.Fatalf("sub after Reopen to open = %v, want open", got[0])
 	}
 }
+
+// SetState decides from the task's state at write time: an undo sent for a
+// task another writer already took out of Done is a plain state change, so
+// the snapshot is not applied; one sent while it is still done restores.
+func TestStoreSetStateDecidesAtWriteTime(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	ids := addTaskTree(t, s, Working) // sub open
+	snapshot := SnapshotDone(item(t, load(t, s), ids.task))
+	res := mustOK(t)(s.SetState(ctx, ids.task, Done, StateOptions{Cascade: true}))
+	if got := item(t, res.Doc, ids.sub).Status; !res.Written || got != Done {
+		t.Fatalf("complete with cascade: written %v, sub %v; want written, sub done", res.Written, got)
+	}
+
+	other := NewStore(s.Path())
+	mustOK(t)(other.SetState(ctx, ids.task, Review, StateOptions{}))
+	mustOK(t)(s.SetState(ctx, ids.task, Working, StateOptions{Restore: snapshot}))
+	if got, want := statuses(t, s, ids.task, ids.sub), []Status{Working, Done}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("undo after another writer reopened: task, sub = %v, want %v", got, want)
+	}
+
+	mustOK(t)(s.SetState(ctx, ids.task, Done, StateOptions{}))
+	mustOK(t)(s.SetState(ctx, ids.task, Working, StateOptions{Restore: snapshot}))
+	if got, want := statuses(t, s, ids.task, ids.sub), []Status{Working, Open}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("undo of a done task: task, sub = %v, want %v", got, want)
+	}
+
+	keepsFile(t, s, "SetState to the current state", func() (WriteResult, error) {
+		return s.SetState(ctx, ids.task, Working, StateOptions{})
+	})
+	rejects(t, s, ErrNotFound, func() error { return errOf(s.SetState(ctx, "zzzzzzz", Done, StateOptions{})) })
+}

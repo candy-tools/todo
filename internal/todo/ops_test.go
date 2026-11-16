@@ -577,6 +577,92 @@ func TestOpReopenRules(t *testing.T) {
 	wantDoc(t, d, "# A\n\n- [x] x\n  - [x] s\n")
 }
 
+// --- SetState ---
+
+// setState runs d.SetState and returns its error, failing the test when an
+// op that failed still reports a change.
+func setState(t *testing.T, d *todo.Document, id string, st todo.Status, o todo.StateOptions) error {
+	t.Helper()
+	changed, err := d.SetState(id, st, o)
+	if err != nil && changed {
+		t.Fatalf("SetState failed (%v) but reported a change", err)
+	}
+	return err
+}
+
+func TestOpSetStateIntoDoneCompletes(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [ ] x\n  - [ ] s\n- [/] y\n  - [ ] t\n")
+	wantNoErr(t, setState(t, d, idOf(t, d, "x"), todo.Done, todo.StateOptions{}))
+	wantNoErr(t, setState(t, d, idOf(t, d, "y"), todo.Done, todo.StateOptions{Cascade: true}))
+	wantDoc(t, d, "# A\n\n- [x] x\n  - [ ] s\n- [x] y\n  - [x] t\n")
+}
+
+// Out of Done the task reopens: the subtasks keep their states, or are all
+// opened with Cascade.
+func TestOpSetStateOutOfDoneReopens(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [x] x\n  - [x] s\n- [x] y\n  - [x] t\n")
+	wantNoErr(t, setState(t, d, idOf(t, d, "x"), todo.Working, todo.StateOptions{}))
+	wantNoErr(t, setState(t, d, idOf(t, d, "y"), todo.Deferred, todo.StateOptions{Cascade: true}))
+	wantDoc(t, d, "# A\n\n- [/] x\n  - [x] s\n- [>] y\n  - [ ] t\n")
+}
+
+// Out of Done with Restore the subtasks the complete left done get their
+// snapshot states back; one changed since keeps its state.
+func TestOpSetStateOutOfDoneRestores(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [/] x\n  - [ ] s\n  - [x] t\n  - [ ] u\n")
+	x := find(d, "x")
+	snap := todo.SnapshotDone(x)
+	wantNoErr(t, setState(t, d, x.ID, todo.Done, todo.StateOptions{Cascade: true}))
+	wantNoErr(t, d.SetStatuses(todo.DoneStates{idOf(t, d, "u"): todo.Open})) // changed since
+	snap[idOf(t, d, "u")] = todo.Done
+	wantNoErr(t, setState(t, d, x.ID, todo.Review, todo.StateOptions{Restore: snap}))
+	wantDoc(t, d, "# A\n\n- [review] x\n  - [ ] s\n  - [x] t\n  - [ ] u\n")
+}
+
+// A task not in Done, set to another state that is not Done, just takes it:
+// Restore does not apply (there is no complete to undo), Cascade opens the
+// subtasks.
+func TestOpSetStatePlain(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [ ] x\n  - [x] s\n- [ ] y\n  - [x] t\n")
+	x, s := idOf(t, d, "x"), idOf(t, d, "s")
+	wantNoErr(t, setState(t, d, x, todo.Working, todo.StateOptions{Restore: todo.DoneStates{s: todo.Open}}))
+	wantNoErr(t, setState(t, d, idOf(t, d, "y"), todo.Ready, todo.StateOptions{Cascade: true}))
+	wantDoc(t, d, "# A\n\n- [/] x\n  - [x] s\n- [ready] y\n  - [ ] t\n")
+}
+
+func TestOpSetStateSubtask(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [/] x\n  - [ ] s\n")
+	s := idOf(t, d, "s")
+	wantNoErr(t, setState(t, d, s, todo.Done, todo.StateOptions{}))
+	wantDoc(t, d, "# A\n\n- [/] x\n  - [x] s\n")
+	wantNoErr(t, setState(t, d, s, todo.Open, todo.StateOptions{}))
+	wantDoc(t, d, "# A\n\n- [/] x\n  - [ ] s\n")
+}
+
+func TestOpSetStateNoChange(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [/] x\n  - [x] s\n")
+	for _, o := range []todo.StateOptions{{}, {Restore: todo.DoneStates{}}} {
+		changed, err := d.SetState(idOf(t, d, "x"), todo.Working, o)
+		if err != nil || changed {
+			t.Errorf("SetState to the current state (%+v) = %v, %v; want no change", o, changed, err)
+		}
+	}
+	if changed, err := d.SetState(idOf(t, d, "x"), todo.Working, todo.StateOptions{Cascade: true}); err != nil || !changed {
+		t.Errorf("SetState with a cascade that opens a subtask = %v, %v; want a change", changed, err)
+	}
+}
+
+func TestOpSetStateRules(t *testing.T) {
+	d := opDoc(t, "# A\n\n- [x] x\n  - [x] s\n")
+	both := todo.StateOptions{Restore: todo.DoneStates{}, Cascade: true}
+	wantErr(t, setState(t, d, idOf(t, d, "x"), todo.Working, both), todo.ErrRestoreAndCascade)
+	wantErr(t, setState(t, d, "zzzzzzz", todo.Working, todo.StateOptions{}), todo.ErrNotFound)
+	wantErr(t, setState(t, d, idOf(t, d, "A"), todo.Done, todo.StateOptions{}), todo.ErrNotTask)
+	wantErr(t, setState(t, d, idOf(t, d, "s"), todo.Working, todo.StateOptions{}), todo.ErrSubtaskStatus)
+	wantErr(t, setState(t, d, idOf(t, d, "s"), todo.Review, todo.StateOptions{Cascade: true}), todo.ErrSubtaskStatus)
+	wantDoc(t, d, "# A\n\n- [x] x\n  - [x] s\n")
+}
+
 // --- Delete / Prune ---
 
 func TestOpDeleteCategorySubtree(t *testing.T) {

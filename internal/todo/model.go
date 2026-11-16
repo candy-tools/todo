@@ -237,6 +237,19 @@ func (it *Item) IsSubtask() bool {
 	return it.Kind == Task && it.Parent != nil && it.Parent.Kind == Task
 }
 
+// Column returns the board column task it shows in: its status's column, or,
+// for a subtask, its task's. A category sits in no column; for one it returns
+// ColBacklog.
+func (it *Item) Column() Column {
+	if it.IsSubtask() {
+		return it.Parent.Status.Column()
+	}
+	if it.Kind != Task {
+		return ColBacklog
+	}
+	return it.Status.Column()
+}
+
 // NeedsPlan reports whether it is a Ready task that has no plan yet.
 func (it *Item) NeedsPlan() bool {
 	return it.Kind == Task && it.Status == Ready && strings.TrimSpace(it.Plan) == ""

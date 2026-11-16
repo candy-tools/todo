@@ -282,6 +282,7 @@ func everyWrite(s *Store, cat, task string) map[string]func() error {
 		"CascadeStatus":  func() error { return errOf(s.CascadeStatus(ctx, task, Done)) },
 		"Complete":       func() error { return errOf(s.Complete(ctx, task, false)) },
 		"Reopen":         func() error { return errOf(s.Reopen(ctx, task, Working, ReopenOptions{})) },
+		"SetState":       func() error { return errOf(s.SetState(ctx, task, Working, StateOptions{})) },
 		"Move":           func() error { return errOf(s.Move(ctx, task, cat, "")) },
 		"Delete":         func() error { return errOf(s.Delete(ctx, task)) },
 		"Prune":          func() error { _, _, err := s.Prune(ctx); return err },

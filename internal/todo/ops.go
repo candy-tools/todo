@@ -371,6 +371,57 @@ func (d *Document) Reopen(id string, st Status, o ReopenOptions) error {
 	return d.setStatuses(ReopenStates(id, st, restore), ix)
 }
 
+// SetState sets task id to st, deciding from the state the task is in now what
+// that means, so one call serves every state change:
+//
+//   - into Done (st is Done) it completes the task, as Complete does;
+//   - out of Done (the task is Done and st is not) it reopens it, as Reopen
+//     does, giving back o.Restore's states to the tasks the complete left
+//     done;
+//   - any other change just sets st; o.Restore is not used, as there is no
+//     complete to undo.
+//
+// With o.Cascade every task below it is set too, to Done when st is Done and
+// to Open otherwise (see CascadeStatus), whichever case applies; without it the
+// subtasks keep their states (but for a restore). changed is false when every
+// status already held its value. Setting both o.Restore and o.Cascade fails
+// with ErrRestoreAndCascade before anything else is checked; a missing id is
+// ErrNotFound, a category ErrNotTask, and a subtask given a state other than
+// Open or Done ErrSubtaskStatus.
+func (d *Document) SetState(id string, st Status, o StateOptions) (changed bool, err error) {
+	if o.Restore != nil && o.Cascade {
+		return false, ErrRestoreAndCascade
+	}
+	it, err := d.lookup(id)
+	if err != nil {
+		return false, err
+	}
+	before := d.statuses()
+	switch {
+	case o.Cascade:
+		err = d.CascadeStatus(id, st)
+	case it.Status == Done && st != Done:
+		err = d.Reopen(id, st, ReopenOptions{Restore: o.Restore})
+	default:
+		err = d.SetStatuses(DoneStates{id: st})
+	}
+	if err != nil {
+		return false, err
+	}
+	return !maps.Equal(before, d.statuses()), nil
+}
+
+// statuses returns the status of every task of d, by ID.
+func (d *Document) statuses() DoneStates {
+	s := DoneStates{}
+	for _, it := range d.Enumerate() {
+		if it.Kind == Task {
+			s[it.ID] = it.Status
+		}
+	}
+	return s
+}
+
 // Move places item id, with its subtree, under parentID after the sibling
 // afterID, by the placement rules of AddCategory and AddTask. A task moved to
 // the root or a category moved under a task fails with ErrWrongParent; a task
