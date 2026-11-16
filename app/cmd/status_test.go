@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
@@ -348,5 +350,28 @@ func TestDoneHintsAtOpenSubtasks(t *testing.T) {
 				t.Errorf("stderr: want %q, got %q", c.hint, stderr)
 			}
 		})
+	}
+}
+
+// The open-subtasks hint counts the list the write left, not the command's
+// earlier read: a subtask another writer added in between is counted.
+func TestDoneHintCountsTheWrittenList(t *testing.T) {
+	ctx := context.Background()
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n")
+	s := todo.NewStore(path)
+	doc, _, err := s.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := doc.ByTitle("parent")[0]
+	if _, _, err := todo.NewStore(path).AppendTask(ctx, todo.Fields{Title: "c2"}, todo.Open, stale.ID); err != nil {
+		t.Fatalf("other writer: %v", err)
+	}
+	var hint bytes.Buffer
+	if _, err := complete(false, &hint)(ctx, s, stale); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if want := openSubtasksHint(2) + "\n"; hint.String() != want {
+		t.Errorf("hint = %q, want %q", hint.String(), want)
 	}
 }
