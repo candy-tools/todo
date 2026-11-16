@@ -143,54 +143,6 @@ func TestAddCategoryAutoImportsFirst(t *testing.T) {
 	}
 }
 
-// A tree rule the store enforces itself (one a race got past the command's own
-// kind checks) surfaces as the CLI's wrong-kind error.
-func TestStoreTreeRuleIsWrongKind(t *testing.T) {
-	t.Chdir(t.TempDir())
-	for _, want := range []error{todo.ErrWrongParent, todo.ErrNotTask} {
-		c := newRootCommand()
-		err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return want })
-		if codeOf(t, err) != exitWrongKind || err.Error() != want.Error() {
-			t.Errorf("withStore with %v = %v, want a wrong-kind error with its message", want, err)
-		}
-	}
-}
-
-// A store conflict (the tree changed under the command since it read it)
-// surfaces as the CLI's conflict error with the store's message.
-func TestStoreConflictIsConflict(t *testing.T) {
-	t.Chdir(t.TempDir())
-	c := newRootCommand()
-	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrConflict })
-	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrConflict.Error() {
-		t.Errorf("withStore with ErrConflict = %v, want a conflict error with its message", err)
-	}
-}
-
-// A store invalid move (an item placed into its own subtree) surfaces as the
-// CLI's usage error with the store's message, not a conflict: re-running the
-// command would fail the same way.
-func TestStoreInvalidMoveIsUsage(t *testing.T) {
-	t.Chdir(t.TempDir())
-	c := newRootCommand()
-	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrInvalidMove })
-	if codeOf(t, err) != exitUsage || err.Error() != todo.ErrInvalidMove.Error() {
-		t.Errorf("withStore with ErrInvalidMove = %v, want a usage error with its message", err)
-	}
-}
-
-// A busy store (another process held the writer lock past the busy timeout)
-// surfaces as the CLI's conflict error with the store's message: re-running
-// the command is the fix for both.
-func TestStoreBusyIsConflict(t *testing.T) {
-	t.Chdir(t.TempDir())
-	c := newRootCommand()
-	err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return todo.ErrBusy })
-	if codeOf(t, err) != exitConflict || err.Error() != todo.ErrBusy.Error() {
-		t.Errorf("withStore with ErrBusy = %v, want a conflict error with its message", err)
-	}
-}
-
 // A store that is busy when a command opens it (another process holds the
 // writer lock while the open needs it) fails every command, the TUI start
 // included, with the conflict error and the message a busy write shows.
@@ -322,19 +274,6 @@ func TestInvalidFileExitsOne(t *testing.T) {
 	}
 }
 
-// The store's invalid-list and newer-version errors reach the user as exit 1
-// with the store's message.
-func TestStoreInvalidListIsGeneric(t *testing.T) {
-	t.Chdir(t.TempDir())
-	for _, want := range []error{todo.ErrInvalidList, todo.ErrNewerSchema} {
-		c := newRootCommand()
-		err := withStore(c, func(context.Context, storeOpener, *todo.Document) error { return want })
-		if codeOf(t, err) != exitGeneric || err.Error() != want.Error() {
-			t.Errorf("withStore with %v = %v, want exit 1 with its message", want, err)
-		}
-	}
-}
-
 // --id takes the 7-character ID shown by list --json.
 func TestIDSelectorString(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] b\n")
@@ -358,5 +297,40 @@ func TestIDSelectorString(t *testing.T) {
 	}
 	if _, err := runCmd(t, "done", "--file", path, "--id", "zzzzzzz"); codeOf(t, err) != exitNotFound {
 		t.Error("an unknown --id should be not-found")
+	}
+}
+
+// A store error reaches the user by its class: every member of a class gets
+// the class's exit code and keeps its message, wrapped or not.
+func TestStoreErrorsMapByClass(t *testing.T) {
+	refused := fmt.Errorf("refused to write an invalid list: %w", todo.ErrInternal)
+	for _, c := range []struct {
+		err  error
+		code int
+		msg  string
+	}{
+		{todo.ErrNotFound, exitNotFound, "the item no longer exists"},
+		{fmt.Errorf("item x: %w", todo.ErrNotFound), exitNotFound, "the item no longer exists"},
+		{todo.ErrTooDeep, exitUsage, todo.ErrTooDeep.Error()},
+		{todo.ErrSubtaskStatus, exitUsage, todo.ErrSubtaskStatus.Error()},
+		{todo.ErrInvalidMove, exitUsage, todo.ErrInvalidMove.Error()},
+		{fmt.Errorf("title: %w", todo.ErrInvalidTitle), exitUsage, "title: " + todo.ErrInvalidTitle.Error()},
+		{todo.ErrRestoreAndCascade, exitUsage, todo.ErrRestoreAndCascade.Error()},
+		{todo.ErrWrongParent, exitWrongKind, todo.ErrWrongParent.Error()},
+		{todo.ErrNotTask, exitWrongKind, todo.ErrNotTask.Error()},
+		{todo.ErrConflict, exitConflict, todo.ErrConflict.Error()},
+		{todo.ErrBusy, exitConflict, todo.ErrBusy.Error()},
+		{todo.ErrInvalidList, exitGeneric, todo.ErrInvalidList.Error()},
+		{fmt.Errorf("x.json: %w", todo.ErrNewerSchema), exitGeneric, "x.json: " + todo.ErrNewerSchema.Error()},
+		{todo.ErrListMissing, exitGeneric, todo.ErrListMissing.Error()},
+		{refused, exitGeneric, refused.Error()},
+	} {
+		t.Run(c.err.Error(), func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			err := withStore(newRootCommand(), func(context.Context, storeOpener, *todo.Document) error { return c.err })
+			if codeOf(t, err) != c.code || err.Error() != c.msg {
+				t.Errorf("withStore with %v = %v (exit %d), want exit %d with %q", c.err, err, codeOf(t, err), c.code, c.msg)
+			}
+		})
 	}
 }

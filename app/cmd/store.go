@@ -118,10 +118,10 @@ func joinNotices(notices ...string) string {
 // busy write is.
 func openStore(_ *cobra.Command, path string, isDefault bool, opts ...todo.Option) (*todo.Store, string, error) {
 	s, notice, err := openOrImport(path, isDefault, opts...)
-	if c := conflictErr(err); c != nil {
-		return nil, "", c
+	if err != nil {
+		return nil, "", storeErr(err)
 	}
-	return s, notice, err
+	return s, notice, nil
 }
 
 // openOrImport is openStore before its busy store becomes the conflict error.
@@ -187,7 +187,7 @@ func loadStore(cmd *cobra.Command, path string, isDefault bool) (*todo.Store, *t
 	printNotice(cmd, notice)
 	doc, _, err := s.Load(storeCtx(cmd))
 	if err != nil {
-		return nil, nil, listErr(err)
+		return nil, nil, storeErr(err)
 	}
 	return s, doc, nil
 }
@@ -202,12 +202,8 @@ type storeOpener func() (*todo.Store, error)
 // it. open returns the store the document was loaded from; only when there was
 // none does it create one, and fn calls open only once it is about to write, so
 // a command that fails earlier — a selector that matches nothing, a usage error
-// — never creates the store. A store
-// ErrNotFound becomes the CLI's not-found error, a store ErrTooDeep,
-// ErrSubtaskStatus or ErrInvalidMove its usage one, a store ErrWrongParent or
-// ErrNotTask its wrong-kind one, a store ErrConflict or ErrBusy its conflict
-// one, and a store ErrInvalidList or ErrNewerSchema a generic failure (exit 1)
-// with the store's message.
+// — never creates the store. A store error fn returns becomes the CLI error
+// of its class (see storeErr).
 func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener, doc *todo.Document) error) error {
 	path, isDefault, err := resolvePath(cmd, nil)
 	if err != nil {
@@ -228,41 +224,37 @@ func withStore(cmd *cobra.Command, fn func(ctx context.Context, open storeOpener
 		s = st
 		return s, nil
 	}
-	if err := fn(storeCtx(cmd), open, doc); err != nil {
-		if errors.Is(err, todo.ErrNotFound) {
-			return notFound("the item no longer exists")
-		}
-		if errors.Is(err, todo.ErrTooDeep) || errors.Is(err, todo.ErrSubtaskStatus) || errors.Is(err, todo.ErrInvalidMove) {
-			return usageErr(err.Error())
-		}
-		if errors.Is(err, todo.ErrWrongParent) || errors.Is(err, todo.ErrNotTask) {
-			return &cliError{exitWrongKind, err.Error()}
-		}
-		if c := conflictErr(err); c != nil {
-			return c
-		}
-		return listErr(err)
-	}
-	return nil
+	return storeErr(fn(storeCtx(cmd), open, doc))
 }
 
-// conflictErr returns a store ErrConflict or ErrBusy as the CLI's conflict
-// error with the store's message, and nil for any other error: re-running the
-// command is the fix for both.
-func conflictErr(err error) error {
-	if errors.Is(err, todo.ErrConflict) || errors.Is(err, todo.ErrBusy) {
-		return &cliError{exitConflict, err.Error()}
+// storeErr returns a store error as the CLI error of its class (see the todo
+// package's error classes), keeping the store's message: ErrNotFound is the
+// not-found exit ("the item no longer exists": the command found it when it
+// read the list), ErrBadRequest the usage exit, ErrWrongKind the wrong-kind
+// exit and ErrConflict (busy included) the conflict exit, as re-running the
+// command is the fix. ErrInvalidList (a file this todo cannot read),
+// ErrListMissing and ErrInternal (a refused write, a bug in todo) are a
+// generic failure, exit 1. Any other error, a CLI error among them, is
+// returned unchanged; nil stays nil.
+func storeErr(err error) error {
+	code := 0
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, todo.ErrNotFound):
+		return notFound("the item no longer exists")
+	case errors.Is(err, todo.ErrBadRequest):
+		code = exitUsage
+	case errors.Is(err, todo.ErrWrongKind):
+		code = exitWrongKind
+	case errors.Is(err, todo.ErrConflict):
+		code = exitConflict
+	case errors.Is(err, todo.ErrInvalidList), errors.Is(err, todo.ErrListMissing), errors.Is(err, todo.ErrInternal):
+		code = exitGeneric
+	default:
+		return err
 	}
-	return nil
-}
-
-// listErr returns a store ErrInvalidList or ErrNewerSchema as a generic failure
-// (exit 1) with the store's message, and any other error unchanged.
-func listErr(err error) error {
-	if errors.Is(err, todo.ErrInvalidList) || errors.Is(err, todo.ErrNewerSchema) {
-		return &cliError{exitGeneric, err.Error()}
-	}
-	return err
+	return &cliError{code, err.Error()}
 }
 
 // printNotice writes a non-empty notice to stderr.
