@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -462,6 +463,7 @@ func TestNoTempFileLeftOnWriteFailure(t *testing.T) {
 		t.Fatal("Update over a non-empty directory returned nil error")
 	}
 	assertUserError(t, err, "write "+path+": ")
+	assertPathOnce(t, err, path)
 
 	entries, err := os.ReadDir(filepath.Dir(path))
 	if err != nil {
@@ -516,6 +518,14 @@ func assertUserError(t *testing.T, err error, prefix string) {
 	}
 }
 
+// assertPathOnce fails unless err's message names path exactly once.
+func assertPathOnce(t *testing.T, err error, path string) {
+	t.Helper()
+	if n := strings.Count(err.Error(), path); n != 1 {
+		t.Errorf("err = %q names %s %d times, want once", err, path, n)
+	}
+}
+
 func TestLockErrorNamesActionAndPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "no-such-dir", "list.json")
 	_, err := jsonfile.New(jsonfile.Config[doc]{Path: path}).Update(context.Background(), setN(1))
@@ -523,6 +533,10 @@ func TestLockErrorNamesActionAndPath(t *testing.T) {
 		t.Fatal("Update in a missing directory returned nil error")
 	}
 	assertUserError(t, err, "lock "+path+".lock: ")
+	assertPathOnce(t, err, path+".lock")
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("err = %v, want it to still match fs.ErrNotExist", err)
+	}
 }
 
 func TestSentinelsDoNotNameThePackage(t *testing.T) {

@@ -249,7 +249,7 @@ func (s *Store[T]) Update(ctx context.Context, fn func(v *T, cur Snapshot) (chan
 		return Result[T]{}, err
 	}
 	if err := atomicWrite(path, data); err != nil {
-		return Result[T]{}, fmt.Errorf("write %s: %w", path, err)
+		return Result[T]{}, wrapPath("write", path, err)
 	}
 	return Result[T]{Value: v, Read: read, Wrote: sha256.Sum256(data), Written: true}, nil
 }
@@ -282,7 +282,7 @@ func (s *Store[T]) lock(ctx context.Context, path string) (func(), error) {
 		current, err := holdsFileAt(fl, path)
 		if err != nil {
 			_ = fl.Unlock()
-			return nil, fmt.Errorf("lock %s: %w", path, err)
+			return nil, wrapPath("lock", path, err)
 		}
 		if current {
 			return func() { _ = fl.Unlock() }, nil
@@ -311,7 +311,25 @@ func lockErr(ctx context.Context, path string, err error, replaced bool) error {
 		}
 		return ErrBusy
 	}
-	return fmt.Errorf("lock %s: %w", path, err)
+	return wrapPath("lock", path, err)
+}
+
+// wrapPath returns err as "<op> <path>: ...". When err is an *fs.PathError
+// or *os.LinkError that already names path (as its file, or as a rename's
+// destination), its inner error is wrapped instead, so the message names the
+// path once; errors.Is still reaches the inner error.
+func wrapPath(op, path string, err error) error {
+	switch e := err.(type) { // only the outermost layer repeats the path
+	case *fs.PathError:
+		if e.Path == path {
+			err = e.Err
+		}
+	case *os.LinkError:
+		if e.New == path {
+			err = e.Err
+		}
+	}
+	return fmt.Errorf("%s %s: %w", op, path, err)
 }
 
 // holdsFileAt reports whether the file fl has locked is the file at path now.
