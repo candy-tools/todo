@@ -1,6 +1,6 @@
 module github.com/candy-tools/todo
 
-go 1.26.2
+go 1.27.1
 
 require (
 	github.com/atotto/clipboard v0.1.4
