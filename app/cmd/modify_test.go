@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
@@ -60,13 +62,6 @@ func TestEditRequiresAChange(t *testing.T) {
 	}
 }
 
-func TestEditDescOnCategoryIsWrongKind(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-	if _, err := runCmd(t, "edit", "--file", path, "--title", "Work", "--set-desc", "x"); codeOf(t, err) != exitWrongKind {
-		t.Error("a category cannot take a description")
-	}
-}
-
 func TestEditSetPlan(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
 	if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-plan", "x.md"); err != nil {
@@ -99,13 +94,6 @@ func TestEditTitleKeepsPlan(t *testing.T) {
 	}
 }
 
-func TestEditPlanOnCategoryIsWrongKind(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-	if _, err := runCmd(t, "edit", "--file", path, "--title", "Work", "--set-plan", "x"); codeOf(t, err) != exitWrongKind {
-		t.Error("a category cannot take a plan")
-	}
-}
-
 func TestEditBlankTitleIsUsageError(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
 	for _, title := range []string{"", "   "} {
@@ -127,5 +115,26 @@ func TestEditInvalidTitleIsUsageError(t *testing.T) {
 	}
 	if got := todotest.Dump(t, path); got != "# Work\n\n- [ ] a\n" {
 		t.Errorf("nothing should have changed:\n%s", got)
+	}
+}
+
+// The store decides that only a task has a description or a plan: edit gives
+// either to a category with the wrong-kind exit, naming the item, and writes
+// nothing, also when a new title comes along.
+func TestEditDescOrPlanOnCategoryIsWrongKind(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	before := bytesOf(t, path)
+	for _, args := range [][]string{{"--set-desc", "x"}, {"--set-plan", "x"}, {"--set-title", "W2", "--set-plan", "x"}} {
+		_, err := runCmd(t, append([]string{"edit", "--file", path, "--title", "Work"}, args...)...)
+		if codeOf(t, err) != exitWrongKind {
+			t.Errorf("edit %v on a category = %v, want wrong-kind", args, err)
+			continue
+		}
+		if want := `cannot edit "Work": ` + todo.ErrNotTask.Error(); err.Error() != want {
+			t.Errorf("edit %v: message = %q, want %q", args, err, want)
+		}
+	}
+	if !bytes.Equal(bytesOf(t, path), before) {
+		t.Error("nothing should have been written")
 	}
 }

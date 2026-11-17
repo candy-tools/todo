@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -95,7 +96,7 @@ func seedLongTask(t *testing.T) (m model, path, desc, plan string) {
 	desc = strings.Join(lines, "\n")
 	plan = "docs/" + strings.Repeat("p", 592) + ".md"
 	a := find(m.doc, "a")
-	if err := m.store.Edit(context.Background(), a.ID, todo.Changes{Description: &desc, Plan: &plan}); err != nil {
+	if _, err := m.store.Edit(context.Background(), a.ID, todo.Changes{Description: &desc, Plan: &plan}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
@@ -150,31 +151,26 @@ func TestEditTitleKeepsLongDescriptionAndPlan(t *testing.T) {
 	}
 }
 
-// Saving the edit form unchanged writes nothing: the store's revision stays
-// put and the undo snapshots survive.
+// Saving the edit form unchanged writes nothing, not even a store write that
+// changes nothing (one would fail on the held lock): the list file stays put
+// and the undo snapshots survive.
 func TestEditSavedUnchangedWritesNothing(t *testing.T) {
-	m, _ := newTestModel(t, "# B\n- [ ] a\n  desc\n")
+	m, path := newTestModel(t, "# B\n- [ ] a\n  desc\n")
 	a := find(m.doc, "a")
 	m.snapshots[a.ID] = todo.DoneStates{a.ID: todo.Open}
-	before, err := m.store.Revision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := readList(t, path)
 	m = selectTitle(t, m, "a")
 	m = press(m, "e")
 	if m.mode != modeForm {
 		t.Fatalf("e should open the edit form, status %q", m.status)
 	}
+	todotest.HoldWriteLock(t, path)
 	m = press(m, "enter")
 	if m.mode != modeMain {
 		t.Fatalf("enter should close the form, mode %v", m.mode)
 	}
-	after, err := m.store.Revision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after != before {
-		t.Errorf("an unchanged save moved the revision from %d to %d", before, after)
+	if after := readList(t, path); !bytes.Equal(after, before) || m.err != nil {
+		t.Errorf("an unchanged save wrote the list (err %v):\n%s", m.err, after)
 	}
 	if len(m.snapshots) != 1 {
 		t.Errorf("an unchanged save must keep the undo snapshots, got %d", len(m.snapshots))
@@ -186,7 +182,7 @@ func TestEditSavedUnchangedWritesNothing(t *testing.T) {
 // form is open.
 func deleteStored(t *testing.T, path, title string) {
 	t.Helper()
-	if err := openSecond(t, path).Delete(context.Background(), storedItem(t, path, title).ID); err != nil {
+	if _, err := openSecond(t, path).Delete(context.Background(), storedItem(t, path, title).ID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -238,7 +234,7 @@ func TestEditSaveWhileLockedKeepsForm(t *testing.T) {
 		t.Fatalf("the retried save: mode %v, err %v", m.mode, m.err)
 	}
 	if got := storedItem(t, path, "b2").ID; got != bID {
-		t.Errorf("the retried edit renamed item %d, want b (%d)", got, bID)
+		t.Errorf("the retried edit renamed item %s, want b (%s)", got, bID)
 	}
 	storedItem(t, path, "c") // c keeps its title
 }

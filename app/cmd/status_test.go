@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"errors"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
@@ -38,7 +40,7 @@ func TestDoneByNumberAndID(t *testing.T) {
 		t.Error("done --number 2 should complete task a")
 	}
 	path2 := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-	id := strconv.Itoa(int(idOf(t, path2, "a")))
+	id := idOf(t, path2, "a")
 	if _, err := runCmd(t, "done", "--file", path2, "--id", id); err != nil {
 		t.Fatalf("done --id: %v", err)
 	}
@@ -52,7 +54,7 @@ func TestDoneSelectorErrors(t *testing.T) {
 	if _, err := runCmd(t, "done", "--file", path); codeOf(t, err) != exitUsage {
 		t.Error("no selector should be a usage error")
 	}
-	if _, err := runCmd(t, "done", "--file", path, "--number", "2", "--id", "3"); codeOf(t, err) != exitUsage {
+	if _, err := runCmd(t, "done", "--file", path, "--number", "2", "--id", "abcdefg"); codeOf(t, err) != exitUsage {
 		t.Error("two selectors should be a usage error")
 	}
 	if _, err := runCmd(t, "done", "--file", path, "--title", "a"); codeOf(t, err) != exitAmbiguous {
@@ -104,7 +106,7 @@ func TestProgressAndDefer(t *testing.T) {
 
 func TestSelectByID(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] b\n")
-	id := strconv.Itoa(int(idOf(t, path, "b")))
+	id := idOf(t, path, "b")
 	if _, err := runCmd(t, "done", "--file", path, "--id", id); err != nil {
 		t.Fatalf("done --id: %v", err)
 	}
@@ -112,7 +114,7 @@ func TestSelectByID(t *testing.T) {
 	if !strings.Contains(got, "- [x] b") || !strings.Contains(got, "- [ ] a") {
 		t.Errorf("only b should be done:\n%s", got)
 	}
-	if _, err := runCmd(t, "done", "--file", path, "--id", "999"); codeOf(t, err) != exitNotFound {
+	if _, err := runCmd(t, "done", "--file", path, "--id", "zzzzzzz"); codeOf(t, err) != exitNotFound {
 		t.Error("an unknown --id should be not-found")
 	}
 }
@@ -244,7 +246,7 @@ func TestReopenNotDoneTaskKeepsItsState(t *testing.T) {
 		{"a", "- [new] a", "reopen: [new] a  (Work)"},
 		{"child", "  - [ ] child", "reopen: [open] child  (Work)"},
 	} {
-		before := revOf(t, path)
+		before := bytesOf(t, path)
 		out, err := runCmd(t, "reopen", "--file", path, "--title", c.title)
 		if err != nil {
 			t.Fatalf("reopen %s: %v", c.title, err)
@@ -255,8 +257,8 @@ func TestReopenNotDoneTaskKeepsItsState(t *testing.T) {
 		if !strings.Contains(todotest.Dump(t, path), c.line) {
 			t.Errorf("reopen on %s, not done, must keep its state:\n%s", c.title, todotest.Dump(t, path))
 		}
-		if after := revOf(t, path); after != before {
-			t.Errorf("reopen on %s, not done, must write nothing: revision %d -> %d", c.title, before, after)
+		if after := bytesOf(t, path); !bytes.Equal(after, before) {
+			t.Errorf("reopen on %s, not done, must write nothing: the file changed", c.title)
 		}
 	}
 }
@@ -348,5 +350,44 @@ func TestDoneHintsAtOpenSubtasks(t *testing.T) {
 				t.Errorf("stderr: want %q, got %q", c.hint, stderr)
 			}
 		})
+	}
+}
+
+// The open-subtasks hint counts the list the write left, not the command's
+// earlier read: a subtask another writer added in between is counted.
+func TestDoneHintCountsTheWrittenList(t *testing.T) {
+	ctx := context.Background()
+	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n")
+	s := todo.NewStore(path)
+	doc, _, err := s.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := doc.ByTitle("parent")[0]
+	if _, _, err := todo.NewStore(path).AppendTask(ctx, todo.Fields{Title: "c2"}, todo.Open, stale.ID); err != nil {
+		t.Fatalf("other writer: %v", err)
+	}
+	var hint bytes.Buffer
+	if _, err := complete(false, &hint)(ctx, s, stale); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if want := openSubtasksHint(2) + "\n"; hint.String() != want {
+		t.Errorf("hint = %q, want %q", hint.String(), want)
+	}
+}
+
+// The store decides that only a task has a status: every status command on a
+// category fails with the wrong-kind exit, naming the item and the rule.
+func TestStatusOnCategoryIsWrongKind(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	for _, args := range [][]string{{"done"}, {"progress"}, {"defer"}, {"reopen"}, {"status", "--to", "ready"}} {
+		_, err := runCmd(t, append(args, "--file", path, "--title", "Work")...)
+		if codeOf(t, err) != exitWrongKind {
+			t.Errorf("%v on a category = %v, want wrong-kind", args, err)
+			continue
+		}
+		if want := `cannot set the status of "Work": ` + todo.ErrNotTask.Error(); err.Error() != want {
+			t.Errorf("%v: message = %q, want %q", args, err, want)
+		}
 	}
 }

@@ -14,16 +14,12 @@ func rmCmd() *cobra.Command {
 		Short: "remove an item and its subtree",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 				it, err := resolveSelector(cmd, doc, "")
 				if err != nil {
 					return err
 				}
-				s, err := open()
-				if err != nil {
-					return err
-				}
-				if err := s.Delete(ctx, it.ID); err != nil {
+				if _, err := s.Delete(ctx, it.ID); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "rm: %s\n", todo.Printable(it.Title))
@@ -41,12 +37,8 @@ func pruneCmd() *cobra.Command {
 		Short: "remove every fully-completed task",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, open storeOpener, _ *todo.Document) error {
-				s, err := open()
-				if err != nil {
-					return err
-				}
-				n, err := s.Prune(ctx)
+			return withStore(cmd, func(ctx context.Context, s *todo.Store, _ *todo.Document) error {
+				n, _, err := s.Prune(ctx)
 				if err != nil {
 					return err
 				}
@@ -63,7 +55,7 @@ func editCmd() *cobra.Command {
 		Short: "change an item's title and/or a task's description or plan",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 				it, err := resolveSelector(cmd, doc, "")
 				if err != nil {
 					return err
@@ -86,25 +78,16 @@ func editCmd() *cobra.Command {
 					ch.Title = &title
 				}
 				if setDesc {
-					if !it.IsTask() {
-						return wrongKind("set a description on", it, "task")
-					}
 					desc, _ := cmd.Flags().GetString("set-desc")
 					ch.Description = &desc
 				}
 				if setPlan {
-					if !it.IsTask() {
-						return wrongKind("set a plan on", it, "task")
-					}
 					plan, _ := cmd.Flags().GetString("set-plan")
 					ch.Plan = &plan
 				}
-				s, err := open()
-				if err != nil {
-					return err
-				}
-				if err := s.Edit(ctx, it.ID, ch); err != nil {
-					return err
+				// The store refuses a description or plan for a category.
+				if _, err := s.Edit(ctx, it.ID, ch); err != nil {
+					return wrongKindIn(err, "edit", it)
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", title)
 				return nil

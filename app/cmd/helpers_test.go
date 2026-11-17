@@ -2,19 +2,16 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
 )
 
-// idOf returns the id of the item titled title in the store at dbPath.
-func idOf(t *testing.T, dbPath, title string) uint {
+// idOf returns the id of the item titled title in the list file at path.
+func idOf(t *testing.T, path, title string) string {
 	t.Helper()
-	s, err := todo.OpenStore(dbPath)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	defer func() { _ = s.Close() }()
+	s := todo.NewStore(path)
 	doc, _, err := s.Load(context.Background())
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -26,17 +23,12 @@ func idOf(t *testing.T, dbPath, title string) uint {
 	return m[0].ID
 }
 
-// revOf returns the revision of the store at dbPath.
-func revOf(t *testing.T, dbPath string) int64 {
+// bytesOf returns the content of the list file at path.
+func bytesOf(t *testing.T, path string) []byte {
 	t.Helper()
-	s, err := todo.OpenStore(dbPath)
+	b, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("open: %v", err)
+		t.Fatalf("read %s: %v", path, err)
 	}
-	defer func() { _ = s.Close() }()
-	rev, err := s.Revision(context.Background())
-	if err != nil {
-		t.Fatalf("revision: %v", err)
-	}
-	return rev
+	return b
 }

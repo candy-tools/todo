@@ -1,5 +1,5 @@
 // Package todo is the domain of the TODO app: the in-memory tree loaded from the
-// SQLite store, the operations over it (toggle, cascade-complete, and the
+// JSON list file, the operations over it (toggle, cascade-complete, and the
 // snapshot/restore that powers accidental-complete undo), the store itself, and
 // the one-time markdown import. It has no dependency on the TUI.
 package todo
@@ -22,11 +22,12 @@ const (
 )
 
 // Status is a task's workflow state. Open and Done are the classic checkbox
-// states; the rest are kanban states. The numbers are stored in the database, so
-// they are pinned: never renumber them, only append. Open, Working, Deferred
-// and Done have a checkbox marker — `[ ]` `[/]` `[>]` `[x]` — which the markdown
-// import reads; the others have none. Only Done reads
-// as "complete": counts, pruning and the done-cascade all key off IsDone.
+// states; the rest are kanban states. The list file stores a status by its name
+// (see String), so the names are pinned; keep the numbers stable too, only
+// append. Open, Working, Deferred and Done have a checkbox marker — `[ ]` `[/]`
+// `[>]` `[x]` — which the markdown import reads; the others have none. Only
+// Done reads as "complete": counts, pruning and the done-cascade all key off
+// IsDone.
 type Status int
 
 const (
@@ -207,7 +208,7 @@ func StatusAfterMove(cur Status, toSubtask bool, oldParent Status) Status {
 // tasks hold sub-tasks. Only tasks use Status and Description; only categories
 // use Level.
 type Item struct {
-	ID          uint // database node ID; 0 until the item is persisted
+	ID          string // item ID; empty until the item is persisted
 	Kind        Kind
 	Title       string
 	Level       int    // Category only: its depth among categories, 1 for a root category
@@ -236,6 +237,20 @@ func (it *Item) IsSubtask() bool {
 	return it.Kind == Task && it.Parent != nil && it.Parent.Kind == Task
 }
 
+// Column returns the board column task it shows in: its status's column, or,
+// for a subtask, its task's. It is for tasks only: a category sits in no
+// column, and for one it returns ColBacklog, which a caller must not take as
+// the category's place on the board.
+func (it *Item) Column() Column {
+	if it.IsSubtask() {
+		return it.Parent.Status.Column()
+	}
+	if it.Kind != Task {
+		return ColBacklog
+	}
+	return it.Status.Column()
+}
+
 // NeedsPlan reports whether it is a Ready task that has no plan yet.
 func (it *Item) NeedsPlan() bool {
 	return it.Kind == Task && it.Status == Ready && strings.TrimSpace(it.Plan) == ""
@@ -254,48 +269,10 @@ func (it *Item) EnclosingCategory() *Item {
 	return nil
 }
 
-// NewTask builds a task item (with no children or parent set yet). The done
-// flag maps to Done or Open; a caller wanting another state (Working, Deferred,
-// …) sets Status afterwards.
-func NewTask(title, description string, done bool) *Item {
-	st := Open
-	if done {
-		st = Done
-	}
-	return &Item{Kind: Task, Title: title, Description: description, Status: st}
-}
-
 // AppendChild appends c as the last child of it, setting c.Parent.
 func (it *Item) AppendChild(c *Item) {
 	c.Parent = it
 	it.Children = append(it.Children, c)
-}
-
-// AppendTask adds task as the last *task* child of it — before any
-// subcategory children — and sets task.Parent. This preserves the invariant
-// that a category's direct tasks precede its subcategories, which the move
-// rules (crossUp/crossDown) and the displayed tree depend on. For a task
-// parent (a subtask) there are no category children, so it simply appends.
-func (it *Item) AppendTask(task *Item) {
-	insertBeforeCategories(it, task)
-}
-
-// insertBeforeCategories inserts c among parent's children just before the
-// first category child — after every direct task, or at the end when there is
-// no category child — and sets c.Parent. For a task c that is its last task;
-// for a category c it is its first subcategory.
-func insertBeforeCategories(parent, c *Item) {
-	c.Parent = parent
-	pos := len(parent.Children)
-	for i, ch := range parent.Children {
-		if ch.Kind == Category {
-			pos = i
-			break
-		}
-	}
-	parent.Children = append(parent.Children, nil)
-	copy(parent.Children[pos+1:], parent.Children[pos:])
-	parent.Children[pos] = c
 }
 
 // Clone returns a deep copy of the document: every item is copied, with its
@@ -319,8 +296,8 @@ func (it *Item) clone(parent *Item) *Item {
 	return &c
 }
 
-// AppendRoot appends it as the last top-level item of the document.
-func (d *Document) AppendRoot(it *Item) {
+// appendRoot appends it as the last top-level item of the document.
+func (d *Document) appendRoot(it *Item) {
 	it.Parent = nil
 	d.Roots = append(d.Roots, it)
 }
@@ -342,31 +319,12 @@ func (d *Document) siblings(it *Item) (list []*Item, idx int, found bool) {
 	return list, -1, false
 }
 
-// InsertAfter inserts sib immediately after ref among ref's peers, giving sib
-// the same parent as ref. It is a no-op (returning false) if ref is not found.
-func (d *Document) InsertAfter(ref, sib *Item) bool {
-	list, idx, ok := d.siblings(ref)
-	if !ok {
-		return false
-	}
-	sib.Parent = ref.Parent
-	list = append(list, nil)
-	copy(list[idx+2:], list[idx+1:])
-	list[idx+1] = sib
-	if ref.Parent != nil {
-		ref.Parent.Children = list
-	} else {
-		d.Roots = list
-	}
-	return true
-}
-
-// Remove detaches it from the tree. It is a no-op (returning false) if it is
-// not found among its peers.
-func (d *Document) Remove(it *Item) bool {
+// remove detaches it from the tree; it does nothing when it is not found
+// among its peers.
+func (d *Document) remove(it *Item) {
 	list, idx, ok := d.siblings(it)
 	if !ok {
-		return false
+		return
 	}
 	list = append(list[:idx], list[idx+1:]...)
 	if it.Parent != nil {
@@ -374,7 +332,6 @@ func (d *Document) Remove(it *Item) bool {
 	} else {
 		d.Roots = list
 	}
-	return true
 }
 
 // Descendants returns every item nested under it, depth-first, excluding it.
@@ -411,8 +368,8 @@ func (it *Item) TaskCounts() (done, total int) {
 // cascade-complete can be reverted to the exact prior state — including the
 // task's own board state, such as Working or Review. It is the in-memory snapshot behind the "I
 // marked the parent done by accident" undo; keyed by ID, it outlives a reload of
-// the document, and it is what Store.SetStatuses writes back.
-type DoneStates map[uint]Status
+// the document, and it is what StateOptions.Restore writes back.
+type DoneStates map[string]Status
 
 // SnapshotDone captures the Status of it and all its descendant tasks, by ID.
 func SnapshotDone(it *Item) DoneStates {
@@ -421,30 +378,6 @@ func SnapshotDone(it *Item) DoneStates {
 		s[d.ID] = d.Status
 	}
 	return s
-}
-
-// ApplyStatuses sets the in-memory Status of every item of d whose ID s
-// records. IDs d does not hold (an item deleted since the snapshot) are skipped.
-func (d *Document) ApplyStatuses(s DoneStates) {
-	for _, it := range d.Enumerate() {
-		if st, ok := s[it.ID]; ok {
-			it.Status = st
-		}
-	}
-}
-
-// CascadeSetDone sets it and every descendant task to Done (done=true) or Open
-// (done=false) — the behaviour where completing a parent completes all its
-// children.
-func CascadeSetDone(it *Item, done bool) {
-	st := Open
-	if done {
-		st = Done
-	}
-	it.Status = st
-	for _, d := range it.Descendants() {
-		d.Status = st
-	}
 }
 
 // fullyDone reports whether it is a task that is done and whose every nested
@@ -459,10 +392,10 @@ func fullyDone(it *Item) bool {
 	return done == total
 }
 
-// Placement returns where it sits in the tree as database IDs: parentID is the
-// parent's ID (0 for a root) and afterID is the ID of the sibling immediately
-// before it (0 when it is the first among its peers).
-func (d *Document) Placement(it *Item) (parentID, afterID uint) {
+// placement returns where it sits in the tree as item IDs: parentID is the
+// parent's ID ("" for a root) and afterID is the ID of the sibling immediately
+// before it ("" when it is the first among its peers).
+func (d *Document) placement(it *Item) (parentID, afterID string) {
 	if it.Parent != nil {
 		parentID = it.Parent.ID
 	}

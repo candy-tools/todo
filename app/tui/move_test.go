@@ -211,12 +211,12 @@ func TestGrabMoveStepsOverHiddenTasks(t *testing.T) {
 func TestIndentUnderHiddenTaskRefused(t *testing.T) {
 	m, path := newTestModelOn(t, "# C\n- [ ] h\n- [/] w\n", todo.ColInProgress)
 	m = selectTitle(t, m, "w")
-	before := storeRev(t, m)
+	before := storeFP(t, m)
 	m = press(m, "m", "right")
 	if m.status != "can't nest under a task hidden in this tab" {
 		t.Errorf("status = %q", m.status)
 	}
-	if storeRev(t, m) != before {
+	if storeFP(t, m) != before {
 		t.Errorf("a refused indent wrote to the store")
 	}
 	if got := m.tree.selected(); got == nil || got.Title != "w" || !m.tree.grabbed {
@@ -287,12 +287,12 @@ func TestGrabMoveUpStepsOneHiddenCategory(t *testing.T) {
 func TestGrabMovePastOnlyHiddenRowsIsNoop(t *testing.T) {
 	m, path := newTestModelOn(t, "# A\n- [/] w\n- [ ] x\n", todo.ColInProgress)
 	m = selectTitle(t, m, "w")
-	before := storeRev(t, m)
+	before := storeFP(t, m)
 	m = press(m, "m", "down")
 	if got, want := titles(find(m.doc, "A").Children), []string{"w", "x"}; !equalStrings(got, want) {
 		t.Errorf("in-memory order under A = %v, want %v", got, want)
 	}
-	if storeRev(t, m) != before {
+	if storeFP(t, m) != before {
 		t.Errorf("a move with no shown row to pass wrote to the store")
 	}
 	if got := storedChildren(t, path, "A"); !equalStrings(got, []string{"w", "x"}) {
@@ -305,8 +305,8 @@ func TestGrabMovePastOnlyHiddenRowsIsNoop(t *testing.T) {
 
 func TestIndentUnderSubtaskRefusedInTUI(t *testing.T) {
 	m, path := newTestModel(t, "# W\n- [ ] a\n  - [ ] s1\n  - [ ] s2\n- [ ] b\n  - [ ] t1\n")
-	before := storeRev(t, m)
-	for _, title := range []string{"s2", "b"} {
+	before := storeFP(t, m)
+	for _, title := range []string{"s1", "s2", "a", "b"} {
 		got := selectTitle(t, m, title)
 		got = press(got, "m", "right")
 		if got.status != "subtasks can't have subtasks" {
@@ -318,7 +318,7 @@ func TestIndentUnderSubtaskRefusedInTUI(t *testing.T) {
 		if !got.tree.grabbed {
 			t.Errorf("indenting %s: a refused move keeps the item grabbed", title)
 		}
-		if storeRev(t, got) != before {
+		if storeFP(t, got) != before {
 			t.Errorf("indenting %s wrote to the store", title)
 		}
 	}

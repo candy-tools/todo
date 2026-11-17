@@ -53,9 +53,9 @@ type tree struct {
 	// collapsed is the current view's fold map; it is the same map as
 	// foldsByKey[view.key()]. Each view keeps its own folds and selection for
 	// the session: foldsByKey and selByKey (the selected item's ID) hold them.
-	collapsed   map[uint]bool
-	foldsByKey  map[viewKey]map[uint]bool
-	selByKey    map[viewKey]uint
+	collapsed   map[string]bool
+	foldsByKey  map[viewKey]map[string]bool
+	selByKey    map[viewKey]string
 	shown       map[*todo.Item]bool // the items the view shows, set by rebuild (folds aside)
 	cursor      int
 	rows        []treeRow
@@ -72,7 +72,7 @@ type tree struct {
 	// tasks a paneTasks tree lists, with its subcategories' (0 = every
 	// category, the sidebar's All).
 	pane  paneKind
-	scope uint
+	scope string
 	// grabbed is true while the item under the cursor is "picked up" for moving:
 	// the arrow keys reorder/re-nest it instead of navigating, and its row is
 	// drawn with the grabbed marker (see rowString).
@@ -81,13 +81,13 @@ type tree struct {
 
 // newTree builds the tree for doc, shown through v.
 func newTree(doc *todo.Document, v *viewState) tree {
-	folds := map[uint]bool{}
+	folds := map[string]bool{}
 	t := tree{
 		doc:         doc,
 		vs:          v,
 		collapsed:   folds,
-		foldsByKey:  map[viewKey]map[uint]bool{v.key(): folds},
-		selByKey:    map[viewKey]uint{},
+		foldsByKey:  map[viewKey]map[string]bool{v.key(): folds},
+		selByKey:    map[viewKey]string{},
 		placeholder: &todo.Item{},
 	}
 	t.rebuild()
@@ -106,7 +106,7 @@ func newSidebar(doc *todo.Document, v *viewState) tree {
 func (t *tree) useFolds(k viewKey) {
 	folds, ok := t.foldsByKey[k]
 	if !ok {
-		folds = map[uint]bool{}
+		folds = map[string]bool{}
 		t.foldsByKey[k] = folds
 	}
 	t.collapsed = folds
@@ -117,20 +117,15 @@ func (t *tree) useFolds(k viewKey) {
 // row.
 func (t *tree) filtering() bool { return t.vs.filtering() }
 
-// shownBefore counts the items the tab showed at the last rebuild that come
-// before it in document order. A move that changes the count has carried it
-// past a shown row.
-func (t *tree) shownBefore(it *todo.Item) int {
-	n := 0
-	for _, x := range t.doc.Enumerate() {
-		if x == it {
-			break
-		}
-		if t.shown[x] {
-			n++
-		}
+// shownID returns a predicate that reports whether the tab showed the item
+// with a given ID at the last rebuild, for a move step to skip the items it
+// hides (see todo.Document.StepPlacement).
+func (t *tree) shownID() func(id string) bool {
+	ids := make(map[string]bool, len(t.shown))
+	for it := range t.shown {
+		ids[it.ID] = true
 	}
-	return n
+	return func(id string) bool { return ids[id] }
 }
 
 // visibleItems returns the items the current tab shows: the column's items
@@ -229,7 +224,7 @@ func (t *tree) rebuildCategories(vis map[*todo.Item]bool) {
 // scopeItem returns the scope category, or nil for All (or a scope that is no
 // longer in the document).
 func (t *tree) scopeItem() *todo.Item {
-	if t.scope == 0 {
+	if t.scope == "" {
 		return nil
 	}
 	it, ok := t.doc.ByID(t.scope)
@@ -317,7 +312,7 @@ func (t *tree) setPane(p paneKind) {
 // setScope points a task-list tree at category id (0 = All) and rebuilds,
 // keeping the selected task when the new scope shows it, else selecting the
 // first task. A no-op when the scope is unchanged.
-func (t *tree) setScope(id uint) {
+func (t *tree) setScope(id string) {
 	if id == t.scope {
 		return
 	}
@@ -390,8 +385,8 @@ func (t *tree) selectItem(it *todo.Item) {
 // selectID moves the cursor onto the visible item with the given ID, scrolling
 // the viewport as needed; it reports whether one was found. ID 0 (an item not in
 // the store, such as the placeholder sentinel) never matches.
-func (t *tree) selectID(id uint) bool {
-	if id == 0 {
+func (t *tree) selectID(id string) bool {
+	if id == "" {
 		return false
 	}
 	for i, r := range t.rows {
@@ -410,9 +405,9 @@ func (t *tree) selectID(id uint) bool {
 // is visible in the tab, else back onto the placeholder row when onPlaceholder
 // (and no search hides it), else it keeps its index, clamped into range — so
 // a task that left the tab hands the cursor to the nearest remaining row.
-func (t *tree) adopt(doc *todo.Document, focusID uint, onPlaceholder bool) {
+func (t *tree) adopt(doc *todo.Document, focusID string, onPlaceholder bool) {
 	t.doc = doc
-	present := map[uint]bool{}
+	present := map[string]bool{}
 	for _, it := range doc.Enumerate() {
 		present[it.ID] = true
 	}

@@ -10,15 +10,15 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// storeRev returns the store's current revision, for asserting a key wrote
-// nothing.
-func storeRev(t *testing.T, m model) int64 {
+// storeFP returns the fingerprint of the store's file, for asserting a key
+// wrote nothing.
+func storeFP(t *testing.T, m model) todo.Fingerprint {
 	t.Helper()
-	_, rev, err := m.store.Load(context.Background())
+	_, fp, err := m.store.Load(context.Background())
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	return rev
+	return fp
 }
 
 // selectTitle moves the cursor onto the row titled title in the current tab.
@@ -74,8 +74,9 @@ func TestBracketBackFromDoneIsWorking(t *testing.T) {
 }
 
 func TestBracketIntoDoneCascadesWithUndo(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] r\n  - [ ] s1\n  - [ ] s2\n")
-	m = setStatusExternally(t, m, path, "r", todo.Review)
+	m, path := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "r", "status": "review", "subtasks": [
+			{"id": "s000001", "title": "s1"}, {"id": "s000002", "title": "s2"}]}]}`)
 	m = showOn(t, m, todo.ColInProgress, "r")
 	m = press(m, "p")
 	for _, title := range []string{"r", "s1", "s2"} {
@@ -96,8 +97,9 @@ func TestBracketIntoDoneCascadesWithUndo(t *testing.T) {
 }
 
 func TestBracketOutOfDoneRestoresSubtasks(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] r\n  - [ ] s1\n  - [x] s2\n")
-	m = setStatusExternally(t, m, path, "r", todo.Review)
+	m, path := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "r", "status": "review", "subtasks": [
+			{"id": "s000001", "title": "s1"}, {"id": "s000002", "title": "s2", "done": true}]}]}`)
 	m = showOn(t, m, todo.ColInProgress, "r")
 	m = press(m, "p") // into Done: snapshot, cascade
 	m = showOn(t, m, todo.ColDone, "r")
@@ -119,13 +121,13 @@ func TestBracketOutOfDoneRestoresSubtasks(t *testing.T) {
 func TestBracketOnSubtaskIsHint(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n  - [ ] s\n")
 	m = selectTitle(t, m, "s")
-	before := storeRev(t, m)
+	before := storeFP(t, m)
 	for _, key := range []string{"p", "P"} {
 		got := press(m, key)
 		if got.status == "" {
 			t.Errorf("%q on a subtask must explain itself in the footer", key)
 		}
-		if rev := storeRev(t, got); rev != before {
+		if fp := storeFP(t, got); fp != before {
 			t.Errorf("%q on a subtask wrote to the store", key)
 		}
 	}
@@ -137,25 +139,25 @@ func TestBracketOnSubtaskIsHint(t *testing.T) {
 func TestBracketAtEdgeIsNoop(t *testing.T) {
 	m, _ := newTestModel(t, "# C\n- [ ] a\n- [x] d\n")
 	m = selectTitle(t, m, "a")
-	before := storeRev(t, m)
+	before := storeFP(t, m)
 	got := press(m, "P")
-	if got.status == "" || storeRev(t, got) != before {
+	if got.status == "" || storeFP(t, got) != before {
 		t.Errorf("[ on Backlog must only hint, status %q", got.status)
 	}
 	m = showOn(t, m, todo.ColDone, "d")
 	got = press(m, "p")
-	if got.status == "" || storeRev(t, got) != before {
+	if got.status == "" || storeFP(t, got) != before {
 		t.Errorf("] on Done must only hint, status %q", got.status)
 	}
 }
 
 func TestBracketUnknownStatusIsBacklog(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n")
-	m = setStatusExternally(t, m, path, "a", todo.Status(9))
+	m = setStatusInMemory(t, m, "a", todo.Status(9))
 	m = selectTitle(t, m, "a")
-	before := storeRev(t, m)
+	before := storeFP(t, m)
 	got := press(m, "P")
-	if got.status != "no column beyond Backlog" || storeRev(t, got) != before {
+	if got.status != "no column beyond Backlog" || storeFP(t, got) != before {
 		t.Errorf("[ on an unknown status must hint as at Backlog's edge, status %q", got.status)
 	}
 	press(m, "p")
@@ -166,14 +168,14 @@ func TestBracketUnknownStatusIsBacklog(t *testing.T) {
 
 func TestSpaceAndXNeverChangeState(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n  - [ ] s\n- [/] w\n")
-	before := storeRev(t, m)
+	before := storeFP(t, m)
 	for _, sel := range []struct {
 		col   todo.Column
 		title string
 	}{{todo.ColBacklog, "a"}, {todo.ColBacklog, "s"}, {todo.ColInProgress, "w"}} {
 		m = showOn(t, m, sel.col, sel.title)
 		m = press(m, "space", "x")
-		if storeRev(t, m) != before {
+		if storeFP(t, m) != before {
 			t.Fatalf("space/x on %s must not write", sel.title)
 		}
 	}
@@ -209,9 +211,9 @@ func TestStatePickerSetsState(t *testing.T) {
 func TestStatePickerDoneAndCancel(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n  - [ ] s\n")
 	m = selectTitle(t, m, "a")
-	before := storeRev(t, m)
+	before := storeFP(t, m)
 	m = press(m, "t", "down", "esc")
-	if m.mode != modeMain || storeRev(t, m) != before {
+	if m.mode != modeMain || storeFP(t, m) != before {
 		t.Fatalf("esc must cancel without writing")
 	}
 	m = press(m, "t")
@@ -265,8 +267,8 @@ func TestStateFilter(t *testing.T) {
 }
 
 func TestUndoAccidentalCompleteRestoresExactState(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n")
-	m = setStatusExternally(t, m, path, "a", todo.New)
+	m, path := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "a", "status": "new"}]}`)
 	m = showOn(t, m, todo.ColNext, "a")
 	m = pickState(t, m, todo.Done)
 	if st := storedItem(t, path, "a").Status; st != todo.Done {
@@ -303,7 +305,7 @@ func TestReopenWithoutSnapshotKeepsSubtasks(t *testing.T) {
 func TestCompleteCascadesToSubtaskAddedExternally(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n")
 	a := find(m.doc, "a").ID
-	if _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "s"}, todo.Open, a, 0); err != nil {
+	if _, _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "s"}, todo.Open, a, ""); err != nil {
 		t.Fatalf("external add: %v", err)
 	}
 	m = selectTitle(t, m, "a")
@@ -335,9 +337,9 @@ func TestSubtaskToggle(t *testing.T) {
 func TestOldKeysRemoved(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n")
 	m = selectTitle(t, m, "a")
-	before := storeRev(t, m)
+	before := storeFP(t, m)
 	m = press(m, "]", "[", ">")
-	if storeRev(t, m) != before {
+	if storeFP(t, m) != before {
 		t.Errorf("], [ and > must not write")
 	}
 	if st := storedItem(t, path, "a").Status; st != todo.Open {
@@ -350,13 +352,13 @@ func TestEmptyTabKeysAreNoops(t *testing.T) {
 	if len(m.tree.rows) != 0 {
 		t.Fatalf("precondition: Next must be empty, rows = %v", rowTitles(m.tree))
 	}
-	before := storeRev(t, m)
+	before := storeFP(t, m)
 	for _, key := range []string{"p", "P", "t", "x", " ", "e", "d", "m"} {
 		got := press(m, key)
 		if got.mode != modeMain || got.tree.grabbed {
 			t.Errorf("%q on an empty tab changed mode %v / grabbed %v", key, got.mode, got.tree.grabbed)
 		}
-		if storeRev(t, got) != before {
+		if storeFP(t, got) != before {
 			t.Errorf("%q on an empty tab wrote to the store", key)
 		}
 	}
@@ -412,9 +414,12 @@ func TestTaskRowShowsSubtaskProgress(t *testing.T) {
 }
 
 func TestItemMetaStatus(t *testing.T) {
-	d := todotest.Parse(t, "# Work\n\n- [/] working\n- [>] defer\n")
+	d := todotest.Parse(t, "# Work\n\n- [/] working\n  - [ ] sub\n- [>] defer\n")
 	if got := itemMeta(find(d, "working")); !strings.Contains(got, "In Progress · working") {
 		t.Errorf("itemMeta for a working task should say 'In Progress · working', got %q", got)
+	}
+	if got := itemMeta(find(d, "sub")); !strings.Contains(got, "In Progress · open") {
+		t.Errorf("itemMeta for a subtask should name its task's column, got %q", got)
 	}
 	if got := itemMeta(find(d, "defer")); !strings.Contains(got, "Backlog · deferred") {
 		t.Errorf("itemMeta for a deferred task should say 'deferred', got %q", got)
@@ -431,8 +436,9 @@ func TestHelpShowsBoardKeys(t *testing.T) {
 }
 
 func TestReopenFromSnapshotIntoPickedState(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] r\n  - [ ] s1\n  - [x] s2\n")
-	m = setStatusExternally(t, m, path, "r", todo.Review)
+	m, path := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "r", "status": "review", "subtasks": [
+			{"id": "s000001", "title": "s1"}, {"id": "s000002", "title": "s2", "done": true}]}]}`)
 	m = showOn(t, m, todo.ColInProgress, "r")
 	m = press(m, "p") // into Done: snapshot, cascade
 	if len(m.snapshots) != 1 {

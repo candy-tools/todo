@@ -144,25 +144,28 @@ func (m model) doConfirm() (tea.Model, tea.Cmd) {
 // doClearDone removes every completed task from the store (which works out the
 // fully-done subtrees itself, as they are at write time), reloads, and keeps
 // the selection on the previously selected item when it survived (otherwise the
-// top row). Like a delete, it ends the accidental-complete undo window.
+// top row). Like a delete, it ends the accidental-complete undo window. The
+// footer says how many tasks went, and keeps the notice that the list changed
+// externally when the write found it so.
 func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	m.mode = modeMain
-	var focus uint
+	var focus string
 	if sel := m.focused().selected(); sel != nil && !m.focused().onPlaceholder() {
 		focus = sel.ID
 	}
-	m.snapshots = map[uint]todo.DoneStates{}
+	m.snapshots = map[string]todo.DoneStates{}
+	m.status = "" // so that only the write's own notice is kept below
 	var removed int
-	var pruneErr error
-	m.commit(focus, func(ctx context.Context) error {
-		removed, pruneErr = m.store.Prune(ctx)
-		return pruneErr
+	saved := m.commit(focus, func(ctx context.Context, st *todo.Store) (res todo.WriteResult, err error) {
+		removed, res, err = st.Prune(ctx)
+		return res, err
 	})
-	if sel := m.focused().selected(); focus != 0 && (sel == nil || sel.ID != focus) {
+	if sel := m.focused().selected(); focus != "" && (sel == nil || sel.ID != focus) {
 		m.focused().selectTop() // sel was removed
 	}
-	if pruneErr == nil {
-		m.status = fmt.Sprintf("Removed %d completed task(s).", removed)
+	if saved {
+		// The write's external-change notice, when it found one, stays.
+		m.status = strings.TrimSpace(fmt.Sprintf("Removed %d completed task(s). %s", removed, m.status))
 	}
 	return m, nil
 }
@@ -179,18 +182,17 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 	}
 	// In the sidebar no neighbour is picked: the deleted category's place
 	// falls back to All (see adoptAll).
-	var prevID uint
+	var prevID string
 	if t := m.focused(); t.cursor > 0 && t.pane != paneCategories {
 		if r := t.rows[t.cursor-1]; r.kind == rowItem {
 			prevID = r.item.ID
 		}
 	}
-	m.doc.Remove(it)
 	// A structural change ends the accidental-complete undo window.
-	m.snapshots = map[uint]todo.DoneStates{}
+	m.snapshots = map[string]todo.DoneStates{}
 	id := it.ID
-	m.commit(prevID, func(ctx context.Context) error {
-		return m.store.Delete(ctx, id)
+	m.commit(prevID, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+		return st.Delete(ctx, id)
 	})
 	return m, nil
 }

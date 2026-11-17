@@ -17,12 +17,12 @@ import (
 //	  - Groceries
 func buildFilterTree() (d *todo.Document, work, taskA, cata, buy, taskB, home, groc *todo.Item) {
 	work = &todo.Item{Kind: todo.Category, Level: 1, Title: "Work"}
-	taskA = todo.NewTask("Task A", "", false)
-	cata = todo.NewTask("Explore catacombs", "", false)
-	buy = todo.NewTask("Buy supplies", "", false)
-	taskB = todo.NewTask("Task B", "", false)
+	taskA = newTask("Task A", "", todo.Open)
+	cata = newTask("Explore catacombs", "", todo.Open)
+	buy = newTask("Buy supplies", "", todo.Open)
+	taskB = newTask("Task B", "", todo.Open)
 	home = &todo.Item{Kind: todo.Category, Level: 1, Title: "Home"}
-	groc = todo.NewTask("Groceries", "", false)
+	groc = newTask("Groceries", "", todo.Open)
 
 	work.AppendChild(taskA)
 	taskA.AppendChild(cata)
@@ -31,13 +31,13 @@ func buildFilterTree() (d *todo.Document, work, taskA, cata, buy, taskB, home, g
 	home.AppendChild(groc)
 
 	d = &todo.Document{}
-	d.AppendRoot(work)
-	d.AppendRoot(home)
+	d.Roots = append(d.Roots, work)
+	d.Roots = append(d.Roots, home)
 	return
 }
 
 func TestMatchesTitleCaseInsensitive(t *testing.T) {
-	it := todo.NewTask("Explore Catacombs", "", false)
+	it := newTask("Explore Catacombs", "", todo.Open)
 	if !it.Matches("cat") {
 		t.Errorf("lower-case query should match a mixed-case title")
 	}
@@ -50,7 +50,7 @@ func TestMatchesTitleCaseInsensitive(t *testing.T) {
 }
 
 func TestMatchesDescription(t *testing.T) {
-	it := todo.NewTask("Groceries", "remember the cat food", false)
+	it := newTask("Groceries", "remember the cat food", todo.Open)
 	if !it.Matches("cat food") {
 		t.Errorf("a query in the description should match a task")
 	}
@@ -106,12 +106,12 @@ func TestVisibleItemsNoMatch(t *testing.T) {
 
 func TestVisibleItemsMatchesDescription(t *testing.T) {
 	work := &todo.Item{Kind: todo.Category, Level: 1, Title: "Work"}
-	taskA := todo.NewTask("Task A", "", false)
-	buy := todo.NewTask("Buy supplies", "need a flashlight", false)
+	taskA := newTask("Task A", "", todo.Open)
+	buy := newTask("Buy supplies", "need a flashlight", todo.Open)
 	work.AppendChild(taskA)
 	taskA.AppendChild(buy)
 	d := &todo.Document{}
-	d.AppendRoot(work)
+	d.Roots = append(d.Roots, work)
 
 	vis := d.VisibleItems("flashlight")
 	if !vis[buy] {

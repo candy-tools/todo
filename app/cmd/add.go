@@ -15,7 +15,7 @@ func addCmd() *cobra.Command {
 		Short: "add a task under a category (or as a subtask of a task)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 				parent, err := resolveSelector(cmd, doc, "parent-")
 				if err != nil {
 					return err
@@ -31,17 +31,15 @@ func addCmd() *cobra.Command {
 					return usageErr(fmt.Sprintf("invalid --status %q (%s)", statusName, statusNames))
 				}
 				plan, _ := cmd.Flags().GetString("plan")
-				task := &todo.Item{Kind: todo.Task, Title: title, Status: st, Parent: parent}
-				s, err := open()
+				// The store places the task after the parent's last task as the tree
+				// is when it writes, so a sibling changed meanwhile does not matter.
+				id, res, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parent.ID)
 				if err != nil {
 					return err
 				}
-				// The store places the task after the parent's last task as the tree
-				// is when it writes, so a sibling changed meanwhile does not matter.
-				if _, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parent.ID); err != nil {
-					return err
+				if task, ok := res.Doc.ByID(id); ok {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), task.Title, categoryPath(task))
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), task.Title, categoryPath(task))
 				return nil
 			})
 		},
@@ -60,39 +58,36 @@ func addCategoryCmd() *cobra.Command {
 		Short: "add a category (top-level, or nested under a parent category)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, open storeOpener, doc *todo.Document) error {
+			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 				title, _ := cmd.Flags().GetString("title")
 				title, err := todo.CleanTitle(title)
 				if err != nil {
 					return usageErr("--title: " + err.Error())
 				}
-				cat := &todo.Item{Kind: todo.Category, Title: title}
-				hasParent := cmd.Flags().Changed("parent-number") ||
-					cmd.Flags().Changed("parent-id") || cmd.Flags().Changed("parent-title")
-				if hasParent {
-					parent, err := resolveSelector(cmd, doc, "parent-")
-					if err != nil {
+				var parent *todo.Item
+				if cmd.Flags().Changed("parent-number") || cmd.Flags().Changed("parent-id") || cmd.Flags().Changed("parent-title") {
+					if parent, err = resolveSelector(cmd, doc, "parent-"); err != nil {
 						return err
 					}
-					if parent.Kind != todo.Category {
-						return wrongKind("nest a category under", parent, "category")
-					}
-					parent.AppendChild(cat)
-				} else {
-					doc.AppendRoot(cat)
 				}
 				// The store places the category last under its parent as it
 				// finds the tree when it writes, so a concurrent change cannot
-				// make the add fail.
-				parentID, _ := doc.Placement(cat)
-				s, err := open()
+				// make the add fail, and decides whether the parent can hold a
+				// category.
+				parentID := ""
+				if parent != nil {
+					parentID = parent.ID
+				}
+				id, res, err := s.AppendCategory(ctx, title, parentID)
 				if err != nil {
+					if parent != nil {
+						return wrongKindIn(err, "nest a category under", parent)
+					}
 					return err
 				}
-				if _, err := s.AppendCategory(ctx, title, parentID); err != nil {
-					return err
+				if cat, ok := res.Doc.ByID(id); ok {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add-category: %s %s\n", strings.Repeat("#", depthOf(cat)+1), title)
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add-category: %s %s\n", strings.Repeat("#", depthOf(cat)+1), title)
 				return nil
 			})
 		},

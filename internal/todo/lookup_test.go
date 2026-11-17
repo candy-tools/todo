@@ -44,14 +44,14 @@ func TestByTitle(t *testing.T) {
 
 func TestByID(t *testing.T) {
 	doc := todotest.Parse(t, "# A\n\n- [ ] t\n")
-	doc.Roots[0].Children[0].ID = 7
-	if it, ok := doc.ByID(7); !ok || it.Title != "t" {
+	doc.Roots[0].Children[0].ID = "7"
+	if it, ok := doc.ByID("7"); !ok || it.Title != "t" {
 		t.Fatal("ByID(7)")
 	}
-	if _, ok := doc.ByID(0); ok {
+	if _, ok := doc.ByID(""); ok {
 		t.Fatal("ByID(0) must be false")
 	}
-	if _, ok := doc.ByID(99); ok {
+	if _, ok := doc.ByID("99"); ok {
 		t.Fatal("ByID(99) must be false")
 	}
 }

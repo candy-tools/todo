@@ -11,11 +11,11 @@ import (
 // done d, all under category C.
 func newUnifiedFixture(t *testing.T) (model, string) {
 	t.Helper()
-	m, path := newTestModel(t, "# C\n- [ ] o\n- [ ] r\n- [ ] w\n- [x] d\n")
-	m = setStatusExternally(t, m, path, "r", todo.Ready)
-	m = setStatusExternally(t, m, path, "w", todo.Working)
-	m.status = ""
-	return m, path
+	return newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "o", "status": "open"},
+		{"id": "t000002", "category": "c000000", "title": "r", "status": "ready"},
+		{"id": "t000003", "category": "c000000", "title": "w", "status": "working"},
+		{"id": "t000004", "category": "c000000", "title": "d", "status": "done"}]}`)
 }
 
 // filterTick opens the f dialog, ticks the states sts and applies them.

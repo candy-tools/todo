@@ -42,8 +42,8 @@ func TestItemCopyText(t *testing.T) {
 		item *todo.Item
 		want string
 	}{
-		{"task with multi-line description", todo.NewTask("Ship it", "line one\nline two", false), "Ship it\n\nline one\nline two"},
-		{"task without description", todo.NewTask("bare", "", false), "bare"},
+		{"task with multi-line description", newTask("Ship it", "line one\nline two", todo.Open), "Ship it\n\nline one\nline two"},
+		{"task without description", newTask("bare", "", todo.Open), "bare"},
 		{"category has no description", &todo.Item{Kind: todo.Category, Title: "Work"}, "Work"},
 	}
 	for _, tc := range tests {

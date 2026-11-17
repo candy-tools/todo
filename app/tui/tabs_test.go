@@ -21,10 +21,24 @@ func setStatusExternally(t *testing.T, m model, path, title string, st todo.Stat
 	if it == nil {
 		t.Fatalf("no item %q", title)
 	}
-	if err := openSecond(t, path).SetStatuses(context.Background(), map[uint]todo.Status{it.ID: st}); err != nil {
+	if _, err := openSecond(t, path).SetState(context.Background(), it.ID, st, todo.StateOptions{}); err != nil {
 		t.Fatalf("external set status: %v", err)
 	}
 	return pollOnce(t, m)
+}
+
+// setStatusInMemory sets the task titled title to st in m's list only, and
+// rebuilds the trees. Tests use it for a status a valid list file cannot hold
+// (an unknown one, such as a newer todo's), which the view must still handle.
+func setStatusInMemory(t *testing.T, m model, title string, st todo.Status) model {
+	t.Helper()
+	it := find(m.doc, title)
+	if it == nil {
+		t.Fatalf("no item %q", title)
+	}
+	it.Status = st
+	m.adoptAll(m.doc, "", false)
+	return m
 }
 
 // storedItem loads the store at path through a fresh handle and returns the item
@@ -288,14 +302,9 @@ func TestCategoryKeysBacklogOnly(t *testing.T) {
 }
 
 func TestReadyWithoutPlanFlagged(t *testing.T) {
-	m, path := newTestModel(t, "# B\n- [ ] r\n- [ ] planned\n")
-	m = setStatusExternally(t, m, path, "r", todo.Ready)
-	m = setStatusExternally(t, m, path, "planned", todo.Ready)
-	planned := find(m.doc, "planned")
-	if err := m.store.Edit(context.Background(), planned.ID, todo.Changes{Plan: new("docs/plan.md")}); err != nil {
-		t.Fatal(err)
-	}
-	m = pollOnce(t, m)
+	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "B"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "r", "status": "ready"},
+		{"id": "t000002", "category": "c000000", "title": "planned", "status": "ready", "plan": "docs/plan.md"}]}`)
 	m.setColumn(todo.ColNext)
 	if row := rowOf(t, m.tree, "r"); !strings.Contains(row, "ready") || !strings.Contains(row, "⚠ no plan") {
 		t.Errorf("a ready task without a plan must be flagged: %q", row)
@@ -306,8 +315,8 @@ func TestReadyWithoutPlanFlagged(t *testing.T) {
 }
 
 func TestTaskRowGlyphsAndStateNames(t *testing.T) {
-	m, path := newTestModel(t, "# B\n- [ ] t\n  - [ ] s\n")
-	m = setStatusExternally(t, m, path, "t", todo.Review)
+	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "B"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "t", "status": "review", "subtasks": [{"id": "s000001", "title": "s"}]}]}`)
 	m.setColumn(todo.ColInProgress)
 	if row := rowOf(t, m.tree, "t"); !strings.Contains(row, "◑ t") || !strings.Contains(row, "review") {
 		t.Errorf("review row = %q", row)
@@ -348,8 +357,8 @@ func TestCategoryCountsPerTab(t *testing.T) {
 }
 
 func TestUnknownStatusRendersInBacklog(t *testing.T) {
-	m, path := newTestModel(t, board)
-	m = setStatusExternally(t, m, path, "backlogTask", todo.Status(9))
+	m, _ := newTestModel(t, board)
+	m = setStatusInMemory(t, m, "backlogTask", todo.Status(9))
 	if row := rowOf(t, m.tree, "backlogTask"); !strings.Contains(row, "status(9)") {
 		t.Errorf("an unknown status must render visibly in Backlog: %q", row)
 	}
@@ -407,7 +416,7 @@ func TestSearchCarriesAcrossTabs(t *testing.T) {
 func TestEditKeepsPlan(t *testing.T) {
 	m, path := newTestModel(t, "# B\n- [ ] a\n")
 	a := find(m.doc, "a")
-	if err := m.store.Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/a.md")}); err != nil {
+	if _, err := m.store.Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/a.md")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
@@ -428,7 +437,7 @@ func TestEditKeepsPlanSetWhileFormOpen(t *testing.T) {
 	a := find(m.doc, "a")
 	m.tree.selectID(a.ID)
 	m = press(m, "e")
-	if err := openSecond(t, path).Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/agent.md")}); err != nil {
+	if _, err := openSecond(t, path).Edit(context.Background(), a.ID, todo.Changes{Plan: new("docs/agent.md")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m) // deferred: the form is open

@@ -8,12 +8,12 @@ import (
 func TestRootArgs(t *testing.T) {
 	c := newRootCommand()
 	if err := c.Args(c, nil); err != nil {
-		t.Errorf("no argument should be valid (defaults to .todo.db): %v", err)
+		t.Errorf("no argument should be valid (defaults to .todo.json): %v", err)
 	}
-	if err := c.Args(c, []string{"a.db"}); err != nil {
+	if err := c.Args(c, []string{"a.json"}); err != nil {
 		t.Errorf("one argument should be valid: %v", err)
 	}
-	if err := c.Args(c, []string{"a.db", "b.db"}); err == nil {
+	if err := c.Args(c, []string{"a.json", "b.json"}); err == nil {
 		t.Error("expected an error with two arguments")
 	}
 }
@@ -23,23 +23,23 @@ func TestResolvePath(t *testing.T) {
 	if p, def, err := resolvePath(c, nil); err != nil || p != defaultFile || !def {
 		t.Errorf("default = %q, %v, %v", p, def, err)
 	}
-	if p, def, err := resolvePath(c, []string{"custom.db"}); err != nil || p != "custom.db" || def {
+	if p, def, err := resolvePath(c, []string{"custom.json"}); err != nil || p != "custom.json" || def {
 		t.Errorf("arg = %q, %v, %v", p, def, err)
 	}
-	if err := c.ParseFlags([]string{"-f", "flag.db"}); err != nil {
+	if err := c.ParseFlags([]string{"-f", "flag.json"}); err != nil {
 		t.Fatal(err)
 	}
-	if p, def, err := resolvePath(c, nil); err != nil || p != "flag.db" || def {
+	if p, def, err := resolvePath(c, nil); err != nil || p != "flag.json" || def {
 		t.Errorf("flag = %q, %v, %v", p, def, err)
 	}
-	if p, _, err := resolvePath(c, []string{"arg.db"}); err != nil || p != "arg.db" {
+	if p, _, err := resolvePath(c, []string{"arg.json"}); err != nil || p != "arg.json" {
 		t.Errorf("arg should beat the flag: %q, %v", p, err)
 	}
 }
 
 func TestRootMeta(t *testing.T) {
 	c := newRootCommand()
-	if c.Use != "todo [db-file]" || c.Short != "A minimalistic terminal TODO manager" {
+	if c.Use != "todo [list-file]" || c.Short != "A minimalistic terminal TODO manager" {
 		t.Errorf("unexpected Use/Short: %q / %q", c.Use, c.Short)
 	}
 }

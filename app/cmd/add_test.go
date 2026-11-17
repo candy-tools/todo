@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
@@ -167,5 +169,35 @@ func TestAddInvalidTitleIsUsageError(t *testing.T) {
 	}
 	if got := todotest.Dump(t, path); got != "# Work\n\n- [ ] a\n" {
 		t.Errorf("nothing should have been added:\n%s", got)
+	}
+}
+
+// The store decides that a category cannot sit under a task: add-category
+// under a task fails with the wrong-kind exit, naming the item and the rule,
+// and writes nothing.
+func TestAddCategoryUnderTaskIsWrongKind(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	before := bytesOf(t, path)
+	_, err := runCmd(t, "add-category", "--file", path, "--title", "X", "--parent-title", "a")
+	if codeOf(t, err) != exitWrongKind {
+		t.Fatalf("add-category under a task = %v, want wrong-kind", err)
+	}
+	if want := `cannot nest a category under "a": ` + todo.ErrWrongParent.Error(); err.Error() != want {
+		t.Errorf("message = %q, want %q", err, want)
+	}
+	if !bytes.Equal(bytesOf(t, path), before) {
+		t.Error("nothing should have been written")
+	}
+}
+
+// add-category reports the new category's depth in the list the write left.
+func TestAddCategoryConfirmsDepth(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n## Backend\n\n- [ ] a\n")
+	out, err := runCmd(t, "add-category", "--file", path, "--title", "Deep", "--parent-title", "Backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "add-category: ### Deep\n" {
+		t.Errorf("out = %q", out)
 	}
 }

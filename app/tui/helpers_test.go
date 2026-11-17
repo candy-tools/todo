@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -9,22 +10,32 @@ import (
 )
 
 // newTestModel seeds a store from the markdown src, opens it with the TUI's
-// BusyTimeout into a model (closed when the test ends), and sizes the view. It
-// returns the model and the store path so tests can assert on what was
-// persisted.
+// BusyTimeout into a model, and sizes the view. It returns the model and the
+// store path so tests can assert on what was persisted.
 func newTestModel(t *testing.T, src string) (model, string) {
 	t.Helper()
 	path := todotest.Seed(t, src)
-	st, err := todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
+	return modelOn(t, path), path
+}
+
+// newJSONModel is newTestModel seeded from a list file's JSON, for a test
+// that starts from kanban states or plans markdown cannot express.
+func newJSONModel(t *testing.T, json string) (model, string) {
+	t.Helper()
+	path := todotest.SeedJSON(t, json)
+	return modelOn(t, path), path
+}
+
+// modelOn opens the list at path with the TUI's BusyTimeout into a model and
+// sizes the view.
+func modelOn(t *testing.T, path string) model {
+	t.Helper()
+	st := todo.NewStore(path, todo.WithBusyTimeout(BusyTimeout))
 	m, err := newModel(st, "")
 	if err != nil {
 		t.Fatalf("newModel: %v", err)
 	}
-	return send(m, tea.WindowSizeMsg{Width: 100, Height: 30}), path
+	return send(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 }
 
 // newTestModelOn is newTestModel switched to the board tab for column c, for
@@ -50,16 +61,10 @@ func showOn(t *testing.T, m model, c todo.Column, title string) model {
 }
 
 // openSecond opens another handle on the store at path, standing in for a second
-// process (a CLI command or an agent) writing to the same list. It is closed when
-// the test ends.
+// process (a CLI command or an agent) writing to the same list.
 func openSecond(t *testing.T, path string) *todo.Store {
 	t.Helper()
-	st, err := todo.OpenStore(path)
-	if err != nil {
-		t.Fatalf("open second store: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
+	return todo.NewStore(path)
 }
 
 // parseDoc parses the markdown src and numbers its items 1, 2, … in document
@@ -69,9 +74,15 @@ func parseDoc(t testing.TB, src string) *todo.Document {
 	t.Helper()
 	d := todotest.Parse(t, src)
 	for i, it := range d.Enumerate() {
-		it.ID = uint(i + 1)
+		it.ID = strconv.Itoa(i + 1)
 	}
 	return d
+}
+
+// newTask returns a task titled title, with description desc, in state st,
+// not yet placed in a tree.
+func newTask(title, desc string, st todo.Status) *todo.Item {
+	return &todo.Item{Kind: todo.Task, Title: title, Description: desc, Status: st}
 }
 
 // send applies msg and returns the updated model.

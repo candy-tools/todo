@@ -159,7 +159,7 @@ func TestSplitReloadKeepsScope(t *testing.T) {
 	m = press(m, "v")
 	m = sideSelect(t, m, "Backend")
 	backend := find(m.doc, "Backend").ID
-	if _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "ext"}, todo.Open, backend, 0); err != nil {
+	if _, _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "ext"}, todo.Open, backend, ""); err != nil {
 		t.Fatalf("external add: %v", err)
 	}
 	m = pollOnce(t, m)
@@ -175,7 +175,7 @@ func TestSplitReloadScopeDeleted(t *testing.T) {
 	m, path := newTestModel(t, actionsDoc)
 	m = press(m, "v")
 	m = sideSelect(t, m, "Home")
-	if err := openSecond(t, path).Delete(context.Background(), find(m.doc, "Home").ID); err != nil {
+	if _, err := openSecond(t, path).Delete(context.Background(), find(m.doc, "Home").ID); err != nil {
 		t.Fatalf("external delete: %v", err)
 	}
 	m = pollOnce(t, m)
@@ -200,9 +200,9 @@ func TestSplitEmptyDocument(t *testing.T) {
 }
 
 func TestSplitFilteredStateChangeNamesColumn(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] o\n- [ ] r\n")
-	m = setStatusExternally(t, m, path, "r", todo.Ready)
-	m.status = ""
+	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "title": "o", "status": "open"},
+		{"id": "t000002", "category": "c000000", "title": "r", "status": "ready"}]}`)
 	m.setColumn(todo.ColNext)
 	m = filterTick(t, m, todo.Ready)
 	m = press(m, "v", "x")

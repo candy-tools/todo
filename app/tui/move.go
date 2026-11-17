@@ -2,7 +2,7 @@ package tui
 
 import (
 	"context"
-	"slices"
+	"errors"
 
 	"github.com/candy-tools/todo/internal/todo"
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,18 +29,18 @@ func (m model) startMove() (tea.Model, tea.Cmd) {
 }
 
 // updateMove handles keys while an item is grabbed: the arrows reorder it (↑/↓)
-// or re-nest it (←/→), and m/esc/enter drop it. A move the document refuses (a
-// clamp at the ends, or an illegal re-nest) leaves the item grabbed so the user
-// can pick another direction.
+// or re-nest it (←/→), and m/esc/enter drop it. A move with nowhere valid to
+// go (a clamp at the ends, or an illegal re-nest) leaves the item grabbed so
+// the user can pick another direction.
 func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	switch msg.String() {
 	case "up", "w":
-		return m.applyMove(m.stepPastShown(m.doc.MoveUp, m.doc.MoveDown))
+		return m.applyMove(todo.StepUp)
 	case "down", "s":
-		return m.applyMove(m.stepPastShown(m.doc.MoveDown, m.doc.MoveUp))
+		return m.applyMove(todo.StepDown)
 	case "left":
-		return m.applyMove(m.doc.Outdent)
+		return m.applyMove(todo.StepOut)
 	case "right":
 		return m.applyIndent()
 	case "m", "esc", "enter":
@@ -49,89 +49,63 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// stepPastShown wraps a one-step reorder so that it moves the item past one
-// row the tab shows. Every tab can hide items between its rows (Backlog hides
-// the other columns' tasks, other tabs hide Backlog's, a search hides
-// non-matches), so op repeats until the item has passed a row that was shown
-// before the move or has entered another parent (one category per key press,
-// as when nothing is hidden). If op refuses first, the item only stepped over
-// hidden siblings, so undo walks it back and the move is a no-op; it reports
-// whether the item moved. Where nothing is hidden, the first step already
-// passes a shown row.
-func (m model) stepPastShown(op, undo func(*todo.Item) bool) func(*todo.Item) bool {
-	return func(it *todo.Item) bool {
-		start, parent := m.focused().shownBefore(it), it.Parent
-		steps := 0
-		for op(it) {
-			steps++
-			if it.Parent != parent || m.focused().shownBefore(it) != start {
-				return true
-			}
-		}
-		// Every step was a swap with a hidden sibling under the same parent, which
-		// undo swaps straight back.
-		for ; steps > 0; steps-- {
-			undo(it)
-		}
-		return false
-	}
-}
-
 // applyIndent indents the grabbed item under the item just above it among its
-// siblings. A subtask, or a task with subtasks, never indents (tasks nest one
-// level only, so Document.Indent refuses it), and neither does an item whose
-// new parent the tab hides, since it would vanish into that hidden task; the
-// footer says why. Any other refusal (nothing above to nest under) stays
-// silent, as before.
+// siblings. When the list refuses it as too deep (a subtask, or a task with
+// subtasks, whether or not anything sits above it: tasks nest one level only),
+// or the new parent is hidden in the tab (the item would vanish into it),
+// nothing moves and the footer says why. Any other refusal (a task or
+// category with nothing above to nest under) stays silent.
 func (m model) applyIndent() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	if it == nil {
 		return m, nil
 	}
-	if it.IsTask() && (it.IsSubtask() || len(it.Children) > 0) {
+	parentID, afterID, err := m.doc.StepPlacement(it.ID, todo.StepIn, nil)
+	switch {
+	case errors.Is(err, todo.ErrTooDeep):
 		m.status = "subtasks can't have subtasks"
 		return m, nil
+	case err != nil:
+		return m, nil
 	}
-	if prev := prevSibling(it); prev != nil && prev.Kind == it.Kind && !m.focused().shown[prev] {
+	if p, ok := m.doc.ByID(parentID); ok && !m.focused().shown[p] {
 		m.status = "can't nest under a task hidden in this tab"
 		return m, nil
 	}
-	return m.applyMove(m.doc.Indent)
+	return m.moveTo(it.ID, parentID, afterID)
 }
 
-// prevSibling returns the sibling just before it under the same parent, or nil
-// when it is first or a root item.
-func prevSibling(it *todo.Item) *todo.Item {
-	if it.Parent == nil {
-		return nil
-	}
-	if i := slices.Index(it.Parent.Children, it); i > 0 {
-		return it.Parent.Children[i-1]
-	}
-	return nil
-}
-
-// applyMove runs one move op on the grabbed item. On success it persists the
-// item's new placement, reloads, keeps the cursor on the moved item (still
-// grabbed) and expands its (possibly new) parent so it stays visible; the
-// structural change also ends the accidental-complete undo window. A no-op
-// result changes nothing and keeps the item grabbed. If the item is no longer
-// shown in the tab afterwards (a re-nest changed its state, or a write landed
-// from elsewhere), the grab ends, the cursor keeps its row index (clamped) and
-// the footer says where the item went.
-func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
+// applyMove makes one step s of the grabbed item. The list works out where
+// the step goes (todo.Document.StepPlacement) without changing anything; an
+// up or down step skips the items the tab hides (Backlog hides the other
+// columns' tasks, other tabs hide Backlog's, a search hides non-matches), so
+// the item passes one shown row per key press. A step with nowhere to go
+// changes nothing and keeps the item grabbed. Otherwise the store moves the
+// item there, and the view shows the list the write left: the cursor stays on
+// the moved item (still grabbed) and its new parent is expanded so it stays
+// visible; the structural change also ends the accidental-complete undo
+// window. If the item is no longer shown in the tab afterwards (a re-nest
+// changed its state, or a write landed from elsewhere), the grab ends, the
+// cursor keeps its row index (clamped) and the footer says where it went.
+func (m model) applyMove(s todo.MoveStep) (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
-	if it == nil || !op(it) {
+	if it == nil {
 		return m, nil
 	}
-	m.snapshots = map[uint]todo.DoneStates{}
-	if it.Parent != nil {
-		delete(m.focused().collapsed, it.Parent.ID) // reveal the item under its (possibly new) parent
+	parentID, afterID, err := m.doc.StepPlacement(it.ID, s, m.focused().shownID())
+	if err != nil {
+		return m, nil
 	}
-	id := it.ID
-	parentID, afterID := m.doc.Placement(it)
-	m.commit(id, func(ctx context.Context) error {
-		return m.store.Move(ctx, id, parentID, afterID)
+	return m.moveTo(it.ID, parentID, afterID)
+}
+
+// moveTo moves the grabbed item id under parentID after afterID, as
+// applyMove describes.
+func (m model) moveTo(id, parentID, afterID string) (tea.Model, tea.Cmd) {
+	m.snapshots = map[string]todo.DoneStates{}
+	delete(m.focused().collapsed, parentID) // reveal the item under its (possibly new) parent
+	m.commit(id, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+		return st.Move(ctx, id, parentID, afterID)
 	})
 	if m.noteLeftTab(id) {
 		m.focused().grabbed = false

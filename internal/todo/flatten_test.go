@@ -10,7 +10,7 @@ import (
 
 func TestFlattenKeepsReadingOrder(t *testing.T) {
 	d := todotest.Parse(t, "# C\n- [ ] T\n  - [ ] a\n    - [ ] a1\n      - [ ] a1x\n  - [ ] b\n")
-	moved := d.FlattenSubtasks()
+	d.FlattenSubtasks()
 	T := find(d, "T")
 	if got := titles(T.Children); !slices.Equal(got, []string{"a", "a1", "a1x", "b"}) {
 		t.Errorf("T's children = %v, want [a a1 a1x b]", got)
@@ -19,9 +19,6 @@ func TestFlattenKeepsReadingOrder(t *testing.T) {
 		if c.Parent != T || len(c.Children) != 0 {
 			t.Errorf("%s: parent=%v children=%d, want parent T and no children", c.Title, c.Parent, len(c.Children))
 		}
-	}
-	if got := titles(moved); !slices.Equal(got, []string{"a1", "a1x"}) {
-		t.Errorf("moved = %v, want [a1 a1x]", got)
 	}
 }
 
@@ -37,8 +34,10 @@ func TestFlattenNormalizesSubtaskStatus(t *testing.T) {
 
 func TestFlattenNoopOnFlatTree(t *testing.T) {
 	d := todotest.Parse(t, "# C\n- [ ] T\n  - [ ] a\n  - [ ] b\n- [ ] U\n")
-	if moved := d.FlattenSubtasks(); moved != nil {
-		t.Errorf("moved = %v, want nil", titles(moved))
+	want := todotest.Render(d)
+	d.FlattenSubtasks()
+	if got := todotest.Render(d); got != want {
+		t.Errorf("flat tree changed:\n%s\nwant:\n%s", got, want)
 	}
 	if got := titles(find(d, "T").Children); !slices.Equal(got, []string{"a", "b"}) {
 		t.Errorf("T's children = %v, want [a b]", got)

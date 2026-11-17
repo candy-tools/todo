@@ -41,34 +41,32 @@ const (
 //   - An external reload is applied in modeMain and modeSearch, and deferred
 //     in the modal modes and while an item is grabbed (see handleReload).
 type model struct {
-	// Persistence: the store, the document loaded from it, and the revision
-	// and errors of the last load or write.
+	// Persistence: the store, the document loaded from it, and the
+	// fingerprint and errors of the last load or write.
 	store *todo.Store
-	doc   *todo.Document
-	// saved is an untouched copy of doc as the store last gave it (or, after a
-	// write that succeeded but could not be reloaded, as that write left it).
-	// The actions change doc in memory before they write, so when the write
-	// fails and the reload cannot replace doc either, commit puts a copy of
-	// saved back rather than show the unsaved change as if it were saved.
-	saved *todo.Document
-	// lastRev is the store revision doc reflects: the one todo last loaded,
-	// which after its own write is the revision that write produced. The poll
-	// loop compares the store against it to tell an external write (reload) from
-	// the app's own (ignore).
-	lastRev int64
-	// unsynced is set when the app's own write succeeded but the reload after
-	// it failed: lastRev is the revision that write produced, but doc is the
-	// in-memory change, not read back from the store (a new item has no ID
-	// yet). The next poll loads the list regardless, as the app's own write.
-	unsynced bool
-	err      error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
-	// pollErr is the reload failure last put in err, by the poll or by commit
-	// after a write that succeeded, kept to show each distinct poll failure once
-	// and to clear it when a later reload succeeds.
+	// doc is the list as the store last gave it: a load, or a write's result.
+	// It is read only: an action sends its change to the store and shows the
+	// list the write left (see commit).
+	doc *todo.Document
+	// lastFP is the fingerprint of the list file doc reflects: the one todo
+	// last loaded, which after its own write is the file that write left. The
+	// poll loop asks the store whether the file changed since, to tell an
+	// external write (reload) from the app's own (ignore).
+	lastFP todo.Fingerprint
+	// docGen counts the lists the model took (see take); a probe carries the
+	// count it started at, so a late one is told from a current one even when
+	// the file went back to the same bytes in between.
+	docGen uint64
+	// probing is true while a probe of the file is in flight; no other starts
+	// until its message arrives (see startProbe).
+	probing bool
+	err     error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
+	// pollErr is the poll failure last put in err, kept to show each distinct
+	// poll failure once and to clear it when a later poll succeeds.
 	pollErr error
-	// opener opens the store again at its path, the way the caller opened it,
-	// after the file there was replaced (see reopenStore).
-	opener func() (*todo.Store, error)
+	// pollFails counts the polls in a row that failed; a failure is shown only
+	// once pollFailsShown of them did (see handleReloadFailed).
+	pollFails int
 
 	// Layout: what the trees show and how the screen is split.
 	//
@@ -114,32 +112,28 @@ type model struct {
 	// snapshots holds, per task ID completed in this session, the states of the
 	// task and its subtasks captured at completion time, so un-completing it can
 	// restore them (the accidental-complete undo). Keyed by ID, it survives the
-	// reload after the app's own write; an external reload clears it.
-	snapshots map[uint]todo.DoneStates
+	// app's own writes; an external change clears it as soon as a write or a
+	// poll finds it, even when the poll defers the reload.
+	snapshots map[string]todo.DoneStates
 	status    string // transient one-line footer message
 	version   string // the app version shown in the header
 }
 
 // BusyTimeout is how long a TUI write waits for another process to release the
-// store's writer lock before it fails with todo.ErrBusy. Writes run on the UI
-// thread, so the wait is kept well below the CLI's: the caller opens the store
+// list's write lock before it fails with todo.ErrBusy. Writes run on the UI
+// thread, so the wait is kept well below the CLI's: the caller makes the store
 // it passes to Run with todo.WithBusyTimeout(BusyTimeout).
 const BusyTimeout = 750 * time.Millisecond
 
 // Run loads the list from st and starts the interactive TUI. notice (e.g. the
 // automatic TODO.md import summary) is shown in the footer at start; it may be
-// empty. The caller owns st, opened with BusyTimeout, and closes it after Run
-// returns; a store the TUI reopened after the file was replaced is closed by
-// Run.
+// empty. The caller makes st with BusyTimeout.
 func Run(st *todo.Store, notice string) error {
 	m, err := newModel(st, notice)
 	if err != nil {
 		return err
 	}
-	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
-	if fm, ok := final.(model); ok && fm.store != st {
-		_ = fm.store.Close()
-	}
+	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
 
@@ -149,29 +143,26 @@ func Run(st *todo.Store, notice string) error {
 // line. Split out from Run so tests can drive the model without starting a real
 // terminal program.
 func newModel(st *todo.Store, notice string) (model, error) {
-	doc, rev, err := st.Load(context.Background())
+	doc, fp, err := st.Load(context.Background())
 	if err != nil {
 		return model{}, err
 	}
 	v := newViewState()
-	path := st.Path()
 	return model{
 		store:     st,
-		opener:    func() (*todo.Store, error) { return todo.OpenStore(path, todo.WithBusyTimeout(BusyTimeout)) },
 		version:   metainfo.Version,
 		doc:       doc,
-		saved:     doc.Clone(),
 		view:      v,
 		tree:      newTree(doc, v),
 		side:      newSidebar(doc, v),
 		mode:      modeMain,
-		snapshots: map[uint]todo.DoneStates{},
-		lastRev:   rev,
+		snapshots: map[string]todo.DoneStates{},
+		lastFP:    fp,
 		status:    strings.ReplaceAll(notice, "\n", " · "),
 	}, nil
 }
 
-// Init starts the revision-poll loop that keeps the view in sync with external
+// Init starts the change-poll loop that keeps the view in sync with external
 // writes to the store.
 func (m model) Init() tea.Cmd { return pollCmd() }
 
@@ -194,16 +185,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case reloadTickMsg:
 		// Probe the store and re-arm the next tick; the probe runs off-goroutine.
-		return m, tea.Batch(m.reloadCheckCmd(), pollCmd())
-	case storeReloadedMsg:
-		return m.handleReload(msg)
-	case reloadFailedMsg:
-		return m.handleReloadFailed(msg)
-	case storeReopenedMsg:
-		return m.handleReopen(msg)
-	case reloadRecoveredMsg:
-		m.clearPollErr()
-		return m, nil
+		// startProbe marks the probe in flight on m, so it runs before m is
+		// returned.
+		probe := m.startProbe()
+		return m, tea.Batch(probe, pollCmd())
+	case probeMsg:
+		return m.handleProbe(msg)
 	case tea.KeyMsg:
 		nm, cmd := m.updateKey(msg)
 		// In the split view the task list follows the sidebar's category,

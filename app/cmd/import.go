@@ -8,34 +8,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// importFile imports a markdown file into a store; tests replace it to make
-// the import fail the way a store can.
-var importFile = todo.ImportFile
-
 func importCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "import <file.md>",
-		Short: "import a markdown TODO file into the database",
+		Short: "import a markdown TODO file into the JSON list",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			db, _, err := resolvePath(cmd, nil)
+			path, isDefault, err := resolvePath(cmd, nil)
 			if err != nil {
 				return err
 			}
+			// The notice is a courtesy: a list file that cannot be stat'ed
+			// fails the import itself, with a better message.
+			first, _ := firstRun(path, isDefault)
+			printNotice(cmd, legacyDBNotice(first))
 			force, _ := cmd.Flags().GetBool("force")
-			s, rep, err := importFile(db, args[0], force)
+			_, rep, err := todo.ImportFile(path, args[0], force)
 			if errors.Is(err, todo.ErrNotEmpty) {
-				return &cliError{exitGeneric, fmt.Sprintf("%s already has items; use --force to replace them", db)}
-			}
-			if c := conflictErr(err); c != nil {
-				return c
+				return &cliError{exitGeneric, fmt.Sprintf("%s already has items; use --force to replace them", path)}
 			}
 			if err != nil {
-				return err
-			}
-			_ = s.Close()
-			if rep.Skipped {
-				return &cliError{exitGeneric, fmt.Sprintf("%s was created by another todo during the import; nothing was imported", db)}
+				return storeErr(err)
 			}
 			if rep.Backup != "" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "backed up the replaced items to %s\n", rep.Backup)
@@ -44,6 +37,6 @@ func importCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().Bool("force", false, "replace the items already in the database")
+	c.Flags().Bool("force", false, "replace the items already in the list")
 	return c
 }

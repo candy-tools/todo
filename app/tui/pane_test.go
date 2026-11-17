@@ -26,13 +26,13 @@ func rowDesc(tr tree) []string {
 	return out
 }
 
-func newPaneTree(t *testing.T, p paneKind) (tree, func(string) uint) {
+func newPaneTree(t *testing.T, p paneKind) (tree, func(string) string) {
 	t.Helper()
 	d := parseDoc(t, paneDoc)
 	tr := newTree(d, newViewState())
 	tr.viewHeight = 20
 	tr.setPane(p)
-	return tr, func(title string) uint { return find(d, title).ID }
+	return tr, func(title string) string { return find(d, title).ID }
 }
 
 func TestSidebarRows(t *testing.T) {
@@ -42,7 +42,7 @@ func TestSidebarRows(t *testing.T) {
 		t.Fatalf("sidebar rows = %v, want %v", got, want)
 	}
 	tr.selectTop()
-	if !tr.onAll() || tr.selected() != nil || tr.selectedID() != 0 {
+	if !tr.onAll() || tr.selected() != nil || tr.selectedID() != "" {
 		t.Error("the sidebar should start on All, which selects no item")
 	}
 }

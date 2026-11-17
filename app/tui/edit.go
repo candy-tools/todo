@@ -145,17 +145,17 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// submitForm applies the open form: editing the selected item, or inserting a
-// new task/subtask/category at the right spot. The insert is first made in
-// memory, which works out its parent (and a category's placement), and then
-// stored there; the store appends a task after its parent's last task. An empty title
-// is ignored (the dialog stays open), and an edit that changed nothing closes it
-// without a write. Any structural or content change clears the undo snapshots —
-// the accidental-complete window is meant to be immediate. A failed write (the
-// store busy with another process's write, say) reopens the form with what was
-// typed, the error in the footer, so saving again retries it: an edit goes to
-// the same item, found again by ID in the reloaded list (the form stays closed
-// when the item is gone), and an add goes next to or under the same item.
+// submitForm applies the open form: editing the selected item, or adding a
+// new task/subtask/category under the parent the selection gives (see
+// addParent); the store appends it there, a task after its parent's last
+// task. An empty title is ignored (the dialog stays open), and an edit that
+// changed nothing closes it without a write. Any structural or content change
+// clears the undo snapshots — the accidental-complete window is meant to be
+// immediate. A failed write (the store busy with another process's write,
+// say) reopens the form with what was typed, the error in the footer, so
+// saving again retries it: an edit goes to the same item, found again by ID in
+// the reloaded list (the form stays closed when the item is gone), and an add
+// goes next to or under the same item.
 func (m model) submitForm() (tea.Model, tea.Cmd) {
 	title, desc, plan := m.form.values()
 	if title == "" {
@@ -167,70 +167,43 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.snapshots = map[uint]todo.DoneStates{}
+	m.snapshots = map[string]todo.DoneStates{}
 	sel := m.focused().selected()
 	if m.target != targetAddCategory {
 		sel = m.taskAnchor()
 	}
 	// The anchor is selected again if the write fails, so a retry adds at the
 	// same place even when the reload shifted the rows.
-	var anchorID uint
+	var anchorID string
 	if sel != nil && !m.focused().onPlaceholder() {
 		anchorID = sel.ID
 	}
-	var added *todo.Item
-	switch m.target {
-	case targetAddCategory:
-		added = &todo.Item{Kind: todo.Category, Title: title, Level: 1}
-		// A category — or a task inside one — selected → subcategory of the
-		// enclosing category; the root placeholder → a new top-level category.
-		var parentCat *todo.Item
-		if !m.focused().onPlaceholder() && sel != nil {
-			parentCat = sel.EnclosingCategory()
-		}
-		if parentCat != nil {
-			added.Level = parentCat.Level + 1
-			parentCat.AppendChild(added)
-			delete(m.focused().collapsed, parentCat.ID)
-		} else {
-			m.doc.AppendRoot(added)
-		}
-	case targetAddChild: // a subtask of a task, or a task inside a category
-		added = todo.NewTask(title, desc, false)
-		added.Plan = plan
-		sel.AppendTask(added)
-		delete(m.focused().collapsed, sel.ID)
-	default: // targetAddSibling: a task at the end of the selection's level
-		added = todo.NewTask(title, desc, false)
-		added.Plan = plan
-		parent := sel
-		if sel.IsTask() && sel.Parent != nil {
-			parent = sel.Parent // a task's siblings live under its parent
-		}
-		parent.AppendTask(added)
-		delete(m.focused().collapsed, parent.ID)
+	parent := m.addParent(sel)
+	var parentID string
+	if parent != nil {
+		parentID = parent.ID
+		delete(m.focused().collapsed, parentID) // the new item shows under its parent
 	}
 	// A new task enters the current tab in its column's first state, so it shows
 	// where it was added; a new subtask starts open (subtasks are open or done).
-	if added.Kind == todo.Task && !added.IsSubtask() {
-		added.Status = m.view.newTaskState()
+	st := m.view.newTaskState()
+	if parent != nil && parent.IsTask() {
+		st = todo.Open
 	}
 
 	// A task goes after its parent's last task, a category after its parent's
 	// last child, as the store finds them when it writes, so a sibling another
 	// process moved or deleted does not matter.
-	parentID, _ := m.doc.Placement(added)
-	var newID uint
-	if !m.commit(0, func(ctx context.Context) error {
-		var err error
-		if added.Kind == todo.Category {
-			newID, err = m.store.AppendCategory(ctx, title, parentID)
+	var newID string
+	if !m.commit("", func(ctx context.Context, s *todo.Store) (res todo.WriteResult, err error) {
+		if m.target == targetAddCategory {
+			newID, res, err = s.AppendCategory(ctx, title, parentID)
 		} else {
-			newID, err = m.store.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, added.Status, parentID)
+			newID, res, err = s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parentID)
 		}
-		return err
+		return res, err
 	}) {
-		if anchorID != 0 {
+		if anchorID != "" {
 			m.adoptAll(m.doc, anchorID, false)
 		}
 		m.mode = modeForm
@@ -254,11 +227,10 @@ func (m *model) submitEdit() {
 	if ch == (todo.Changes{}) {
 		return
 	}
-	m.snapshots = map[uint]todo.DoneStates{}
-	applyChanges(m.editing, ch)
+	m.snapshots = map[string]todo.DoneStates{}
 	id := m.editing.ID
-	if m.commit(id, func(ctx context.Context) error {
-		return m.store.Edit(ctx, id, ch)
+	if m.commit(id, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+		return st.Edit(ctx, id, ch)
 	}) {
 		return
 	}
@@ -268,17 +240,22 @@ func (m *model) submitEdit() {
 	}
 }
 
-// applyChanges sets on it, in memory, the fields ch names.
-func applyChanges(it *todo.Item, ch todo.Changes) {
-	if ch.Title != nil {
-		it.Title = *ch.Title
+// addParent returns the item the open add form puts its new item under, from
+// sel, the selection it was opened on: for a category, the category enclosing
+// sel, or nil (a top-level category) on the "+ new category" row or with
+// nothing selected; for a task, sel itself (N, or n on a category), or sel's
+// parent for n on a task, whose siblings live there.
+func (m *model) addParent(sel *todo.Item) *todo.Item {
+	switch {
+	case m.target == targetAddCategory:
+		if sel == nil || m.focused().onPlaceholder() {
+			return nil
+		}
+		return sel.EnclosingCategory()
+	case m.target == targetAddSibling && sel.IsTask() && sel.Parent != nil:
+		return sel.Parent
 	}
-	if ch.Description != nil {
-		it.Description = *ch.Description
-	}
-	if ch.Plan != nil {
-		it.Plan = *ch.Plan
-	}
+	return sel
 }
 
 // itemMeta renders the read-only header of the edit dialog: a task's state glyph,
@@ -294,11 +271,7 @@ func itemMeta(it *todo.Item) string {
 		return labelStyle.Render("Category") + helpTextStyle.Render(fmt.Sprintf("  ·  %d of %d tasks done", done, total))
 	}
 	glyph, st := statusGlyph(it.Status, it.IsSubtask())
-	col := it.Status.Column()
-	if it.IsSubtask() && it.Parent != nil {
-		col = it.Parent.Status.Column() // a subtask sits in its parent's column
-	}
-	status := st.Render(glyph + " " + col.Title() + " · " + it.Status.Label())
+	status := st.Render(glyph + " " + it.Column().Title() + " · " + it.Status.Label())
 	if done, total := it.TaskCounts(); total > 0 {
 		status += helpTextStyle.Render("  ·  ") + labelStyle.Render("Subtasks") + helpTextStyle.Render(fmt.Sprintf(" %d/%d done", done, total))
 	}

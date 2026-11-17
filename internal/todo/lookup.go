@@ -26,10 +26,10 @@ func (d *Document) ByNumber(n int) (*Item, bool) {
 	return items[n-1], true
 }
 
-// ByID returns the item whose database ID equals id, or ok=false when none
-// matches. ID 0 means "not persisted", so it never matches.
-func (d *Document) ByID(id uint) (*Item, bool) {
-	if id == 0 {
+// ByID returns the item whose ID equals id, or ok=false when none
+// matches. The empty ID means "not persisted", so it never matches.
+func (d *Document) ByID(id string) (*Item, bool) {
+	if id == "" {
 		return nil, false
 	}
 	for _, it := range d.Enumerate() {

@@ -1,7 +1,7 @@
 # todo
 
 A minimalistic, keyboard-driven TODO manager for the terminal. It opens a
-per-directory SQLite database (`.todo.db`) as a task list — categories hold
+per-directory JSON file (`.todo.json`) as a task list — categories hold
 tasks, and nested tasks are subtasks. The list is a kanban board with one tab per
 column — Backlog, Next, In Progress and Done — and you move tasks across the
 columns with a key. Everything you do is saved straight away,
@@ -75,9 +75,9 @@ make coverage     # enforce the per-package coverage threshold
 ### Run
 
 ```bash
-make run          # imports example.md into a temp database and opens it
+make run          # imports example.md into a temp file and opens it
 # or plain go:
-go run . path/to/my.db
+go run . path/to/my.json
 ```
 
 ### Build

@@ -82,31 +82,32 @@ func TestImportEmptyFile(t *testing.T) {
 	}
 }
 
-func TestImportRefusesNonEmpty(t *testing.T) {
-	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
-	s, err := todo.OpenStore(path)
-	if err != nil {
+// importFile writes md to a markdown file and imports it into the list at
+// path with todo.ImportFile.
+func importFile(t *testing.T, path, md string, replace bool) (*todo.Store, error) {
+	t.Helper()
+	mdPath := filepath.Join(t.TempDir(), "TODO.md")
+	if err := os.WriteFile(mdPath, []byte(md), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s.Close() }()
-	doc, _, _ := todo.ImportMarkdown([]byte("# B\n"))
-	if err := s.Import(context.Background(), doc, false); !errors.Is(err, todo.ErrNotEmpty) {
-		t.Fatalf("Import = %v; want ErrNotEmpty", err)
+	s, _, err := todo.ImportFile(path, mdPath, replace)
+	return s, err
+}
+
+func TestImportRefusesNonEmpty(t *testing.T) {
+	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
+	if _, err := importFile(t, path, "# B\n", false); !errors.Is(err, todo.ErrNotEmpty) {
+		t.Fatalf("ImportFile = %v; want ErrNotEmpty", err)
 	}
-	if got := todotest.Render(mustLoad(t, s)); !strings.Contains(got, "# A") || strings.Contains(got, "# B") {
+	if got := todotest.Dump(t, path); !strings.Contains(got, "# A") || strings.Contains(got, "# B") {
 		t.Fatalf("store changed on refused import:\n%s", got)
 	}
 }
 
 func TestImportReplace(t *testing.T) {
 	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
-	s, err := todo.OpenStore(path)
+	s, err := importFile(t, path, "# B\n\n- [x] two\n  desc\n", true)
 	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	doc, _, _ := todo.ImportMarkdown([]byte("# B\n\n- [x] two\n  desc\n"))
-	if err := s.Import(context.Background(), doc, true); err != nil {
 		t.Fatal(err)
 	}
 	want := "# B\n\n- [x] two\n  desc\n"
@@ -115,56 +116,63 @@ func TestImportReplace(t *testing.T) {
 	}
 }
 
-func TestImportFileFailureLeavesNoDB(t *testing.T) {
+func TestImportFileFailureLeavesNoFile(t *testing.T) {
 	dir := t.TempDir()
 	md := filepath.Join(dir, "TODO.md")
 	bad := []byte{0xff, 0xfe}
 	if err := os.WriteFile(md, bad, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	db := filepath.Join(dir, ".todo.db")
-	if s, _, err := todo.ImportFile(db, md, false); err == nil {
-		_ = s.Close()
+	list := filepath.Join(dir, ".todo.json")
+	if _, _, err := todo.ImportFile(list, md, false); err == nil {
 		t.Fatal("ImportFile succeeded on invalid UTF-8")
 	}
-	for _, p := range []string{db, db + "-wal", db + "-shm"} {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Errorf("%s exists after failed import (err=%v)", p, err)
-		}
-	}
-	if left, _ := filepath.Glob(filepath.Join(dir, ".todo-import-*")); len(left) > 0 {
-		t.Errorf("temporary import files left behind: %v", left)
+	if left, _ := filepath.Glob(filepath.Join(dir, ".todo*")); len(left) > 0 {
+		t.Errorf("files left after a failed import: %v", left)
 	}
 	if got, _ := os.ReadFile(md); !bytes.Equal(got, bad) {
 		t.Fatal("markdown file was modified")
 	}
 }
 
-func TestImportFileNotEmptyKeepsExistingDB(t *testing.T) {
-	db := todotest.Seed(t, "# A\n")
+func TestImportFileNotEmptyKeepsExistingList(t *testing.T) {
+	list := todotest.Seed(t, "# A\n")
 	md := filepath.Join(t.TempDir(), "TODO.md")
 	if err := os.WriteFile(md, []byte("# B\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := todo.ImportFile(db, md, false); !errors.Is(err, todo.ErrNotEmpty) {
+	if _, _, err := todo.ImportFile(list, md, false); !errors.Is(err, todo.ErrNotEmpty) {
 		t.Fatalf("err = %v; want ErrNotEmpty", err)
 	}
-	if got := todotest.Dump(t, db); got != "# A\n" {
-		t.Fatalf("existing db changed: %q", got)
+	if got := todotest.Dump(t, list); got != "# A\n" {
+		t.Fatalf("existing list changed: %q", got)
+	}
+}
+
+// ImportFile creates the list file when it is missing, and returns a store on
+// it.
+func TestImportFileCreatesList(t *testing.T) {
+	dir := t.TempDir()
+	md := filepath.Join(dir, "TODO.md")
+	if err := os.WriteFile(md, []byte("# A\n\n- [ ] one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	list := filepath.Join(dir, ".todo.json")
+	s, rep, err := todo.ImportFile(list, md, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Path() != list || rep.Categories != 1 || rep.Tasks != 1 || rep.Backup != "" {
+		t.Fatalf("ImportFile = %s, %+v; want a store on %s and 1 category, 1 task, no backup", s.Path(), rep, list)
+	}
+	if got := todotest.Dump(t, list); got != "# A\n\n- [ ] one\n" {
+		t.Fatalf("list holds:\n%s", got)
 	}
 }
 
 func TestImportFlattensDeepMarkdown(t *testing.T) {
-	doc, _, err := todo.ImportMarkdown([]byte("- [ ] T\n  - [/] a\n    - [ ] a1\n"))
+	s, err := importFile(t, filepath.Join(t.TempDir(), ".todo.json"), "- [ ] T\n  - [/] a\n    - [ ] a1\n", false)
 	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := todo.OpenStore(filepath.Join(t.TempDir(), ".todo.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	if err := s.Import(context.Background(), doc, false); err != nil {
 		t.Fatal(err)
 	}
 	got := mustLoad(t, s)
@@ -195,21 +203,19 @@ func mustLoad(t *testing.T, s *todo.Store) *todo.Document {
 }
 
 func TestImportFileReplaceBacksUpNonEmptyStore(t *testing.T) {
-	db := todotest.Seed(t, "# Old\n\n- [ ] keep me\n")
+	path := todotest.Seed(t, "# Old\n\n- [ ] keep me\n")
 	md := filepath.Join(t.TempDir(), "TODO.md")
 	if err := os.WriteFile(md, []byte("# New\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, rep, err := todo.ImportFile(db, md, true)
+	s, rep, err := todo.ImportFile(path, md, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The live file must stay the one the store opened: the backup copies it.
-	if _, err := s.AddCategory(context.Background(), "After", 0, 0); err != nil {
+	if _, _, err := s.AddCategory(context.Background(), "After", "", ""); err != nil {
 		t.Fatalf("write after the import: %v", err)
 	}
-	_ = s.Close()
-	if want := todo.BackupPath(db, 0); rep.Backup != want {
+	if want := todo.BackupPath(path, 0); rep.Backup != want {
 		t.Fatalf("Backup = %q, want %q", rep.Backup, want)
 	}
 	if _, err := os.Stat(rep.Backup); err != nil {
@@ -218,26 +224,25 @@ func TestImportFileReplaceBacksUpNonEmptyStore(t *testing.T) {
 	if got := todotest.Dump(t, rep.Backup); got != "# Old\n\n- [ ] keep me\n" {
 		t.Fatalf("backup holds:\n%s", got)
 	}
-	if got := todotest.Dump(t, db); strings.Contains(got, "Old") || !strings.Contains(got, "# New") {
+	if got := todotest.Dump(t, path); strings.Contains(got, "Old") || !strings.Contains(got, "# New") {
 		t.Fatalf("store not replaced:\n%s", got)
 	}
 }
 
 func TestImportFileReplaceEmptyStoreTakesNoBackup(t *testing.T) {
-	db := todotest.Seed(t, "")
+	path := todotest.Seed(t, "")
 	md := filepath.Join(t.TempDir(), "TODO.md")
 	if err := os.WriteFile(md, []byte("# New\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, rep, err := todo.ImportFile(db, md, true)
+	_, rep, err := todo.ImportFile(path, md, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = s.Close()
 	if rep.Backup != "" {
 		t.Fatalf("Backup = %q, want none", rep.Backup)
 	}
-	if left, _ := filepath.Glob(db + ".bak*"); len(left) > 0 {
+	if left, _ := filepath.Glob(path + ".bak*"); len(left) > 0 {
 		t.Fatalf("backup files for an empty store: %v", left)
 	}
 }

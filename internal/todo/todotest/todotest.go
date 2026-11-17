@@ -3,30 +3,29 @@ package todotest
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/gofrs/flock"
+
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/candy-tools/todo/libs/jsonfile"
 )
 
-// Seed imports md into a fresh store at <t.TempDir()>/.todo.db and returns its
-// path. It fails the test on an import error or any import warning.
+// Seed imports md into a fresh list at <t.TempDir()>/.todo.json and returns
+// its path. It fails the test on an import error or any import warning.
 func Seed(t testing.TB, md string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), ".todo.db")
+	path := filepath.Join(t.TempDir(), ".todo.json")
 	mdPath := filepath.Join(t.TempDir(), "seed.md")
 	if err := writeFile(mdPath, md); err != nil {
 		t.Fatalf("todotest.Seed: %v", err)
 	}
-	s, rep, err := todo.ImportFile(path, mdPath, false)
+	_, rep, err := todo.ImportFile(path, mdPath, false)
 	if err != nil {
 		t.Fatalf("todotest.Seed: %v", err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("todotest.Seed: close: %v", err)
 	}
 	if len(rep.Warnings) > 0 {
 		t.Fatalf("todotest.Seed: import warnings: %q", rep.Warnings)
@@ -34,47 +33,43 @@ func Seed(t testing.TB, md string) string {
 	return path
 }
 
-// Dump opens the store at dbPath and returns its content as canonical markdown.
-func Dump(t testing.TB, dbPath string) string {
+// SeedJSON writes json, a list file's content, as is to
+// <t.TempDir()>/.todo.json and returns its path. It lets a test give kanban
+// states, fixed IDs and plans directly, which markdown cannot express. It
+// fails the test when the content does not load as a list.
+func SeedJSON(t testing.TB, json string) string {
 	t.Helper()
-	s, err := todo.OpenStore(dbPath)
-	if err != nil {
-		t.Fatalf("todotest.Dump: %v", err)
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	if err := writeFile(path, json); err != nil {
+		t.Fatalf("todotest.SeedJSON: %v", err)
 	}
-	defer func() { _ = s.Close() }()
-	doc, _, err := s.Load(context.Background())
+	if _, _, err := todo.NewStore(path).Load(context.Background()); err != nil {
+		t.Fatalf("todotest.SeedJSON: %v", err)
+	}
+	return path
+}
+
+// Dump reads the list at path and returns its content as canonical markdown.
+func Dump(t testing.TB, path string) string {
+	t.Helper()
+	doc, _, err := todo.NewStore(path).Load(context.Background())
 	if err != nil {
 		t.Fatalf("todotest.Dump: %v", err)
 	}
 	return Render(doc)
 }
 
-// HoldWriteLock takes the SQLite writer lock on the store at dbPath from a raw
-// connection of its own, standing in for another process in the middle of a
-// write (a sqlite3 shell with an open write transaction, a hung todo). The lock
-// is held, the transaction never committed, until the test ends.
-func HoldWriteLock(t testing.TB, dbPath string) {
+// HoldWriteLock takes the write lock of the list at path (the lock file
+// jsonfile.LockPath names, beside the file a symlinked path points at),
+// standing in for another process in the middle of a write. The lock is held
+// until the test ends.
+func HoldWriteLock(t testing.TB, path string) {
 	t.Helper()
-	ctx := context.Background()
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
+	fl := flock.New(jsonfile.LockPath(path))
+	if err := fl.Lock(); err != nil {
 		t.Fatalf("todotest.HoldWriteLock: %v", err)
 	}
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		_ = db.Close()
-		t.Fatalf("todotest.HoldWriteLock: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = conn.ExecContext(ctx, "ROLLBACK")
-		_ = conn.Close()
-		_ = db.Close()
-	})
-	for _, q := range []string{"BEGIN IMMEDIATE", "UPDATE meta SET revision = revision"} {
-		if _, err := conn.ExecContext(ctx, q); err != nil {
-			t.Fatalf("todotest.HoldWriteLock: %s: %v", q, err)
-		}
-	}
+	t.Cleanup(func() { _ = fl.Unlock() })
 }
 
 // Parse turns md into a Document through todo.ImportMarkdown, failing the test

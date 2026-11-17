@@ -43,7 +43,7 @@ func TestAddCategoryRejectsInvalidTitles(t *testing.T) {
 	for name, title := range badTitles {
 		t.Run(name, func(t *testing.T) {
 			rejects(t, s, ErrInvalidTitle, func() error {
-				_, err := s.AddCategory(context.Background(), title, 0, 0)
+				_, _, err := s.AddCategory(context.Background(), title, "", "")
 				return err
 			})
 		})
@@ -52,11 +52,11 @@ func TestAddCategoryRejectsInvalidTitles(t *testing.T) {
 
 func TestAddTaskRejectsInvalidTitles(t *testing.T) {
 	s := newStore(t)
-	cat := mustID(t)(s.AddCategory(context.Background(), "C", 0, 0))
+	cat := mustID(t)(s.AddCategory(context.Background(), "C", "", ""))
 	for name, title := range badTitles {
 		t.Run(name, func(t *testing.T) {
 			rejects(t, s, ErrInvalidTitle, func() error {
-				_, err := s.AddTask(context.Background(), Fields{Title: title}, Open, cat, 0)
+				_, _, err := s.AddTask(context.Background(), Fields{Title: title}, Open, cat, "")
 				return err
 			})
 		})
@@ -69,7 +69,7 @@ func TestEditRejectsInvalidTitles(t *testing.T) {
 	for name, title := range badTitles {
 		t.Run(name, func(t *testing.T) {
 			rejects(t, s, ErrInvalidTitle, func() error {
-				return s.Edit(context.Background(), ids.t1, Changes{Title: &title})
+				return errOf(s.Edit(context.Background(), ids.t1, Changes{Title: &title}))
 			})
 		})
 	}
@@ -82,10 +82,10 @@ func TestImportRejectsInvalidTitles(t *testing.T) {
 	s := newStore(t)
 	doc := &Document{}
 	cat := &Item{Kind: Category, Level: 1, Title: "C"}
-	doc.AppendRoot(cat)
+	doc.appendRoot(cat)
 	cat.AppendChild(&Item{Kind: Task, Title: "a\x1b]0;x\x07"})
 	rejects(t, s, ErrInvalidTitle, func() error {
-		return s.Import(context.Background(), doc, false)
+		return errOf(importInto(context.Background(), s, doc, false))
 	})
 }
 
@@ -93,10 +93,10 @@ func TestTitleWritesTrimAndAcceptTheLimit(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	long := strings.Repeat("é", MaxTitleLen)
-	cat := mustID(t)(s.AddCategory(ctx, "  C  ", 0, 0))
-	task := mustID(t)(s.AddTask(ctx, Fields{Title: long}, Open, cat, 0))
+	cat := mustID(t)(s.AddCategory(ctx, "  C  ", "", ""))
+	task := mustID(t)(s.AddTask(ctx, Fields{Title: long}, Open, cat, ""))
 	renamed := " t "
-	mustOK(t, s.Edit(ctx, task, Changes{Title: &renamed}))
+	mustOK(t)(s.Edit(ctx, task, Changes{Title: &renamed}))
 	doc := load(t, s)
 	if got := item(t, doc, cat).Title; got != "C" {
 		t.Errorf("category title = %q, want trimmed C", got)
@@ -142,7 +142,7 @@ func TestImportMarkdownSanitizesTitles(t *testing.T) {
 		t.Errorf("warnings = %q\nwant %q", rep.Warnings, wantWarn)
 	}
 	// The sanitized document imports.
-	if err := newStore(t).Import(context.Background(), doc, false); err != nil {
+	if _, err := importInto(context.Background(), newStore(t), doc, false); err != nil {
 		t.Fatalf("Import of a sanitized document: %v", err)
 	}
 }
