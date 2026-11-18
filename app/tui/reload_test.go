@@ -78,7 +78,7 @@ func writeList(t *testing.T, path string, data []byte) {
 // standing in for a file a newer todo wrote.
 func withVersion(t *testing.T, data []byte, v int) []byte {
 	t.Helper()
-	out := bytes.Replace(data, []byte(`"version": 3`), fmt.Appendf(nil, `"version": %d`, v), 1)
+	out := bytes.Replace(data, []byte(`"version": 4`), fmt.Appendf(nil, `"version": %d`, v), 1)
 	if bytes.Equal(out, data) {
 		t.Fatalf("no version in the list file:\n%s", data)
 	}
@@ -459,7 +459,7 @@ func failPolls(t *testing.T, m model, path string, good []byte, v, n int) model 
 func TestReloadFailureShownAndCleared(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
-	m = failPolls(t, m, path, good, 4, 3)
+	m = failPolls(t, m, path, good, 5, 3)
 	if !errors.Is(m.err, todo.ErrNewerFormat) {
 		t.Fatalf("m.err = %v, want the failed reload (ErrNewerFormat)", m.err)
 	}
@@ -481,7 +481,7 @@ func TestReloadFailureShownAndCleared(t *testing.T) {
 func TestReloadFailureShownOnce(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
-	m = failPolls(t, m, path, good, 4, 3)
+	m = failPolls(t, m, path, good, 5, 3)
 	if !errors.Is(m.err, todo.ErrNewerFormat) {
 		t.Fatalf("m.err = %v, want the failed reload", m.err)
 	}
@@ -504,10 +504,10 @@ func TestReloadFailureShownOnce(t *testing.T) {
 func TestReloadFailureDistinctShown(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
-	m = failPolls(t, m, path, good, 4, 3)
+	m = failPolls(t, m, path, good, 5, 3)
 	m.err = errors.New("save failed: boom")
-	m = failPolls(t, m, path, good, 5, 1)
-	if got := m.footer(200); !strings.Contains(got, "format version 5") {
+	m = failPolls(t, m, path, good, 6, 1)
+	if got := m.footer(200); !strings.Contains(got, "format version 6") {
 		t.Errorf("a distinct reload failure must be shown, got %q", got)
 	}
 }
@@ -843,8 +843,9 @@ func TestRevertToPreWriteContentIsReloaded(t *testing.T) {
 
 func TestExternalWriteReloadsKeepingSelection(t *testing.T) {
 	m, path := newTestModel(t, "# A\n\n- [ ] a\n- [ ] b\n\n## A2\n\n- [ ] c\n")
-	// Rows: A, a, b, A2, c, placeholder. Fold A2, then select b.
-	m = press(m, "down", "down", "down", "left", "up")
+	// Rows: A, A2, c, a, b, placeholder (subcategories first). Fold A2, then
+	// select b.
+	m = press(m, "down", "left", "down", "down")
 	if got := m.tree.selected().Title; got != "b" {
 		t.Fatalf("precondition: expected b selected, got %q", got)
 	}
@@ -1155,7 +1156,7 @@ func TestFailedWriteAndReloadRestoresEdit(t *testing.T) {
 			t.Fatalf("e should open the edit form, mode = %v", m.mode)
 		}
 		m = typeText(m, "-edited")
-		m = press(m, "tab", "tab", "enter")
+		m = press(m, "tab", "tab", "tab", "enter") // to the plan, then save
 		if m.err == nil || !strings.Contains(m.footer(200), "save failed:") {
 			t.Errorf("footer should report the failed save, got %q", m.footer(200))
 		}

@@ -6,9 +6,9 @@ import (
 )
 
 // Matches reports whether query occurs, case-insensitively, in the item's
-// title — or, for a task, in its description. The query is a plain substring
-// (grep-like), not a pattern. An empty query never matches; callers treat an
-// empty query as "no filter" (see VisibleItems).
+// title — or, for a task, in its reference or description. The query is a
+// plain substring (grep-like), not a pattern. An empty query never matches;
+// callers treat an empty query as "no filter" (see VisibleItems).
 func (it *Item) Matches(query string) bool {
 	if query == "" {
 		return false
@@ -17,7 +17,8 @@ func (it *Item) Matches(query string) bool {
 	if strings.Contains(strings.ToLower(it.Title), q) {
 		return true
 	}
-	return it.Kind == Task && strings.Contains(strings.ToLower(it.Description), q)
+	return it.Kind == Task && (strings.Contains(strings.ToLower(it.Ref), q) ||
+		strings.Contains(strings.ToLower(it.Description), q))
 }
 
 // VisibleItems returns the set of items to show when filtering by query, under

@@ -14,18 +14,22 @@ import (
 )
 
 func TestFormRing(t *testing.T) {
-	task := newForm("", "", "", true, false)
-	if len(task.ring()) != 5 {
-		t.Errorf("task form should have 5 focus stops, got %d", len(task.ring()))
+	task := newForm(todo.Fields{}, formTask, false)
+	if len(task.ring()) != 6 {
+		t.Errorf("task form should have 6 focus stops, got %d", len(task.ring()))
 	}
-	cat := newForm("", "", "", false, false)
+	sub := newForm(todo.Fields{}, formSubtask, false)
+	if len(sub.ring()) != 5 {
+		t.Errorf("subtask form should have 5 focus stops (no reference), got %d", len(sub.ring()))
+	}
+	cat := newForm(todo.Fields{}, formCategory, false)
 	if len(cat.ring()) != 3 {
 		t.Errorf("category form should have 3 focus stops (no description), got %d", len(cat.ring()))
 	}
 }
 
 func TestFormFocusStepWraps(t *testing.T) {
-	f := newForm("", "", "", true, false)
+	f := newForm(todo.Fields{}, formTask, false)
 	if f.focus != focusTitle {
 		t.Fatal("form should open focused on the title")
 	}
@@ -36,44 +40,59 @@ func TestFormFocusStepWraps(t *testing.T) {
 }
 
 func TestFormValuesTrim(t *testing.T) {
-	f := newForm("  hi  ", "  body\n", "  docs/p.md ", true, true)
-	title, desc, plan := f.values()
-	if title != "hi" {
-		t.Errorf("title = %q, want trimmed 'hi'", title)
+	f := newForm(todo.Fields{Title: "  hi  ", Ref: " APP-1 ", Description: "  body\n", Plan: "  docs/p.md "}, formTask, true)
+	v := f.values()
+	if v.Title != "hi" {
+		t.Errorf("title = %q, want trimmed 'hi'", v.Title)
 	}
-	if plan != "docs/p.md" {
-		t.Errorf("plan = %q, want trimmed 'docs/p.md'", plan)
+	if v.Ref != "APP-1" {
+		t.Errorf("ref = %q, want trimmed 'APP-1'", v.Ref)
 	}
-	if desc != "  body" {
-		t.Errorf("desc = %q, want trailing newline trimmed", desc)
+	if v.Plan != "docs/p.md" {
+		t.Errorf("plan = %q, want trimmed 'docs/p.md'", v.Plan)
+	}
+	if v.Description != "  body" {
+		t.Errorf("desc = %q, want trailing newline trimmed", v.Description)
 	}
 }
 
 func TestFormPlanFieldInRing(t *testing.T) {
-	f := newForm("", "", "", true, false)
+	f := newForm(todo.Fields{}, formTask, false)
+	f.focusStep(1)
+	if f.focus != focusRef {
+		t.Errorf("tab should reach the reference field, got %v", f.focus)
+	}
 	f.focusStep(1)
 	f.focusStep(1)
 	if f.focus != focusPlan {
-		t.Errorf("tab, tab should reach the plan field, got %v", f.focus)
+		t.Errorf("tab, tab, tab should reach the plan field, got %v", f.focus)
 	}
-	cat := newForm("", "", "", false, false)
+	cat := newForm(todo.Fields{}, formCategory, false)
 	for _, x := range cat.ring() {
-		if x == focusPlan {
-			t.Error("category form must have no plan field")
+		if x == focusPlan || x == focusRef {
+			t.Error("category form must have no plan or reference field")
 		}
 	}
 }
 
 func TestFormViewTitles(t *testing.T) {
-	f := newForm("", "", "", true, false)
+	f := newForm(todo.Fields{}, formTask, false)
 	f.setWidth(100)
+	if !strings.Contains(f.view(), "Reference") {
+		t.Errorf("task form should show the Reference field")
+	}
+	sub := newForm(todo.Fields{}, formSubtask, false)
+	sub.setWidth(100)
+	if strings.Contains(sub.view(), "Reference") {
+		t.Errorf("subtask form should not show a Reference field")
+	}
 	if !strings.Contains(f.view(), "Add task") {
 		t.Errorf("task add form should be titled 'Add task'")
 	}
 	if !strings.Contains(f.view(), "Description") {
 		t.Errorf("task form should show the Description field")
 	}
-	cat := newForm("", "", "", false, true)
+	cat := newForm(todo.Fields{}, formCategory, true)
 	cat.setWidth(100)
 	if !strings.Contains(cat.view(), "Rename category") {
 		t.Errorf("category edit form should be titled 'Rename category'")
@@ -112,7 +131,7 @@ func seedLongTask(t *testing.T) (m model, path, desc, plan string) {
 // kept and a new line can still be added past the widget's visible height.
 func TestEditLongDescriptionKeepsAllLines(t *testing.T) {
 	m, path, desc, _ := seedLongTask(t)
-	m = press(m, "tab") // description; the cursor sits at the end of the text
+	m = press(m, "tab", "tab") // past the reference to the description; the cursor sits at the end of the text
 	m = typeText(m, "x")
 	m = press(m, "enter")
 	m = typeText(m, "y")
@@ -127,7 +146,7 @@ func TestEditLongDescriptionKeepsAllLines(t *testing.T) {
 // its last character stores the rest of it, not a truncated copy.
 func TestEditLongPlanKeepsWholeValue(t *testing.T) {
 	m, path, _, plan := seedLongTask(t)
-	m = press(m, "tab", "tab") // plan; the cursor sits at the end
+	m = press(m, "tab", "tab", "tab") // past the reference and description to the plan; the cursor sits at the end
 	m = send(m, tea.KeyMsg{Type: tea.KeyBackspace})
 	m = typeText(m, "X")
 	press(m, "tab", "enter") // Save
@@ -205,7 +224,7 @@ func wantFormKept(t *testing.T, m model, title string) {
 	if m.mode != modeForm {
 		t.Fatalf("a busy save closed the form (mode %v), discarding what was typed", m.mode)
 	}
-	if got, _, _ := m.form.values(); got != title {
+	if got := m.form.values().Title; got != title {
 		t.Errorf("form title = %q after the busy save, want %q", got, title)
 	}
 	if got := m.footer(200); !strings.Contains(got, "save failed: "+todo.ErrBusy.Error()) {

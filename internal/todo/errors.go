@@ -64,6 +64,21 @@ var ErrInvalidMove = classed(ErrBadRequest, "cannot move an item into its own su
 // unsafeRune). Its class is ErrBadRequest.
 var ErrInvalidTitle = classed(ErrBadRequest, "invalid title")
 
+// ErrInvalidRef is returned by a write that would store a reference longer
+// than MaxRefLen characters or one holding a control or other unsafe
+// character (see unsafeRune). Its class is ErrBadRequest.
+var ErrInvalidRef = classed(ErrBadRequest, "invalid reference")
+
+// ErrDuplicateRef is returned by a write that would give a task a reference
+// another task of the list already holds (compared ignoring case). Its class
+// is ErrBadRequest.
+var ErrDuplicateRef = classed(ErrBadRequest, "duplicate reference")
+
+// ErrSubtaskRef is returned by a write that would give a subtask a reference,
+// or move a task that has one under a task: only a top-level task has a
+// reference. Its class is ErrBadRequest.
+var ErrSubtaskRef = classed(ErrBadRequest, "a subtask cannot have a reference")
+
 // ErrRestoreAndCascade is returned by a state change asked both to restore the
 // subtasks from a snapshot and to cascade to them all: the two disagree. Its
 // class is ErrBadRequest.
@@ -81,8 +96,9 @@ var ErrNowhere = classed(ErrBadRequest, "nowhere to move the item that way")
 var ErrWrongParent = classed(ErrWrongKind, "a task must sit under a category and a category cannot sit under a task")
 
 // ErrNotTask is returned by a write that would give a category a state, a
-// description or a plan: only a task has them. Its class is ErrWrongKind.
-var ErrNotTask = classed(ErrWrongKind, "only a task has a state, a description or a plan")
+// description, a plan or a reference: only a task has them. Its class is
+// ErrWrongKind.
+var ErrNotTask = classed(ErrWrongKind, "only a task has a state, a description, a plan or a reference")
 
 // ErrBusy is returned by a write that gave up waiting for another process to
 // release the list's write lock (after the store's busy timeout). Its class

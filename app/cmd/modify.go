@@ -22,7 +22,7 @@ func rmCmd() *cobra.Command {
 				if _, err := s.Delete(ctx, it.ID); err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "rm: %s\n", todo.Printable(it.Title))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "rm: %s\n", todo.Printable(it.DisplayTitle()))
 				return nil
 			})
 		},
@@ -52,7 +52,7 @@ func pruneCmd() *cobra.Command {
 func editCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "edit",
-		Short: "change an item's title and/or a task's description or plan",
+		Short: "change an item's title and/or a task's description, plan or reference",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
@@ -63,8 +63,9 @@ func editCmd() *cobra.Command {
 				setTitle := cmd.Flags().Changed("set-title")
 				setDesc := cmd.Flags().Changed("set-desc")
 				setPlan := cmd.Flags().Changed("set-plan")
-				if !setTitle && !setDesc && !setPlan {
-					return usageErr("specify --set-title, --set-desc and/or --set-plan")
+				setRef := cmd.Flags().Changed("set-ref")
+				if !setTitle && !setDesc && !setPlan && !setRef {
+					return usageErr("specify --set-title, --set-desc, --set-plan and/or --set-ref")
 				}
 				// Only the flags given are written, so a field another process
 				// changed since the read is kept.
@@ -85,11 +86,25 @@ func editCmd() *cobra.Command {
 					plan, _ := cmd.Flags().GetString("set-plan")
 					ch.Plan = &plan
 				}
-				// The store refuses a description or plan for a category.
-				if _, err := s.Edit(ctx, it.ID, ch); err != nil {
+				if setRef {
+					ref, _ := cmd.Flags().GetString("set-ref")
+					if ref, err = todo.CleanRef(ref); err != nil {
+						return usageErr("--set-ref: " + err.Error())
+					}
+					ch.Ref = &ref
+				}
+				// The store refuses a description, plan or reference for a
+				// category, and a reference for a subtask or one another task
+				// holds.
+				res, err := s.Edit(ctx, it.ID, ch)
+				if err != nil {
 					return wrongKindIn(err, "edit", it)
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", title)
+				shown := title
+				if now, ok := res.Doc.ByID(it.ID); ok {
+					shown = now.DisplayTitle()
+				}
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", todo.Printable(shown))
 				return nil
 			})
 		},
@@ -98,5 +113,6 @@ func editCmd() *cobra.Command {
 	c.Flags().String("set-title", "", "the new title")
 	c.Flags().String("set-desc", "", "the new description (tasks only)")
 	c.Flags().String("set-plan", "", "the new plan path or reference; empty clears it (tasks only)")
+	c.Flags().String("set-ref", "", "the new reference, such as APP-001; unique in the list, empty clears it (tasks, not subtasks)")
 	return c
 }

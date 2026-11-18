@@ -42,7 +42,7 @@ func TestSplitToggle(t *testing.T) {
 func TestSplitSidebarNarrowsTasks(t *testing.T) {
 	m, _ := newTestModel(t, splitDoc)
 	m = press(m, "v", "down") // Work
-	if got := rowDesc(m.tree); !equalStrings(got, []string{"a", "h:Backend", "b"}) {
+	if got := rowDesc(m.tree); !equalStrings(got, []string{"h:Backend", "b", "h:Work", "a"}) {
 		t.Errorf("Work rows = %v", got)
 	}
 	m = press(m, "down") // Backend
@@ -59,8 +59,9 @@ func TestSplitXSwitchesFocus(t *testing.T) {
 	}
 	side := m.side.cursor
 	m = press(m, "down")
-	if got := m.tree.selected(); got == nil || got.Title != "b" {
-		t.Errorf("down in the task list selected %v, want b", got)
+	// The list opens on b (Work › Backend comes first), so down reaches a.
+	if got := m.tree.selected(); got == nil || got.Title != "a" {
+		t.Errorf("down in the task list selected %v, want a", got)
 	}
 	if m.side.cursor != side {
 		t.Error("down in the task list moved the sidebar")

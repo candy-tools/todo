@@ -25,6 +25,7 @@ var helpSections = []helpSection{
 		{"PgUp PgDn", "Move by a page"},
 		{"← →", "Collapse / expand"},
 		{"space", "Fold / unfold a category"},
+		{"z", "Fold / unfold every category at this level"},
 		{"tab  shift+tab", "Next / previous tab"},
 		{"1–4", "Jump to Backlog / Next / In Progress / Done"},
 		{"/", "Search / filter (esc clears)"},

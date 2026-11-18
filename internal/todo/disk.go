@@ -12,8 +12,14 @@ import (
 	"unicode/utf8"
 )
 
-// fileVersion is the version of the JSON list file format.
-const fileVersion = 3
+// fileVersion is the version of the JSON list file format. Version 4 added
+// the task "ref" field.
+const fileVersion = 4
+
+// oldestFileVersion is the oldest format version this todo reads. Every
+// version from it up to fileVersion only adds optional fields, so such a file
+// reads as it is and is written back as fileVersion.
+const oldestFileVersion = 3
 
 // diskList is the JSON form of the whole list. Categories and tasks are flat
 // arrays that refer to each other by ID; field order is key order.
@@ -34,6 +40,7 @@ type diskCategory struct {
 type diskTask struct {
 	ID          string        `json:"id"`
 	Category    string        `json:"category"`
+	Ref         string        `json:"ref,omitempty"`
 	Title       string        `json:"title"`
 	Status      string        `json:"status"`
 	Plan        string        `json:"plan,omitempty"`
@@ -51,28 +58,32 @@ type diskSubtask struct {
 }
 
 // toDisk converts d to its on-disk form. Categories come in pre-order, so a
-// parent precedes its children; tasks come in tree order. A task's subtasks are
-// its task children; a category's description and plan are not stored.
+// parent precedes its children. Tasks come category by category, in that
+// same order, each category's own tasks in tree order: the file does not
+// hold where tasks sit against subcategories, so it keeps the order older
+// todos wrote (which listed a category's tasks before its subcategories) and
+// a write changes only the lines that changed. A task's subtasks are its task
+// children; a category's description and plan are not stored.
 func toDisk(d *Document) diskList {
 	l := diskList{Version: fileVersion, Categories: []diskCategory{}, Tasks: []diskTask{}}
-	for _, it := range d.Enumerate() {
-		switch {
-		case it.Kind == Category:
-			c := diskCategory{ID: it.ID, Title: it.Title}
-			if it.Parent != nil {
-				c.Parent = it.Parent.ID
+	for _, cat := range d.Enumerate() {
+		if cat.Kind != Category {
+			continue
+		}
+		c := diskCategory{ID: cat.ID, Title: cat.Title}
+		if cat.Parent != nil {
+			c.Parent = cat.Parent.ID
+		}
+		l.Categories = append(l.Categories, c)
+		for _, it := range cat.Children {
+			if it.Kind != Task {
+				continue
 			}
-			l.Categories = append(l.Categories, c)
-		case it.IsSubtask():
-			// written under its task
-		default:
 			t := diskTask{
-				ID: it.ID, Title: it.Title, Status: it.Status.String(),
+				ID: it.ID, Ref: it.Ref, Title: it.Title, Status: it.Status.String(),
 				Plan: it.Plan, Description: it.Description,
 			}
-			if c := it.EnclosingCategory(); c != nil {
-				t.Category = c.ID
-			}
+			t.Category = cat.ID
 			for _, ch := range it.Children {
 				if ch.Kind != Task {
 					continue
@@ -89,30 +100,13 @@ func toDisk(d *Document) diskList {
 }
 
 // fromDisk builds the Document tree of l, which must have passed validate.
-// Categories keep array order under their parent; a category's tasks come
-// before its subcategories. Every item gets Parent, Kind, Level and Status.
+// Categories keep array order under their parent; a category's subcategories
+// come before its tasks. Every item gets Parent, Kind, Level and Status.
 func fromDisk(l diskList) *Document {
 	d := &Document{}
 	cats := make(map[string]*Item, len(l.Categories))
 	for _, c := range l.Categories {
 		cats[c.ID] = &Item{ID: c.ID, Kind: Category, Title: c.Title}
-	}
-	// Tasks first, so they precede subcategories under their category.
-	for _, t := range l.Tasks {
-		it := &Item{
-			ID: t.ID, Kind: Task, Title: t.Title, Description: t.Description, Plan: t.Plan,
-		}
-		it.Status, _ = statusFromDisk(t.Status)
-		for _, s := range t.Subtasks {
-			st := Open
-			if s.Done {
-				st = Done
-			}
-			it.AppendChild(&Item{
-				ID: s.ID, Kind: Task, Title: s.Title, Status: st, Description: s.Description, Plan: s.Plan,
-			})
-		}
-		cats[t.Category].AppendChild(it)
 	}
 	var setLevel func(it *Item, level int)
 	setLevel = func(it *Item, level int) {
@@ -130,6 +124,23 @@ func fromDisk(l diskList) *Document {
 		} else {
 			cats[c.Parent].AppendChild(it)
 		}
+	}
+	// Tasks after the categories, so subcategories precede them.
+	for _, t := range l.Tasks {
+		it := &Item{
+			ID: t.ID, Kind: Task, Title: t.Title, Description: t.Description, Plan: t.Plan, Ref: t.Ref,
+		}
+		it.Status, _ = statusFromDisk(t.Status)
+		for _, s := range t.Subtasks {
+			st := Open
+			if s.Done {
+				st = Done
+			}
+			it.AppendChild(&Item{
+				ID: s.ID, Kind: Task, Title: s.Title, Status: st, Description: s.Description, Plan: s.Plan,
+			})
+		}
+		cats[t.Category].AppendChild(it)
 	}
 	for _, r := range d.Roots {
 		setLevel(r, 1)
@@ -196,9 +207,10 @@ func (l *diskList) UnmarshalJSON(b []byte) error { return l.decode(b) }
 
 // decode decodes strictly: unknown fields fail. The version is read
 // first: a missing or non-integer one fails, one newer than fileVersion is
-// reported as ErrNewerFormat and an older one as an unsupported format
-// version, before anything else, since such a file may hold fields this
-// binary does not know. A value of the wrong type is reported
+// reported as ErrNewerFormat and one older than oldestFileVersion as an
+// unsupported format version, before anything else, since such a file may
+// hold fields this binary does not know. A version this binary reads is
+// decoded as fileVersion (see oldestFileVersion). A value of the wrong type is reported
 // at its line and column, by its JSON path and the kind expected; an unknown
 // field by its name and the item holding it. "Strict" stops at key case:
 // encoding/json matches keys to fields case-insensitively, so a hand-edited
@@ -219,7 +231,7 @@ func (l *diskList) decode(b []byte) error {
 	switch {
 	case version > fileVersion:
 		return newerFormatError(version)
-	case version < fileVersion: // before any field of a format this todo does not read
+	case version < oldestFileVersion: // before any field of a format this todo does not read
 		return invalidf("unsupported format version %d", version)
 	}
 	type plain diskList
@@ -233,6 +245,7 @@ func (l *diskList) decode(b []byte) error {
 		return decodeErr(b, lead, err)
 	}
 	*l = diskList(p)
+	l.Version = fileVersion
 	return nil
 }
 
@@ -384,7 +397,7 @@ func wantKind(t reflect.Type) string {
 var (
 	listFields     = []string{"version", "categories", "tasks"}
 	categoryFields = []string{"id", "title", "parent"}
-	taskFields     = []string{"id", "category", "title", "status", "plan", "description", "subtasks"}
+	taskFields     = []string{"id", "category", "ref", "title", "status", "plan", "description", "subtasks"}
 	subtaskFields  = []string{"id", "title", "done", "description", "plan"}
 )
 

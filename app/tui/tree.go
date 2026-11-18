@@ -255,35 +255,33 @@ func (t *tree) rebuildTasks(vis map[*todo.Item]bool) {
 		}
 	}
 	mark(roots)
-	var lay func(items []*todo.Item, path []string)
-	lay = func(items []*todo.Item, path []string) {
+	// The rows keep document order, where a category's subcategories precede
+	// its tasks, so a category's header goes right before its own run of
+	// tasks, labelled with its path from the scope. The scope's own tasks
+	// need their header only after other groups, to tell them apart.
+	var lay func(items []*todo.Item, owner *todo.Item, path []string)
+	lay = func(items []*todo.Item, owner *todo.Item, path []string) {
+		headed := false
 		for _, it := range items {
 			if !t.shown[it] {
 				continue
 			}
 			if it.Kind == todo.Category {
-				p := append(path[:len(path):len(path)], it.Title)
-				if t.holdsShownTask(it) {
-					t.rows = append(t.rows, treeRow{item: it, kind: rowHeader, label: strings.Join(p, " › ")})
-				}
-				lay(it.Children, p)
+				lay(it.Children, it, append(path[:len(path):len(path)], it.Title))
 				continue
 			}
+			if !headed && owner != nil && (len(path) > 0 || len(t.rows) > 0) {
+				label := owner.Title
+				if len(path) > 0 {
+					label = strings.Join(path, " › ")
+				}
+				t.rows = append(t.rows, treeRow{item: owner, kind: rowHeader, label: label})
+			}
+			headed = true
 			t.walk([]*todo.Item{it}, 0, nil)
 		}
 	}
-	lay(roots, nil)
-}
-
-// holdsShownTask reports whether a task the tree shows sits anywhere under
-// category c.
-func (t *tree) holdsShownTask(c *todo.Item) bool {
-	for _, ch := range c.Children {
-		if (ch.Kind == todo.Task && t.shown[ch]) || (ch.Kind == todo.Category && t.holdsShownTask(ch)) {
-			return true
-		}
-	}
-	return false
+	lay(roots, t.scopeItem(), nil)
 }
 
 // settle moves the cursor off a header row — headers are never selected —
@@ -519,6 +517,57 @@ func (t *tree) toggleFold() {
 	t.rebuild()
 }
 
+// msgFoldsOffWhileSearching is the footer hint for z during a search, which
+// shows every match unfolded.
+const msgFoldsOffWhileSearching = "folds are off while searching"
+
+// msgFoldInSidebar is the footer hint for z in the split view's task list,
+// whose category headers do not fold.
+const msgFoldInSidebar = "fold categories in the sidebar"
+
+// toggleFoldLevel folds every category at the level of the selection — the
+// selected category and its sibling categories, or for a task those of its
+// category — when any of them is unfolded, and unfolds them all otherwise.
+// When the fold hides the selected row, the selection moves to the folded
+// category holding it. It returns the footer message: the reason it did
+// nothing while searching, else "".
+func (t *tree) toggleFoldLevel() string {
+	sel := t.selected()
+	if sel == nil {
+		return ""
+	}
+	if t.pane == paneTasks {
+		return msgFoldInSidebar
+	}
+	if t.filtering() {
+		return msgFoldsOffWhileSearching
+	}
+	anchor := sel.EnclosingCategory()
+	if anchor == nil {
+		return ""
+	}
+	peers := t.doc.Roots
+	if anchor.Parent != nil {
+		peers = anchor.Parent.Children
+	}
+	var level []*todo.Item
+	fold := false
+	for _, c := range peers {
+		if c.Kind == todo.Category && t.foldable(c) {
+			level = append(level, c)
+			fold = fold || !t.collapsed[c.ID]
+		}
+	}
+	for _, c := range level {
+		t.collapsed[c.ID] = fold
+	}
+	t.rebuild()
+	if t.selected() != sel {
+		t.selectItem(anchor)
+	}
+	return ""
+}
+
 // collapse folds an expanded parent; on a leaf or already-folded item it jumps
 // to the parent instead — the familiar file-tree Left-arrow behaviour.
 func (t *tree) collapse() {
@@ -670,9 +719,9 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	}
 	state, warn, note := taskTrailer(r.item)
 	if selected {
-		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(todo.Printable(r.item.Title), t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
+		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(todo.Printable(r.item.DisplayTitle()), t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
 	}
-	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(todo.Printable(r.item.Title), t.vs.filter, titleStyle) +
+	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(todo.Printable(r.item.DisplayTitle()), t.vs.filter, titleStyle) +
 		helpTextStyle.Render(state) + deferStyle.Render(warn) + helpTextStyle.Render(note)
 }
 

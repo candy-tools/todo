@@ -9,7 +9,8 @@ func invalidf(format string, args ...any) error {
 
 // validate checks l against the format's rules and returns the first failure,
 // in this order: version, malformed IDs, duplicate IDs, missing category
-// parents, parent cycles, missing task categories, unknown statuses, titles.
+// parents, parent cycles, missing task categories, unknown statuses, titles,
+// references.
 func (l *diskList) validate() error {
 	if l.Version != fileVersion {
 		return invalidf("unsupported format version %d", l.Version)
@@ -31,7 +32,33 @@ func (l *diskList) validate() error {
 			return invalidf("task %s: unknown status %q", t.ID, t.Status)
 		}
 	}
-	return l.validateTitles()
+	if err := l.validateTitles(); err != nil {
+		return err
+	}
+	return l.validateRefs()
+}
+
+// validateRefs checks every task reference is one CleanRef accepts unchanged
+// and that no two tasks hold the same one, ignoring case.
+func (l *diskList) validateRefs() error {
+	seen := map[string]string{} // refKey to the ID of the task holding it
+	for _, t := range l.Tasks {
+		if t.Ref == "" {
+			continue
+		}
+		clean, err := CleanRef(t.Ref)
+		if err != nil {
+			return invalidf("task %s: %v", t.ID, err)
+		}
+		if clean != t.Ref {
+			return invalidf("task %s: reference has leading or trailing whitespace", t.ID)
+		}
+		if other, ok := seen[refKey(t.Ref)]; ok {
+			return invalidf("task %s: reference %q is already used by task %s", t.ID, t.Ref, other)
+		}
+		seen[refKey(t.Ref)] = t.ID
+	}
+	return nil
 }
 
 // idRule says what a valid ID looks like (see validID).

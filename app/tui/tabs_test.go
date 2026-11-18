@@ -458,8 +458,7 @@ func TestEditSavesPlan(t *testing.T) {
 		t.Fatalf("precondition: ready task without plan is flagged: %q", row)
 	}
 	m = press(m, "e")
-	m = press(m, "tab")
-	m = press(m, "tab")
+	m = press(m, "tab", "tab", "tab") // past the reference and description to the plan
 	m = typeText(m, "docs/p.md")
 	m = press(m, "enter")
 	if it := storedItem(t, path, "a"); it.Plan != "docs/p.md" {
@@ -475,8 +474,7 @@ func TestNewTaskWithPlan(t *testing.T) {
 	m, path := newTestModel(t, "# B\n- [ ] a\n")
 	m = press(m, "n")
 	m = typeText(m, "fresh")
-	m = press(m, "tab")
-	m = press(m, "tab")
+	m = press(m, "tab", "tab", "tab") // past the reference and description to the plan
 	m = typeText(m, "docs/n.md")
 	press(m, "enter")
 	if it := storedItem(t, path, "fresh"); it.Plan != "docs/n.md" {

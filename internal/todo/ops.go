@@ -75,28 +75,42 @@ func (d *Document) insertAt(parent *Item, pos int, it *Item) {
 	}
 }
 
-// firstCategory returns the index of the first category in list, len(list)
-// when it holds none: the slot after its last task.
-func firstCategory(list []*Item) int {
+// firstTask returns the index of the first task in list, len(list) when it
+// holds none: the slot after its last category. A category's subcategories
+// precede its tasks, as a file explorer lists folders before files.
+func firstTask(list []*Item) int {
 	for i, it := range list {
-		if it.Kind == Category {
+		if it.Kind == Task {
 			return i
 		}
 	}
 	return len(list)
 }
 
+// lastOfKind returns the ID of the last of children of kind k other than self,
+// or "" when there is none: the afterID that places an item of kind k last
+// among its kind.
+func lastOfKind(children []*Item, k Kind, self *Item) string {
+	for i := len(children) - 1; i >= 0; i-- {
+		if c := children[i]; c.Kind == k && c != self {
+			return c.ID
+		}
+	}
+	return ""
+}
+
 // slot returns the index, among parent's children other than self (the item
 // being moved; nil for an add), at which an item of kind k placed after the
-// sibling afterID goes. "" places a task first and a category first among the
-// subcategories, after every task; a task anchor does the same for a category,
-// so tasks always stay ahead of categories. An anchor that is not such a child
-// of parent (self included), or a category anchor for a task, is ErrConflict.
+// sibling afterID goes. "" places a category first and a task first among the
+// tasks, after every subcategory; a category anchor does the same for a task,
+// so categories always stay ahead of tasks. An anchor that is not such a
+// child of parent (self included), or a task anchor for a category, is
+// ErrConflict.
 func (d *Document) slot(parent *Item, k Kind, afterID string, self *Item) (int, error) {
 	peers := slices.DeleteFunc(slices.Clone(d.children(parent)), func(c *Item) bool { return c == self })
 	if afterID == "" {
-		if k == Category {
-			return firstCategory(peers), nil
+		if k == Task {
+			return firstTask(peers), nil
 		}
 		return 0, nil
 	}
@@ -104,9 +118,9 @@ func (d *Document) slot(parent *Item, k Kind, afterID string, self *Item) (int, 
 	switch {
 	case i < 0:
 		return 0, ErrConflict
-	case peers[i].Kind == Task && k == Category:
-		return firstCategory(peers), nil
 	case peers[i].Kind == Category && k == Task:
+		return firstTask(peers), nil
+	case peers[i].Kind == Task && k == Category:
 		return 0, ErrConflict
 	}
 	return i + 1, nil
@@ -172,22 +186,22 @@ func (d *Document) addNew(parent *Item, pos int, it *Item) string {
 }
 
 // AddCategory adds a category titled title under parentID ("" for a root),
-// after the sibling afterID ("" places it first among the categories), and
-// returns its new ID. An afterID that is a task places it first among the
-// subcategories, after every task. Under a task it fails with ErrWrongParent,
-// a missing parent with ErrNotFound, an afterID that is not a child of the
-// parent with ErrConflict, and a title CleanTitle refuses with its error.
+// after the sibling afterID ("" places it first), and returns its new ID.
+// Under a task it fails with ErrWrongParent, a missing parent with
+// ErrNotFound, an afterID that is not a category child of the parent with
+// ErrConflict, and a title CleanTitle refuses with its error.
 func (d *Document) AddCategory(title, parentID, afterID string) (string, error) {
 	return d.addCategory(title, parentID, func(parent *Item) (int, error) {
 		return d.slot(parent, Category, afterID, nil)
 	})
 }
 
-// AppendCategory adds a category like AddCategory, as the last child of
-// parentID ("" for the root), after its tasks and subcategories.
+// AppendCategory adds a category like AddCategory, as the last category
+// child of parentID ("" for the root): after its subcategories, before its
+// tasks.
 func (d *Document) AppendCategory(title, parentID string) (string, error) {
 	return d.addCategory(title, parentID, func(parent *Item) (int, error) {
-		return len(d.children(parent)), nil
+		return firstTask(d.children(parent)), nil
 	})
 }
 
@@ -212,23 +226,26 @@ func (d *Document) addCategory(title, parentID string, at func(parent *Item) (in
 }
 
 // AddTask adds a task with fields f and status st under parentID, after the
-// sibling afterID ("" places it first), and returns its new ID. At the root it
+// sibling afterID ("" places it first among the tasks, after every
+// subcategory; so does a category afterID), and returns its new ID. At the root it
 // fails with ErrWrongParent, under a subtask with ErrTooDeep, and under a task
 // (making a subtask) with a state other than Open or Done with
-// ErrSubtaskStatus. A missing parent is ErrNotFound; an afterID that is not a
-// child of the parent, or is a category, is ErrConflict; a title CleanTitle
-// refuses fails it with that error.
+// ErrSubtaskStatus, and with a reference with ErrSubtaskRef. A missing parent
+// is ErrNotFound; an afterID that is not a child of the parent, or is a
+// category, is ErrConflict; a title CleanTitle or a reference CleanRef refuses
+// fails it with that error, and a reference another task holds with
+// ErrDuplicateRef.
 func (d *Document) AddTask(f Fields, st Status, parentID, afterID string) (string, error) {
 	return d.addTask(f, st, parentID, func(parent *Item) (int, error) {
 		return d.slot(parent, Task, afterID, nil)
 	})
 }
 
-// AppendTask adds a task like AddTask, after the last task child of parentID
-// and before any subcategory.
+// AppendTask adds a task like AddTask, as the last child of parentID, after
+// its subcategories and tasks.
 func (d *Document) AppendTask(f Fields, st Status, parentID string) (string, error) {
 	return d.addTask(f, st, parentID, func(parent *Item) (int, error) {
-		return firstCategory(parent.Children), nil
+		return len(parent.Children), nil
 	})
 }
 
@@ -236,6 +253,10 @@ func (d *Document) AppendTask(f Fields, st Status, parentID string) (string, err
 // only called with a non-nil parent.
 func (d *Document) addTask(f Fields, st Status, parentID string, at func(parent *Item) (int, error)) (string, error) {
 	title, err := CleanTitle(f.Title)
+	if err != nil {
+		return "", err
+	}
+	ref, err := CleanRef(f.Ref)
 	if err != nil {
 		return "", err
 	}
@@ -249,23 +270,34 @@ func (d *Document) addTask(f Fields, st Status, parentID string, at func(parent 
 	if parent.Kind == Task && !st.SubtaskAllowed() {
 		return "", ErrSubtaskStatus
 	}
+	if err := d.checkRef(nil, ref, parent.Kind == Task); err != nil {
+		return "", err
+	}
 	pos, err := at(parent)
 	if err != nil {
 		return "", err
 	}
-	it := &Item{Kind: Task, Title: title, Status: st, Description: f.Description, Plan: f.Plan}
+	it := &Item{Kind: Task, Title: title, Status: st, Description: f.Description, Plan: f.Plan, Ref: ref}
 	return d.addNew(parent, pos, it), nil
 }
 
 // Edit sets the fields of item id that c names: its title and, for a task, its
-// description and plan. Fields c leaves nil are kept. changed is false when
-// every field c names already held its value. A missing id is ErrNotFound, a
-// title CleanTitle refuses fails it with that error, and a description or plan
-// for a category (even an empty one) fails the whole edit with ErrNotTask.
+// description, plan and reference. Fields c leaves nil are kept. changed is
+// false when every field c names already held its value. A missing id is
+// ErrNotFound, a title CleanTitle or a reference CleanRef refuses fails it
+// with that error, and a description, plan or reference for a category (even
+// an empty one) fails the whole edit with ErrNotTask. A reference fails it
+// with ErrSubtaskRef on a subtask and ErrDuplicateRef when another task holds
+// it; clearing one ("") always fits.
 func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
-	var title string
+	var title, ref string
 	if c.Title != nil {
 		if title, err = CleanTitle(*c.Title); err != nil {
+			return false, err
+		}
+	}
+	if c.Ref != nil {
+		if ref, err = CleanRef(*c.Ref); err != nil {
 			return false, err
 		}
 	}
@@ -273,8 +305,13 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if it.Kind != Task && (c.Description != nil || c.Plan != nil) {
+	if it.Kind != Task && (c.Description != nil || c.Plan != nil || c.Ref != nil) {
 		return false, ErrNotTask
+	}
+	if c.Ref != nil {
+		if err := d.checkRef(it, ref, it.IsSubtask()); err != nil {
+			return false, err
+		}
 	}
 	set := func(field *string, v *string) {
 		if v != nil && *field != *v {
@@ -287,6 +324,9 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	}
 	set(&it.Description, c.Description)
 	set(&it.Plan, c.Plan)
+	if c.Ref != nil {
+		set(&it.Ref, &ref)
+	}
 	return changed, nil
 }
 
@@ -426,7 +466,8 @@ func (d *Document) statuses() DoneStates {
 // A missing item or parent is ErrNotFound, and an afterID that is not a fitting
 // child of the parent (the item itself included) ErrConflict. A task that
 // becomes, stays or stops being a subtask takes its status from
-// StatusAfterMove; a task moved between categories keeps its status. A moved
+// StatusAfterMove; a task moved between categories keeps its status. A task
+// that has a reference cannot become a subtask (ErrSubtaskRef). A moved
 // category's subtree is re-levelled.
 func (d *Document) Move(id, parentID, afterID string) error {
 	it, err := d.lookup(id)
@@ -443,6 +484,9 @@ func (d *Document) Move(id, parentID, afterID string) error {
 	toSubtask := parent != nil && parent.Kind == Task
 	if it.Kind == Task && toSubtask && tooDeepUnder(it, parent.IsSubtask()) {
 		return ErrTooDeep
+	}
+	if it.Kind == Task && toSubtask && it.Ref != "" {
+		return ErrSubtaskRef
 	}
 	for p := parent; p != nil; p = p.Parent {
 		if p == it {
@@ -463,6 +507,21 @@ func (d *Document) Move(id, parentID, afterID string) error {
 	d.remove(it)
 	d.place(parent, pos, it)
 	return nil
+}
+
+// MoveLast places item id under parentID like Move, last among the children
+// of its own kind: a task after the last task, a category after the last
+// subcategory (before the tasks). It fails as Move does.
+func (d *Document) MoveLast(id, parentID string) error {
+	it, err := d.lookup(id)
+	if err != nil {
+		return err
+	}
+	parent, err := d.parentItem(parentID)
+	if err != nil {
+		return err
+	}
+	return d.Move(id, parentID, lastOfKind(d.children(parent), it.Kind, it))
 }
 
 // Delete removes item id together with its subtree. A missing id is

@@ -128,9 +128,11 @@ func TestSplitGrabLeavesScope(t *testing.T) {
 	m, path := newTestModel(t, actionsDoc)
 	m = press(m, "v")
 	m = sideSelect(t, m, "Backend")
-	m = press(m, "x", "m", "up")
+	// Work's own tasks come after its subcategory Backend, so b steps down
+	// into Work.
+	m = press(m, "x", "m", "down")
 	if p := storedItem(t, path, "b").Parent; p == nil || p.Title != "Work" {
-		t.Fatalf("b should move up into Work, parent %v", p)
+		t.Fatalf("b should move down into Work, parent %v", p)
 	}
 	if m.tree.grabbed {
 		t.Error("the grab should end once b left the list")

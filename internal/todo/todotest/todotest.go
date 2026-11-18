@@ -101,10 +101,13 @@ func Render(doc *todo.Document) string {
 // A blank line is emitted before every header; collapseBlanks later folds any
 // doubled-up blanks and trims a leading one, so callers can be liberal here.
 func appendItems(lines []string, items []*todo.Item, taskDepth int) []string {
+	// Markdown puts a heading's tasks before its subheadings (a task after a
+	// subheading belongs to it), so the tasks of a list are written first,
+	// wherever the document puts them.
+	var cats []*todo.Item
 	for _, it := range items {
 		if it.Kind == todo.Category {
-			lines = append(lines, "", strings.Repeat("#", it.Level)+" "+it.Title, "")
-			lines = appendItems(lines, it.Children, 0)
+			cats = append(cats, it)
 			continue
 		}
 		indent := strings.Repeat("  ", taskDepth)
@@ -125,6 +128,10 @@ func appendItems(lines []string, items []*todo.Item, taskDepth int) []string {
 			}
 		}
 		lines = appendItems(lines, it.Children, taskDepth+1)
+	}
+	for _, it := range cats {
+		lines = append(lines, "", strings.Repeat("#", it.Level)+" "+it.Title, "")
+		lines = appendItems(lines, it.Children, 0)
 	}
 	return lines
 }

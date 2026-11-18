@@ -77,8 +77,9 @@ func titles(items []*Item) []string {
 // sampleIDs are the IDs of the tree addSample builds.
 type sampleIDs struct{ A, t1, t2, B string }
 
-// addSample builds category A holding tasks t1 (Open, described) and t2
-// (Working), then category B, in that order.
+// addSample builds category A holding subcategory B, then tasks t1 (Open,
+// described) and t2 (Working), in that order: a category's subcategories
+// precede its tasks.
 func addSample(t *testing.T, s *Store) sampleIDs {
 	t.Helper()
 	ctx := context.Background()
@@ -86,7 +87,7 @@ func addSample(t *testing.T, s *Store) sampleIDs {
 	ids.A = mustID(t)(s.AddCategory(ctx, "A", "", ""))
 	ids.t1 = mustID(t)(s.AddTask(ctx, Fields{Title: "t1", Description: "d1"}, Open, ids.A, ""))
 	ids.t2 = mustID(t)(s.AddTask(ctx, Fields{Title: "t2"}, Working, ids.A, ids.t1))
-	ids.B = mustID(t)(s.AddCategory(ctx, "B", ids.A, ids.t2))
+	ids.B = mustID(t)(s.AddCategory(ctx, "B", ids.A, ""))
 	return ids
 }
 
@@ -102,7 +103,7 @@ func TestAddKeepsOrder(t *testing.T) {
 	if a.ID != ids.A || a.Kind != Category || a.Title != "A" || a.Level != 1 || a.Parent != nil {
 		t.Fatalf("root = %+v; want category A at level 1 with no parent", a)
 	}
-	if got, want := titles(a.Children), []string{"t1", "t2", "B"}; !reflect.DeepEqual(got, want) {
+	if got, want := titles(a.Children), []string{"B", "t1", "t2"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("A's children = %v, want %v", got, want)
 	}
 	for _, c := range a.Children {
@@ -116,7 +117,7 @@ func TestAddStoresItemFields(t *testing.T) {
 	s := newStore(t)
 	ids := addSample(t, s)
 	a := load(t, s).Roots[0]
-	t1, t2, b := a.Children[0], a.Children[1], a.Children[2]
+	b, t1, t2 := a.Children[0], a.Children[1], a.Children[2]
 	if t1.ID != ids.t1 || t1.Kind != Task || t1.Status != Open || t1.Description != "d1" || t1.Level != 0 {
 		t.Fatalf("t1 = %+v; want open task with description d1", t1)
 	}
@@ -218,13 +219,13 @@ func TestMove(t *testing.T) {
 
 	mustOK(t)(s.Move(ctx, ids.t2, ids.A, ""))
 	a := item(t, load(t, s), ids.A)
-	if got, want := titles(a.Children), []string{"t2", "t1", "B"}; !reflect.DeepEqual(got, want) {
+	if got, want := titles(a.Children), []string{"B", "t2", "t1"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("A's children after moving t2 first = %v, want %v", got, want)
 	}
 
 	mustOK(t)(s.Move(ctx, ids.t1, ids.B, ""))
 	doc := load(t, s)
-	if got, want := titles(item(t, doc, ids.A).Children), []string{"t2", "B"}; !reflect.DeepEqual(got, want) {
+	if got, want := titles(item(t, doc, ids.A).Children), []string{"B", "t2"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("A's children after moving t1 under B = %v, want %v", got, want)
 	}
 	if got, want := titles(item(t, doc, ids.B).Children), []string{"t1"}; !reflect.DeepEqual(got, want) {
@@ -647,7 +648,7 @@ func TestMoveCategoryUnderTaskIsWrongParent(t *testing.T) {
 	rejects(t, s, ErrWrongParent, func() error { return errOf(s.Move(ctx, other, ids.task, "")) })
 	rejects(t, s, ErrWrongParent, func() error { return errOf(s.Move(ctx, other, ids.sub, "")) })
 	// A category may still move under a category or to the root.
-	mustOK(t)(s.Move(ctx, other, ids.C, ids.task))
+	mustOK(t)(s.Move(ctx, other, ids.C, ""))
 	mustOK(t)(s.Move(ctx, other, "", ids.C))
 }
 
@@ -703,8 +704,8 @@ func TestMoveUnderOwnDescendantIsInvalidMove(t *testing.T) {
 	}
 }
 
-// AppendTask places the task after the last task child of its parent, before
-// any subcategory, as the tree is at write time.
+// AppendTask places the task as the last child of its parent, after its
+// subcategories and tasks, as the tree is at write time.
 func TestAppendTaskPlacesAfterLastTask(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
@@ -713,14 +714,14 @@ func TestAppendTaskPlacesAfterLastTask(t *testing.T) {
 
 	t3 := mustID(t)(s.AppendTask(ctx, Fields{Title: "t3", Description: "d3", Plan: "p3"}, Working, ids.A))
 	doc := load(t, s)
-	if got, want := titles(item(t, doc, ids.A).Children), []string{"t1", "t3", "B"}; !reflect.DeepEqual(got, want) {
+	if got, want := titles(item(t, doc, ids.A).Children), []string{"B", "t1", "t3"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("A's children = %v, want %v", got, want)
 	}
 	if got := item(t, doc, t3); got.Status != Working || got.Description != "d3" || got.Plan != "p3" {
 		t.Fatalf("t3 = %+v; want working task described d3 with plan p3", got)
 	}
 
-	// Only a subcategory: the task goes first. No children: it is the only one.
+	// Only a subcategory: the task goes after it. No children: it is the only one.
 	mustID(t)(s.AppendTask(ctx, Fields{Title: "u"}, Open, mustID(t)(s.AddCategory(ctx, "D", "", ids.A))))
 	c := mustID(t)(s.AddCategory(ctx, "E", "", ""))
 	sub := mustID(t)(s.AddCategory(ctx, "Esub", c, ""))
@@ -730,7 +731,7 @@ func TestAppendTaskPlacesAfterLastTask(t *testing.T) {
 	mustID(t)(s.AppendTask(ctx, Fields{Title: "s4"}, Open, ids.t1))
 
 	doc = load(t, s)
-	if got, want := titles(item(t, doc, c).Children), []string{"e1", "Esub"}; !reflect.DeepEqual(got, want) {
+	if got, want := titles(item(t, doc, c).Children), []string{"Esub", "e1"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("E's children = %v, want %v", got, want)
 	}
 	if item(t, doc, sub).Parent.ID != c {
@@ -768,8 +769,8 @@ func TestAppendTaskRules(t *testing.T) {
 	})
 }
 
-// AppendCategory places the category after the last child of its parent — after
-// its tasks and subcategories — as the tree is at write time: a last sibling
+// AppendCategory places the category after the last category child of its
+// parent — before its tasks — as the tree is at write time: a last sibling
 // another process deleted since the caller read the tree does not matter.
 func TestAppendCategoryPlacesLast(t *testing.T) {
 	s := newStore(t)
@@ -785,7 +786,7 @@ func TestAppendCategoryPlacesLast(t *testing.T) {
 	if got, want := titles(doc.Roots), []string{"A", "X"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("roots = %v, want %v", got, want)
 	}
-	if got, want := titles(item(t, doc, ids.A).Children), []string{"t1", "t2", "B", "C"}; !reflect.DeepEqual(got, want) {
+	if got, want := titles(item(t, doc, ids.A).Children), []string{"B", "C", "t1", "t2"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("A's children = %v, want %v", got, want)
 	}
 	if got, want := titles(item(t, doc, x).Children), []string{"Only"}; !reflect.DeepEqual(got, want) {

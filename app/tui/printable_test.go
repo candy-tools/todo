@@ -99,7 +99,8 @@ func unsafeIn(s string) []rune {
 
 func TestEditFormShowsNoStoredControlCharacters(t *testing.T) {
 	m, _ := newLegacyModel(t)
-	title, desc, plan := m.form.values()
+	v := m.form.values()
+	title, desc, plan := v.Title, v.Description, v.Plan
 	for what, v := range map[string]string{"title": title, "description": desc, "plan": plan} {
 		if bad := unsafeIn(v); len(bad) > 0 {
 			t.Errorf("the form's %s %q holds unsafe runes %q", what, v, bad)
@@ -132,9 +133,9 @@ func TestEditUntouchedLegacyItemWritesNothing(t *testing.T) {
 
 func TestEditLegacyItemWritesOnlyTheEditedField(t *testing.T) {
 	m, path := newLegacyModel(t)
-	m = press(m, "tab") // the description
+	m = press(m, "tab", "tab") // past the reference to the description
 	m = typeText(m, "x")
-	_, want, _ := m.form.values()
+	want := m.form.values().Description
 	if want == cleanLegacyDesc {
 		t.Fatal("typing should have changed the description")
 	}

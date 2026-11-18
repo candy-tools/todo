@@ -50,7 +50,8 @@ func TestSidebarRows(t *testing.T) {
 func TestTasksPaneScopeIncludesSubcategories(t *testing.T) {
 	tr, id := newPaneTree(t, paneTasks)
 	tr.setScope(id("Work"))
-	if got := rowDesc(tr); !equalStrings(got, []string{"a", "h:Backend", "b"}) {
+	// Subcategories come first; the scope's own tasks follow under its header.
+	if got := rowDesc(tr); !equalStrings(got, []string{"h:Backend", "b", "h:Work", "a"}) {
 		t.Fatalf("Work scope rows = %v", got)
 	}
 	for it := range tr.shown {
@@ -62,7 +63,7 @@ func TestTasksPaneScopeIncludesSubcategories(t *testing.T) {
 
 func TestTasksPaneAllScope(t *testing.T) {
 	tr, _ := newPaneTree(t, paneTasks)
-	want := []string{"h:Work", "a", "h:Work › Backend", "b", "h:Home", "c"}
+	want := []string{"h:Work › Backend", "b", "h:Work", "a", "h:Home", "c"}
 	if got := rowDesc(tr); !equalStrings(got, want) {
 		t.Fatalf("All scope rows = %v, want %v", got, want)
 	}
@@ -75,15 +76,15 @@ func TestTasksPaneCursorSkipsHeaders(t *testing.T) {
 		move func()
 		want string
 	}{
-		{func() {}, "a"},
-		{tr.moveDown, "b"},
+		{func() {}, "b"},
+		{tr.moveDown, "a"},
 		{tr.moveDown, "c"},
 		{tr.moveDown, "c"},
+		{tr.moveUp, "a"},
 		{tr.moveUp, "b"},
-		{tr.moveUp, "a"},
-		{tr.moveUp, "a"},
+		{tr.moveUp, "b"},
 		{tr.pageDown, "c"},
-		{tr.pageUp, "a"},
+		{tr.pageUp, "b"},
 	}
 	for i, s := range steps {
 		s.move()
@@ -92,7 +93,7 @@ func TestTasksPaneCursorSkipsHeaders(t *testing.T) {
 		}
 	}
 	tr.collapse() // on a top-level task: must not jump onto the header
-	if got := tr.selected(); got == nil || got.Title != "a" {
+	if got := tr.selected(); got == nil || got.Title != "b" {
 		t.Errorf("left on a top-level task moved to %v", got)
 	}
 }

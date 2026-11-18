@@ -33,12 +33,13 @@ func (m model) copySelection() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// itemCopyText renders an item as plain text for the clipboard: the title, then
-// a blank line and the raw (unwrapped) description when the item is a task that
-// has one. This is the whole item as text, independent of how the pane wraps it.
+// itemCopyText renders an item as plain text for the clipboard: the title (with
+// a task's reference before it, as the row shows it), then a blank line and the
+// raw (unwrapped) description when the item is a task that has one. This is the
+// whole item as text, independent of how the pane wraps it.
 func itemCopyText(it *todo.Item) string {
 	if it.IsTask() && it.Description != "" {
-		return it.Title + "\n\n" + it.Description
+		return it.DisplayTitle() + "\n\n" + it.Description
 	}
-	return it.Title
+	return it.DisplayTitle()
 }

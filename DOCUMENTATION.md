@@ -39,19 +39,23 @@ The screen is a **kanban board**: one tab per column, each showing a collapsible
 **category/task tree** of the tasks in that column. Tasks that carry a
 description are marked with a small `≡` glyph; press `enter` (or `e`) on any item
 to open its dialog, which shows the item's column, state and subtask progress and
-lets you edit its title, description and plan in place (`esc` cancels,
+lets you edit its title, reference, description and plan in place (`esc` cancels,
 `enter`/Save applies).
+
+Like a file explorer listing folders before files, a category shows its
+subcategories first and its own tasks below them — in the tree, in the split
+view's task list and in `todo list` alike.
 
 An example tab, as the tree shows it:
 
 ```text
 ▾ Work (2/5)
+  ▾ Backend (0/1)
+      ○ Migrate the database open
   ▾ ○ Ship v1.0 release open (1/2)
       ● Write changelog
       ○ Cut the git tag
     ● Fix login bug done
-  ▾ Backend (0/1)
-      ○ Migrate the database open
 ▾ Personal (0/2)
     ○ Renew passport open
     ⏸ Book dentist deferred
@@ -85,6 +89,12 @@ The board has four columns, shown as tabs (with a task count each): **Backlog**,
 - **Plan.** Each task has an optional plan link — a path or reference to where
   its plan lives — edited in the task's dialog. A `ready` task with no plan is
   flagged **`⚠ no plan`** on its row in the tree and in its dialog.
+- **Reference.** A task can carry an optional reference such as `APP-001`,
+  shown before its title as `[APP-001] Ship it`. It is free-form text (one
+  line, up to 50 characters), but no two tasks in a list may share one —
+  compared ignoring case, so `app-001` and `APP-001` clash. Subtasks have no
+  reference, so a task holding one cannot be indented under another task;
+  clear the reference first. Search matches the reference too.
 
 Moving a task between columns:
 
@@ -123,17 +133,18 @@ back to the single tree, on the item that had focus.
 
 ```text
 ╭─ Categories ─────────╮╭─ Tasks ─────────────────────────╮
-│  All                 ││❯ ○ Ship v1.0 release open       │
-│❯ ▾ Work (2/5)        ││  ── Backend                     │
-│      Backend (0/1)   ││  ○ Migrate the database open    │
-│    Personal (0/2)    ││                                 │
+│  All                 ││  ── Backend                     │
+│❯ ▾ Work (2/5)        ││❯ ○ Migrate the database open    │
+│      Backend (0/1)   ││  ── Work                        │
+│    Personal (0/2)    ││  ○ Ship v1.0 release open       │
 │  + new category      ││                                 │
 ╰──────────────────────╯╰─────────────────────────────────╯
 ```
 
 - The sidebar starts on **All**, which lists every task. Walking down the tree
-  narrows the list: a category shows its own tasks first, then each
-  subcategory's under a `── Backend` heading.
+  narrows the list: as in the tree, each subcategory's tasks come first under
+  a `── Backend` heading, then the category's own tasks under its own heading.
+  Categories fold in the sidebar only (`z` in the list says so).
 - The list follows the current tab (or every state with `k`), and a search or
   state filter narrows both panes: the sidebar keeps only categories with
   matches. When the selected category disappears (switching tab, filtering,
@@ -153,7 +164,7 @@ Read the list — with numbers, ids, and JSON for the read-then-act loop:
 
 ```sh
 todo list                 # aligned table: # · id · state · item
-todo list --json          # nested tree with number/id/title/status/column/plan/path
+todo list --json          # nested tree with number/id/ref/title/status/column/plan/path
 todo list --filter build  # only matching items and their path
 todo list --column next   # only tasks in one column: backlog|next|progress|done
 ```
@@ -161,7 +172,8 @@ todo list --column next   # only tasks in one column: backlog|next|progress|done
 The `state` column of `todo list` shows the task's state name (`open`, `ready`,
 `working`, …), and `--` for a category. In JSON, `status` is the state name,
 `column` is the task's column (`backlog`, `next`, `progress` or `done`; a
-subtask reports its parent's column) and `plan` is the plan link.
+subtask reports its parent's column), `plan` is the plan link and `ref` the
+task's reference (left out when it has none; `title` never includes it).
 
 **Breaking change:** JSON `status` now says `"working"` where it used to say
 `"progress"`. On input, `progress` is still accepted as an alias of `working`.
@@ -170,28 +182,41 @@ Address an existing item three ways — exactly one, mutually exclusive:
 
 ```sh
 --number N   # the # column from `todo list`
---id     K   # the item's 7-character id (the id column from `todo list`)
+--id     K   # the item's 7-character id (the id column from `todo list`), or a task's reference (e.g. APP-001, any case)
 --title  T   # the item's exact title (errors if more than one matches)
 ```
 
 Common actions:
 
 ```sh
-todo add --title "Cut the tag" --parent-title "Ship v1.0" [--desc "…"] [--plan docs/plan.md] [--status open|working|deferred|done|new|ready|review|followup|wontdo]
+todo add --title "Cut the tag" --parent-title "Ship v1.0" [--ref APP-001] [--desc "…"] [--plan docs/plan.md] [--status open|working|deferred|done|new|ready|review|followup|wontdo]
 todo add-category --title "Backend" [--parent-title "Work"]
 todo status   --number 4 --to ready
 todo done     --title "Cut the tag" [--cascade]
 todo progress --number 4   # shortcut: status --to working
 todo defer    --id k3f9qw2 # shortcut: status --to deferred
 todo reopen   --title "Cut the tag" [--cascade]
-todo edit     --number 4 --set-title "…" --set-desc "…" --set-plan "docs/plan.md"
+todo edit     --number 4 --set-title "…" --set-desc "…" --set-plan "docs/plan.md" --set-ref APP-002
+todo move     --title "Cut the tag" --parent-title "Backend" [--first | --after-title "…"]
+todo move     --title "Backend" --root
 todo rm       --number 4
 todo prune                # drop every fully-completed task
 ```
 
 `status --to <state>` sets any state: `open`, `working`, `deferred`, `done`,
 `new`, `ready`, `review`, `followup` or `wontdo` (`progress` is accepted for `working`).
-`add --status` defaults to `open`. `edit --set-plan ""` clears a task's plan.
+`add --status` defaults to `open`. `edit --set-plan ""` clears a task's plan,
+and `edit --set-ref ""` its reference. A reference another task already holds,
+or one given to a subtask, is refused as a usage error (exit code `2`).
+`move` places an item, with its subtree, under the parent named by
+`--parent-number`, `--parent-id` or `--parent-title` (or at the top level with
+`--root`, for a category): last among its kind there by default, first with
+`--first`, or right after the sibling named by `--after-number`, `--after-id` or
+`--after-title`, which must sit directly under that parent (exit code `2`
+otherwise). Subcategories always stay ahead of tasks. The move rules match the
+TUI's: a task never goes to the top level and a category never under a task
+(exit code `5`); a task with subtasks, or with a reference, cannot become a
+subtask; a moved subtask becomes a task and takes its state from its old parent.
 `reopen` takes a done task back to `working` (a subtask to `open`); a task that
 is not done keeps its state and nothing is written (with `--cascade` its
 subtasks are reopened). `--cascade` on `done` / `reopen` applies the change to
@@ -203,8 +228,9 @@ kind — a state on a category, a category under a task — exits with code `5`,
 and the error names the item.
 
 `--id` is stable: an item keeps its id for as long as it exists, so it is the
-safest way to address an item across a sequence of edits. `--number` shifts
-after any add/remove; `--title` is stable as long as it stays unique. Re-run
+safest way to address an item across a sequence of edits. `--number` follows
+the tree order (a category's subcategories before its tasks) and shifts after
+any add, move or remove; `--title` is stable as long as it stays unique. Re-run
 `todo list` when you rely on `--number`.
 
 Exit codes: `0` ok, `2` usage, `3` not found, `4` ambiguous title, `5` wrong
@@ -226,6 +252,7 @@ Errors go to stderr.
 | `p` / `P` | Move the task to the next / previous column (it takes that column's first state) |
 | `t` | Open the state dialog to set the task's state, including done (`↑`/`↓`, `enter` sets, `esc` cancels) |
 | `space` | Fold / unfold the selected category |
+| `z` | Fold every category at the selection's level (the selected category and its siblings; for a task, its category's) — or unfold them all when all are folded. Off while searching |
 | `m` | Grab the task to reorder it (arrows move it, `enter`/`esc`/`m` drops it) |
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it) |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
@@ -248,7 +275,8 @@ Backlog tab the tree always ends with a **`+ new category`** row: select it and
 press `c` (or `enter`) to add a top-level category. On an existing category, `c` adds a
 subcategory instead.
 
-In the add/edit dialog: `tab` moves between fields (title, description, plan),
+In the add/edit dialog: `tab` moves between fields (title, reference,
+description, plan; a subtask has no reference),
 `enter` saves (it inserts a newline while you're in the description box), `esc`
 cancels.
 
@@ -306,7 +334,7 @@ changes only the lines that changed.
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "categories": [
     {
       "id": "8v1wyaa",
@@ -322,6 +350,7 @@ changes only the lines that changed.
     {
       "id": "4r2ft3y",
       "category": "s85fd4v",
+      "ref": "APP-001",
       "title": "Hot reload",
       "status": "ready",
       "plan": "docs/plans/hot-reload.md",
@@ -338,19 +367,23 @@ changes only the lines that changed.
 }
 ```
 
-- `version` is the format version (now `3`). A file with a higher version is
-  refused: `list was written by a newer todo`.
+- `version` is the format version (now `4`). A file with a higher version is
+  refused: `list was written by a newer todo`. A version `3` file (from before
+  references) loads as it is and is written back as version `4` on the next
+  change, after which todo versions older than this one refuse it.
 - `categories` have an `id`, a `title` and, for a nested one, the `parent`
   category's id. Array order is the order among siblings.
 - `tasks` have an `id`, the `category` they sit under, a `title` and a `status`
   (`open`, `working`, `deferred`, `done`, `new`, `ready`, `review`, `followup`
-  or `wontdo`). `plan`, `description` and `subtasks` are optional. Array order
-  is the order within a category.
+  or `wontdo`). `ref`, `plan`, `description` and `subtasks` are optional.
+  `ref` is unique in the file, ignoring case. Array order is the order within
+  a category.
 - `subtasks` sit inside their task, one level deep. A subtask has an `id`, a
   `title` and `done` (left out when false), plus an optional `description` and
   `plan`.
 - IDs are 7 characters from `0123456789abcdefghjkmnpqrstvwxyz`. Every category,
-  task and subtask has its own. This is what `--id` takes.
+  task and subtask has its own. This is what `--id` takes (besides a
+  reference).
 
 **The lock file.** A write first takes a lock on `.todo.json.lock`, next to the
 list. Two todo processes never write at the same time. A CLI write that waits

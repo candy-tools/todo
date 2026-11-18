@@ -29,7 +29,7 @@ func setStatus(cmd *cobra.Command, verb string, write statusWrite) error {
 		if now, ok := res.Doc.ByID(it.ID); ok {
 			it = now
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, it.Status.String(), todo.Printable(it.Title), categoryPath(it))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, it.Status.String(), todo.Printable(it.DisplayTitle()), categoryPath(it))
 		return nil
 	})
 }

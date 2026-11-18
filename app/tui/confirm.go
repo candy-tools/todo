@@ -18,9 +18,9 @@ func deletionQuestion(it *todo.Item) string {
 		kind = "category"
 	}
 	if n := len(it.Descendants()); n > 0 {
-		return fmt.Sprintf("Delete %s %q and its %d nested item(s)?", kind, it.Title, n)
+		return fmt.Sprintf("Delete %s %q and its %d nested item(s)?", kind, it.DisplayTitle(), n)
 	}
-	return fmt.Sprintf("Delete %s %q?", kind, it.Title)
+	return fmt.Sprintf("Delete %s %q?", kind, it.DisplayTitle())
 }
 
 // confirmModal renders the delete confirmation. Focus defaults to Cancel

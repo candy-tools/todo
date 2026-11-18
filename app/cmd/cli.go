@@ -63,12 +63,14 @@ func wrongKindIn(err error, action string, it *todo.Item) error {
 // (e.g. "parent-").
 func addSelectorFlags(cmd *cobra.Command, prefix string) {
 	cmd.Flags().Int(prefix+"number", 0, "address the item by its list number")
-	cmd.Flags().String(prefix+"id", "", "address the item by its 7-character id (see list --json)")
+	cmd.Flags().String(prefix+"id", "", "address the item by its 7-character id (see list --json) or a task's reference")
 	cmd.Flags().String(prefix+"title", "", "address the item by its exact title")
 }
 
 // resolveSelector reads the number/id/title flags (optionally prefixed) and
-// returns the item they identify. Exactly one flag must be set.
+// returns the item they identify. Exactly one flag must be set. The id flag
+// also takes a task's reference (ignoring case); an item ID wins over a
+// reference that happens to be spelled the same.
 func resolveSelector(cmd *cobra.Command, doc *todo.Document, prefix string) (*todo.Item, error) {
 	numF, idF, titleF := prefix+"number", prefix+"id", prefix+"title"
 	set := 0
@@ -91,6 +93,9 @@ func resolveSelector(cmd *cobra.Command, doc *todo.Document, prefix string) (*to
 	case cmd.Flags().Changed(idF):
 		n, _ := cmd.Flags().GetString(idF)
 		if it, ok := doc.ByID(n); ok {
+			return it, nil
+		}
+		if it, ok := doc.ByRef(n); ok {
 			return it, nil
 		}
 		return nil, notFound(fmt.Sprintf("no item with --%s %s", idF, n))

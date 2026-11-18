@@ -2,6 +2,7 @@ package todo_test
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -212,27 +213,6 @@ func TestMoveDownClampsAtEnd(t *testing.T) {
 	}
 }
 
-func TestMoveDownTaskDescendsIntoSubcategory(t *testing.T) {
-	// A task that is the last one in its category flows down into that category's
-	// first subcategory, landing as the subcategory's first task (it can't sit
-	// after a subheader, so "down" carries it in).
-	d := todotest.Parse(t, "# Work\n\n- [ ] a\n- [ ] b\n\n## Sub\n\n- [ ] w1\n")
-	b := find(d, "b")
-	if !step(t, d, b, todo.StepDown) {
-		t.Fatal("MoveDown should carry the last task into the subcategory")
-	}
-	sub := find(d, "Sub")
-	if b.Parent != sub {
-		t.Errorf("b's parent = %v, want Sub", b.Parent)
-	}
-	if got := titles(sub.Children); len(got) != 2 || got[0] != "b" || got[1] != "w1" {
-		t.Errorf("Sub's children = %v, want [b w1]", got)
-	}
-	if got := titles(find(d, "Work").Children); len(got) != 2 || got[0] != "a" || got[1] != "Sub" {
-		t.Errorf("Work's children = %v, want [a Sub]", got)
-	}
-}
-
 func TestMoveDownTaskBubblesToNextCategory(t *testing.T) {
 	// With no subcategory to descend into, the last task of a category crosses to
 	// become the first task of the next category in document order.
@@ -268,59 +248,6 @@ func TestMoveUpTaskAscendsToPreviousCategory(t *testing.T) {
 	}
 }
 
-func TestMoveUpTaskAscendsIntoParentCategory(t *testing.T) {
-	// The first task of a subcategory crosses up into its parent category, as that
-	// category's last task (before its subcategories).
-	d := todotest.Parse(t, "# Work\n\n- [ ] a\n\n## Sub\n\n- [ ] b\n")
-	b := find(d, "b")
-	if !step(t, d, b, todo.StepUp) {
-		t.Fatal("MoveUp should lift the first subcategory task into the parent")
-	}
-	if b.Parent != find(d, "Work") {
-		t.Errorf("b's parent = %v, want Work", b.Parent)
-	}
-	if got := titles(find(d, "Work").Children); len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "Sub" {
-		t.Errorf("Work's children = %v, want [a b Sub]", got)
-	}
-}
-
-func TestMoveUpTaskDescendsIntoPreviousCategorysSubtree(t *testing.T) {
-	// Crossing up into a previous category that has its own subcategory lands the
-	// task at the end of that subtree (the visible row just above), not at a
-	// shallow spot — so up moves one line at a time.
-	d := todotest.Parse(t, "# Work\n\n## Sub\n\n- [ ] w1\n\n# Personal\n\n- [ ] b\n")
-	b := find(d, "b")
-	if !step(t, d, b, todo.StepUp) {
-		t.Fatal("MoveUp should carry the task into the previous category's subtree")
-	}
-	sub := find(d, "Sub")
-	if b.Parent != sub {
-		t.Errorf("b's parent = %v, want Sub", b.Parent)
-	}
-	if got := titles(sub.Children); len(got) != 2 || got[0] != "w1" || got[1] != "b" {
-		t.Errorf("Sub's children = %v, want [w1 b]", got)
-	}
-	if got := titles(find(d, "Personal").Children); len(got) != 0 {
-		t.Errorf("Personal should be empty, got %v", got)
-	}
-}
-
-func TestMoveTaskAcrossBoundaryIsReversible(t *testing.T) {
-	// "Natural" up/down: a ↑ across a boundary is undone by a ↓ — the task returns
-	// to where it started, even out of a nested previous category.
-	d := todotest.Parse(t, "# Work\n\n## Sub\n\n- [ ] w1\n\n# Personal\n\n- [ ] b\n")
-	b := find(d, "b")
-	if !step(t, d, b, todo.StepUp) || b.Parent.Title != "Sub" { // up: into the end of Work's subtree
-		t.Fatalf("MoveUp should land b in Sub, parent=%v", b.Parent)
-	}
-	if !step(t, d, b, todo.StepDown) || b.Parent.Title != "Personal" { // down: back out to Personal
-		t.Fatalf("MoveDown should return b to Personal, parent=%v", b.Parent)
-	}
-	if got := titles(find(d, "Personal").Children); len(got) != 1 || got[0] != "b" {
-		t.Errorf("Personal's children = %v, want [b]", got)
-	}
-}
-
 func TestMoveSubtaskDoesNotCrossCategories(t *testing.T) {
 	// Sub-task nesting is changed with indent/outdent, not up/down: a lone subtask
 	// neither bubbles out nor crosses categories on up/down.
@@ -334,16 +261,6 @@ func TestMoveSubtaskDoesNotCrossCategories(t *testing.T) {
 	}
 	if c1.Parent != find(d, "p") {
 		t.Errorf("c1 should stay a subtask of p, got parent %v", c1.Parent)
-	}
-}
-
-func TestMoveTaskAcrossCategoriesRoundTrips(t *testing.T) {
-	d := todotest.Parse(t, "# Work\n\n- [ ] b\n\n## Sub\n\n- [ ] w1\n")
-	step(t, d, find(d, "b"), todo.StepDown) // b descends into Sub
-	re := todotest.Parse(t, todotest.Render(d))
-	b := find(re, "b")
-	if b == nil || b.Parent == nil || b.Parent.Title != "Sub" {
-		t.Errorf("after round-trip b should nest under Sub:\n%s", todotest.Render(d))
 	}
 }
 
@@ -364,18 +281,6 @@ func TestMoveDownSubcategoryDescendsIntoNextCategory(t *testing.T) {
 	}
 	if got := titles(find(d, "Work").Children); len(got) != 0 {
 		t.Errorf("Work should be empty, got %v", got)
-	}
-}
-
-func TestMoveDownSubcategoryLandsAfterTasksBeforeSubcategories(t *testing.T) {
-	// Crossing into a category that already holds tasks and subcategories, the
-	// moved subcategory becomes the first subcategory: after p, before Other.
-	d := todotest.Parse(t, "# Work\n\n## Sub\n\n- [ ] x\n\n# Personal\n\n- [ ] p\n\n## Other\n")
-	if !step(t, d, find(d, "Sub"), todo.StepDown) {
-		t.Fatal("MoveDown should carry the subcategory across to the next category")
-	}
-	if got := titles(find(d, "Personal").Children); len(got) != 3 || got[0] != "p" || got[1] != "Sub" || got[2] != "Other" {
-		t.Errorf("Personal's children = %v, want [p Sub Other]", got)
 	}
 }
 
@@ -609,5 +514,135 @@ func TestOutdentTakesParentState(t *testing.T) {
 	}
 	if b.Status != todo.Working {
 		t.Errorf("b status = %v, want Working", b.Status)
+	}
+}
+
+// crossing checks one step of item title in the document md lands it in
+// category parent with want as that category's children, and that the
+// opposite step brings the document back exactly as it was.
+func crossing(t *testing.T, md, title string, s todo.MoveStep, parent string, want ...string) {
+	t.Helper()
+	d := todotest.Parse(t, md)
+	d.AssignIDs()
+	before := structure(d)
+	it := find(d, title)
+	if !step(t, d, it, s) {
+		t.Fatalf("%s did not move", title)
+	}
+	if it.Parent == nil || it.Parent.Title != parent {
+		t.Fatalf("%s's parent = %v, want %s", title, it.Parent, parent)
+	}
+	if got := titles(it.Parent.Children); !reflect.DeepEqual(got, want) {
+		t.Errorf("%s's children = %v, want %v", parent, got, want)
+	}
+	back := todo.StepUp
+	if s == todo.StepUp {
+		back = todo.StepDown
+	}
+	if !step(t, d, it, back) {
+		t.Fatalf("%s did not step back", title)
+	}
+	if got := structure(d); got != before {
+		t.Errorf("the opposite step did not undo the crossing:\n%s\nwant\n%s", got, before)
+	}
+}
+
+// A category lists its subcategories before its tasks, so the last task of B
+// steps down past C's header into C's leading subcategory C1, the first slot
+// for a task below it.
+func TestMoveDownTaskIntoNextCategorysLeadingSubcategory(t *testing.T) {
+	crossing(t, "# A\n\n## B\n\n- [ ] b1\n- [ ] b2\n\n## C\n\n- [ ] c1\n\n### C1\n\n- [ ] c11\n",
+		"b2", todo.StepDown, "C1", "b2", "c11")
+}
+
+// The last task of P's last subcategory L steps down into P itself, as P's
+// first task: P's tasks come after its subcategories.
+func TestMoveDownTaskFromLastSubcategoryIntoParentTasks(t *testing.T) {
+	crossing(t, "# P\n\n- [ ] p1\n\n## L\n\n- [ ] l1\n", "l1", todo.StepDown, "P", "L", "l1", "p1")
+}
+
+// The first task of P steps up into P's last subcategory, as its last task.
+func TestMoveUpTaskIntoLastSubcategory(t *testing.T) {
+	crossing(t, "# P\n\n- [ ] p1\n\n## K\n\n## L\n\n- [ ] l1\n", "p1", todo.StepUp, "L", "l1", "p1")
+}
+
+// The first task of C1, which heads C, steps up past both headers to the end
+// of B, the category before C.
+func TestMoveUpTaskOutOfLeadingSubcategory(t *testing.T) {
+	crossing(t, "# A\n\n## B\n\n- [ ] b1\n\n## C\n\n### C1\n\n- [ ] c11\n", "c11", todo.StepUp, "B", "b1", "c11")
+}
+
+// A first subcategory steps up into the category before its parent, as that
+// category's last subcategory, before its tasks.
+func TestMoveUpSubcategoryLandsBeforeTasks(t *testing.T) {
+	crossing(t, "# W\n\n- [ ] w1\n\n## W1\n\n# P\n\n## X\n", "X", todo.StepUp, "W", "W1", "X", "w1")
+}
+
+// A subcategory crossing down into a category that holds subcategories and
+// tasks becomes its first subcategory.
+func TestMoveDownSubcategoryLandsFirst(t *testing.T) {
+	crossing(t, "# Work\n\n## Sub\n\n- [ ] x\n\n# Personal\n\n- [ ] p\n\n## Other\n", "Sub", todo.StepDown,
+		"Personal", "Sub", "Other", "p")
+}
+
+func TestMoveTaskCrossingAtTheEndsGoesNowhere(t *testing.T) {
+	d := todotest.Parse(t, "# A\n\n- [ ] a1\n\n## A1\n\n# B\n\n- [ ] b1\n")
+	d.AssignIDs()
+	if _, _, err := d.StepPlacement(find(d, "b1").ID, todo.StepDown, nil); !errors.Is(err, todo.ErrNowhere) {
+		t.Errorf("last task of the last root down = %v, want ErrNowhere", err)
+	}
+	d = todotest.Parse(t, "# A\n\n- [ ] a1\n\n# B\n")
+	d.AssignIDs()
+	if _, _, err := d.StepPlacement(find(d, "a1").ID, todo.StepUp, nil); !errors.Is(err, todo.ErrNowhere) {
+		t.Errorf("first task of the first root (no subcategories) up = %v, want ErrNowhere", err)
+	}
+}
+
+// In a tab that hides some rows, a task's step down passes the hidden ones and
+// enters the next category (a new parent ends the step); the step up brings it
+// back into its category, after the hidden task it passed.
+func TestStepPlacementCrossesWithHiddenRows(t *testing.T) {
+	d := todotest.Parse(t, "# A\n\n## B\n\n- [ ] b1\n- [ ] hidden\n\n## C\n\n- [ ] c1\n")
+	d.AssignIDs()
+	hiddenID := find(d, "hidden").ID
+	shown := func(id string) bool { return id != hiddenID }
+	b1 := find(d, "b1")
+	p, a, err := d.StepPlacement(b1.ID, todo.StepDown, shown)
+	if err != nil || p != find(d, "C").ID || a != "" {
+		t.Fatalf("b1 down = (%q, %q, %v), want first in C", p, a, err)
+	}
+	wantNoErr(t, d.Move(b1.ID, p, a))
+	p, a, err = d.StepPlacement(b1.ID, todo.StepUp, shown)
+	wantNoErr(t, err)
+	wantNoErr(t, d.Move(b1.ID, p, a))
+	wantTitles(t, d, "A", "B", "hidden", "b1", "C", "c1")
+}
+
+// The first task of Personal steps up into Work, whose tasks sit after its
+// subcategory Sub, right above Personal; it is still Work's task after the
+// list is written as markdown and read back.
+func TestMoveTaskAcrossCategoriesRoundTrips(t *testing.T) {
+	d := todotest.Parse(t, "# Work\n\n## Sub\n\n- [ ] w1\n\n# Personal\n\n- [ ] b\n")
+	step(t, d, find(d, "b"), todo.StepUp)
+	wantTitles(t, d, "Work", "Sub", "w1", "b", "Personal")
+	re := todotest.Parse(t, todotest.Render(d))
+	if b := find(re, "b"); b == nil || b.Parent == nil || b.Parent.Title != "Work" {
+		t.Errorf("after round-trip b should be Work's task:\n%s", todotest.Render(d))
+	}
+}
+
+// A subcategory last among its siblings steps down into the next sibling of
+// its parent, as its first subcategory, and the step up brings it back.
+func TestMoveDownSubcategoryIntoParentsNextSibling(t *testing.T) {
+	crossing(t, "# A\n\n## B\n\n### X\n\n## D\n\n### D1\n\n# C\n", "X", todo.StepDown, "D", "X", "D1")
+}
+
+// A category step down does not climb out past its ancestors' tasks: with no
+// later sibling category of its parent, there is nowhere to go (← lifts it).
+func TestMoveDownSubcategoryDoesNotClimb(t *testing.T) {
+	d := todotest.Parse(t, "# A\n\n- [ ] a1\n\n## B\n\n### X\n\n# C\n")
+	d.AssignIDs()
+	if _, _, err := d.StepPlacement(find(d, "X").ID, todo.StepDown, nil); !errors.Is(err, todo.ErrNowhere) {
+		t.Errorf("X down = %v, want ErrNowhere", err)
 	}
 }

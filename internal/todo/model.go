@@ -5,7 +5,9 @@
 package todo
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -215,8 +217,12 @@ type Item struct {
 	Status      Status // Task only
 	Description string // Task only: free-form text shown in the details view
 	Plan        string // Task only: path or reference of the plan for the task
-	Children    []*Item
-	Parent      *Item // nil for a root item
+	// Ref is a top-level task's free-form reference, such as "APP-001", shown
+	// before its title (see DisplayTitle); "" when it has none. No two tasks
+	// of a list hold the same one, ignoring case; a subtask holds none.
+	Ref      string
+	Children []*Item
+	Parent   *Item // nil for a root item
 }
 
 // Document is the in-memory TODO tree: its root items.
@@ -294,6 +300,25 @@ func (it *Item) clone(parent *Item) *Item {
 		c.Children[i] = ch.clone(&c)
 	}
 	return &c
+}
+
+// categoriesFirst reorders every category's children so its subcategories
+// precede its tasks, keeping the order within each kind: the document order,
+// as a file explorer lists folders before files.
+func (d *Document) categoriesFirst() {
+	for _, it := range d.Enumerate() {
+		if it.Kind == Category {
+			slices.SortStableFunc(it.Children, func(a, b *Item) int { return cmp.Compare(kindRank(a), kindRank(b)) })
+		}
+	}
+}
+
+// kindRank orders a category before a task.
+func kindRank(it *Item) int {
+	if it.Kind == Category {
+		return 0
+	}
+	return 1
 }
 
 // appendRoot appends it as the last top-level item of the document.
