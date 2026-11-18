@@ -346,6 +346,9 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openForm(targetAddChild)
 	case "c":
 		return m.openForm(targetAddCategory)
+	case "z":
+		m.status = m.focused().toggleFoldLevel()
+		return m, nil
 	case "m":
 		return m.startMove()
 	case "e":

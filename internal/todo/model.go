@@ -5,7 +5,9 @@
 package todo
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -298,6 +300,25 @@ func (it *Item) clone(parent *Item) *Item {
 		c.Children[i] = ch.clone(&c)
 	}
 	return &c
+}
+
+// categoriesFirst reorders every category's children so its subcategories
+// precede its tasks, keeping the order within each kind: the document order,
+// as a file explorer lists folders before files.
+func (d *Document) categoriesFirst() {
+	for _, it := range d.Enumerate() {
+		if it.Kind == Category {
+			slices.SortStableFunc(it.Children, func(a, b *Item) int { return cmp.Compare(kindRank(a), kindRank(b)) })
+		}
+	}
+}
+
+// kindRank orders a category before a task.
+func kindRank(it *Item) int {
+	if it.Kind == Category {
+		return 0
+	}
+	return 1
 }
 
 // appendRoot appends it as the last top-level item of the document.

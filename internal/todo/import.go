@@ -28,7 +28,9 @@ type ImportReport struct {
 // ImportMarkdown parses a TODO.md leniently for import. It fails only when src
 // is not valid UTF-8; anything it cannot keep becomes a warning. Tasks found
 // outside every category are moved into a new last root category named
-// Uncategorized, since the store keeps tasks under categories only.
+// Uncategorized, since the store keeps tasks under categories only. Markdown
+// lists a heading's tasks before its subheadings; the document puts them after
+// (see categoriesFirst).
 func ImportMarkdown(src []byte) (*Document, ImportReport, error) {
 	if !utf8.Valid(src) {
 		return nil, ImportReport{}, errors.New("markdown is not valid UTF-8")
@@ -51,6 +53,8 @@ func ImportMarkdown(src []byte) (*Document, ImportReport, error) {
 			cat.AppendChild(t)
 		}
 	}
+
+	doc.categoriesFirst()
 
 	rep := ImportReport{Warnings: warnings}
 	for _, r := range doc.Roots {

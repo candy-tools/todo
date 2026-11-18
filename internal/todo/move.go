@@ -7,8 +7,8 @@ package todo
 // task or subcategory can be carried across categories a step at a time —
 // while in/out make the same-kind depth changes. The query only reads the
 // list; the move itself is Move, which keeps the tree's invariants (a task
-// always lives under a category, a category's direct tasks precede its
-// subcategories, a category never nests under a task) and is the one judge of
+// always lives under a category, a category's subcategories precede its
+// direct tasks, a category never nests under a task) and is the one judge of
 // which placements are valid.
 
 // MoveStep is one step of the TUI's move mode (see StepPlacement).
@@ -120,7 +120,7 @@ func (d *Document) nextPlacement(it *Item, s MoveStep) (parentID, afterID string
 	case StepIn:
 		if sameKind(idx - 1) {
 			prev := list[idx-1]
-			return prev.ID, lastChildID(prev.Children, len(prev.Children)), true
+			return prev.ID, lastOfKind(prev.Children, it.Kind, it), true
 		}
 	case StepOut:
 		p := it.Parent
@@ -136,37 +136,46 @@ func (d *Document) nextPlacement(it *Item, s MoveStep) (parentID, afterID string
 }
 
 // crossingDown is where a StepDown takes it when no same-kind sibling follows
-// it. A task, last in its category, goes in as the first task of that
-// category's first subcategory or, failing that, of the next category in
-// document order. A category, last in its run, becomes the first subcategory
-// of the next category. A subtask never crosses (its nesting changes with
-// StepOut), and ok is false when there is nowhere further to go.
+// it: the next slot of its kind one row further down. A category's
+// subcategories come before its tasks, so a task, last in its category p, sits
+// at the end of p's subtree: it goes in as the first task of the next sibling
+// category of p, descending through that category's leading subcategories
+// (which come before its tasks) or, when p is the last of its siblings, as the
+// first task of p's parent, after its subcategories. A category, last in its
+// run, becomes the first subcategory of the next sibling category of its
+// parent, mirroring crossingUp; it does not climb further, which would carry
+// it past its ancestors' tasks.
+// A subtask never crosses (its nesting changes with StepOut), and ok is false
+// when there is nowhere further to go.
 func (d *Document) crossingDown(it *Item) (parentID, afterID string, ok bool) {
 	p := it.Parent
 	if it.Kind == Task {
 		if p == nil || p.Kind != Category {
 			return "", "", false
 		}
-		if sc := firstSubcategory(p); sc != nil {
-			return sc.ID, "", true
+		if nc := d.laterSiblingCategory(p); nc != nil {
+			return leadingLeaf(nc).ID, "", true
 		}
-		if nc := d.nextSiblingCategory(p); nc != nil {
-			return nc.ID, "", true
+		if pp := p.Parent; pp != nil && pp.Kind == Category {
+			return pp.ID, "", true // "" places a task first among the tasks
 		}
 		return "", "", false
 	}
-	if nc := d.nextSiblingCategory(it); nc != nil {
-		return nc.ID, "", true // "" places a category first among the subcategories
+	if p == nil {
+		return "", "", false // the last root category
+	}
+	if nc := d.laterSiblingCategory(p); nc != nil {
+		return nc.ID, "", true // "" places a category first
 	}
 	return "", "", false
 }
 
-// crossingUp is the mirror of crossingDown. A task, first in its category,
-// goes to the end of the previous category's subtree, as the last task of
-// its deepest trailing category (so a StepUp retraces a StepDown one visible
-// row at a time), or, heading its parent's first subcategory, up into that
-// parent as its last task. A category, first in its run, becomes the last
-// subcategory of the category before its parent.
+// crossingUp is the mirror of crossingDown, so a StepUp retraces a StepDown
+// one visible row at a time. A task, first in its category p, goes to the
+// slot just above: the last task of p's last subcategory or, when p has none,
+// the last task of the category before p, climbing out through the ancestors
+// p heads. A category, first in its run, becomes the last subcategory of the
+// category before its parent.
 func (d *Document) crossingUp(it *Item) (parentID, afterID string, ok bool) {
 	p := it.Parent
 	if p == nil {
@@ -176,28 +185,22 @@ func (d *Document) crossingUp(it *Item) (parentID, afterID string, ok bool) {
 		if p.Kind != Category {
 			return "", "", false
 		}
-		if pc := d.prevSiblingCategory(p); pc != nil {
-			to := deepestTrailingCategory(pc)
-			return to.ID, lastChildID(to.Children, firstCategory(to.Children)), true
+		if ls := lastSubcategory(p); ls != nil {
+			return ls.ID, lastOfKind(ls.Children, Task, it), true
 		}
-		if pp := p.Parent; pp != nil && pp.Kind == Category {
-			return pp.ID, lastChildID(pp.Children, firstCategory(pp.Children)), true
+		n := p
+		for d.prevSiblingCategory(n) == nil && n.Parent != nil && n.Parent.Kind == Category {
+			n = n.Parent
+		}
+		if ps := d.prevSiblingCategory(n); ps != nil {
+			return ps.ID, lastOfKind(ps.Children, Task, it), true
 		}
 		return "", "", false
 	}
 	if pc := d.prevSiblingCategory(p); pc != nil {
-		return pc.ID, lastChildID(pc.Children, len(pc.Children)), true
+		return pc.ID, lastOfKind(pc.Children, Category, it), true
 	}
 	return "", "", false
-}
-
-// lastChildID returns the ID of children[n-1], the last of the first n
-// children, or "" when n is 0.
-func lastChildID(children []*Item, n int) string {
-	if n == 0 {
-		return ""
-	}
-	return children[n-1].ID
 }
 
 // relevel sets cat's Level and recurses into its sub-categories (each one
@@ -212,18 +215,6 @@ func relevel(cat *Item, level int) {
 	}
 }
 
-// firstSubcategory returns cat's earliest category child, or nil when cat holds
-// only tasks. Since a category's tasks precede its subcategories, this is simply
-// the first child that is a category.
-func firstSubcategory(cat *Item) *Item {
-	for _, c := range cat.Children {
-		if c.Kind == Category {
-			return c
-		}
-	}
-	return nil
-}
-
 // lastSubcategory returns cat's last category child, or nil when it has none.
 func lastSubcategory(cat *Item) *Item {
 	var last *Item
@@ -235,35 +226,27 @@ func lastSubcategory(cat *Item) *Item {
 	return last
 }
 
-// deepestTrailingCategory follows cat's last-subcategory chain to its end: cat
-// itself when it has no subcategories, otherwise the category reached by always
-// descending into the last subcategory. That is the category at the very end of
-// cat's subtree in document order — where a task lands when it crosses up into
-// cat, so ↑ undoes the ↓ that would carry the task back out.
-func deepestTrailingCategory(cat *Item) *Item {
-	for {
-		last := lastSubcategory(cat)
-		if last == nil {
-			return cat
-		}
-		cat = last
+// leadingLeaf follows cat's first-subcategory chain to its end: cat itself
+// when its first child is not a category, otherwise the category reached by
+// always descending into the first subcategory. Its first task slot is the
+// first one below cat's row.
+func leadingLeaf(cat *Item) *Item {
+	for len(cat.Children) > 0 && cat.Children[0].Kind == Category {
+		cat = cat.Children[0]
 	}
+	return cat
 }
 
-// nextSiblingCategory returns the first category that follows it's whole subtree
-// in document order: the next category among it's later siblings, or, failing
-// that, the next category following each ancestor in turn. It is nil when it is
-// the last category in the document.
-func (d *Document) nextSiblingCategory(it *Item) *Item {
-	for n := it; n != nil; n = n.Parent {
-		list, idx, ok := d.siblings(n)
-		if !ok {
-			return nil
-		}
-		for j := idx + 1; j < len(list); j++ {
-			if list[j].Kind == Category {
-				return list[j]
-			}
+// laterSiblingCategory returns the nearest category among it's following
+// siblings, or nil when none follows it. It does not climb to ancestors.
+func (d *Document) laterSiblingCategory(it *Item) *Item {
+	list, idx, ok := d.siblings(it)
+	if !ok {
+		return nil
+	}
+	for j := idx + 1; j < len(list); j++ {
+		if list[j].Kind == Category {
+			return list[j]
 		}
 	}
 	return nil

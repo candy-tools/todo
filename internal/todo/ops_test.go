@@ -115,18 +115,19 @@ func TestOpAddCategoryUnderTaskWrongParent(t *testing.T) {
 	wantErr(t, err, todo.ErrWrongParent)
 }
 
-func TestOpAddCategoryAfterTaskGoesFirstAmongCategories(t *testing.T) {
+// Subcategories precede tasks, so a category cannot go after a task.
+func TestOpAddCategoryAfterTaskConflicts(t *testing.T) {
 	d := opDoc(t, "# A\n\n- [ ] x\n- [ ] y\n\n## B\n")
 	_, err := d.AddCategory("C", idOf(t, d, "A"), idOf(t, d, "x"))
-	wantNoErr(t, err)
-	wantDoc(t, d, "# A\n\n- [ ] x\n- [ ] y\n\n## C\n\n## B\n")
+	wantErr(t, err, todo.ErrConflict)
+	wantTitles(t, d, "A", "B", "x", "y")
 }
 
-func TestOpAddCategoryFirstStaysAfterTasks(t *testing.T) {
+func TestOpAddCategoryFirstGoesBeforeSubcategories(t *testing.T) {
 	d := opDoc(t, "# A\n\n- [ ] x\n\n## B\n")
 	_, err := d.AddCategory("C", idOf(t, d, "A"), "")
 	wantNoErr(t, err)
-	wantDoc(t, d, "# A\n\n- [ ] x\n\n## C\n\n## B\n")
+	wantTitles(t, d, "A", "C", "B", "x")
 }
 
 func TestOpAddCategoryAnchorNotChildConflicts(t *testing.T) {
@@ -211,10 +212,13 @@ func TestOpAddSubtaskBoardStateRejected(t *testing.T) {
 	wantErr(t, err, todo.ErrSubtaskStatus)
 }
 
-func TestOpAddTaskAfterCategoryConflicts(t *testing.T) {
+// A category anchor places a task first among the tasks, after every
+// subcategory.
+func TestOpAddTaskAfterCategoryGoesFirstAmongTasks(t *testing.T) {
 	d := opDoc(t, "# A\n\n- [ ] x\n\n## B\n")
 	_, err := d.AddTask(todo.Fields{Title: "y"}, todo.Open, idOf(t, d, "A"), idOf(t, d, "B"))
-	wantErr(t, err, todo.ErrConflict)
+	wantNoErr(t, err)
+	wantTitles(t, d, "A", "B", "y", "x")
 }
 
 func TestOpAddTaskAnchorNotChildConflicts(t *testing.T) {
@@ -358,16 +362,16 @@ func TestOpMoveCategoryRelevelsSubtree(t *testing.T) {
 	wantDoc(t, d, "# D\n\n# B\n\n## C\n\n- [ ] x\n\n### A\n")
 }
 
-func TestOpMoveCategoryAfterTaskGoesFirstAmongCategories(t *testing.T) {
+func TestOpMoveCategoryAfterTaskConflicts(t *testing.T) {
 	d := opDoc(t, "# A\n\n- [ ] x\n\n## B\n\n# C\n")
-	wantNoErr(t, d.Move(idOf(t, d, "C"), idOf(t, d, "A"), idOf(t, d, "x")))
-	wantDoc(t, d, "# A\n\n- [ ] x\n\n## C\n\n## B\n")
+	wantErr(t, d.Move(idOf(t, d, "C"), idOf(t, d, "A"), idOf(t, d, "x")), todo.ErrConflict)
+	wantTitles(t, d, "A", "B", "x", "C")
 }
 
-func TestOpMoveTaskAfterCategoryConflicts(t *testing.T) {
+func TestOpMoveTaskAfterCategoryGoesFirstAmongTasks(t *testing.T) {
 	d := opDoc(t, "# A\n\n- [ ] x\n\n## B\n\n# C\n\n- [ ] y\n")
-	err := d.Move(idOf(t, d, "y"), idOf(t, d, "A"), idOf(t, d, "B"))
-	wantErr(t, err, todo.ErrConflict)
+	wantNoErr(t, d.Move(idOf(t, d, "y"), idOf(t, d, "A"), idOf(t, d, "B")))
+	wantTitles(t, d, "A", "B", "y", "x", "C")
 }
 
 func TestOpMoveAnchorGoneConflicts(t *testing.T) {
@@ -666,8 +670,8 @@ func TestOpErrorsLeaveDocumentUnchanged(t *testing.T) {
 			_, err := d.AppendCategory("N", "zzzzzzz")
 			return err
 		}},
-		{"AddTask after category", func(d *todo.Document, id func(string) string) error {
-			_, err := d.AddTask(todo.Fields{Title: "n"}, todo.Open, id("A"), id("B"))
+		{"AddCategory after task", func(d *todo.Document, id func(string) string) error {
+			_, err := d.AddCategory("N", id("A"), id("y"))
 			return err
 		}},
 		{"AddTask at root", func(d *todo.Document, _ func(string) string) error {

@@ -42,16 +42,20 @@ to open its dialog, which shows the item's column, state and subtask progress an
 lets you edit its title, reference, description and plan in place (`esc` cancels,
 `enter`/Save applies).
 
+Like a file explorer listing folders before files, a category shows its
+subcategories first and its own tasks below them — in the tree, in the split
+view's task list and in `todo list` alike.
+
 An example tab, as the tree shows it:
 
 ```text
 ▾ Work (2/5)
+  ▾ Backend (0/1)
+      ○ Migrate the database open
   ▾ ○ Ship v1.0 release open (1/2)
       ● Write changelog
       ○ Cut the git tag
     ● Fix login bug done
-  ▾ Backend (0/1)
-      ○ Migrate the database open
 ▾ Personal (0/2)
     ○ Renew passport open
     ⏸ Book dentist deferred
@@ -129,17 +133,18 @@ back to the single tree, on the item that had focus.
 
 ```text
 ╭─ Categories ─────────╮╭─ Tasks ─────────────────────────╮
-│  All                 ││❯ ○ Ship v1.0 release open       │
-│❯ ▾ Work (2/5)        ││  ── Backend                     │
-│      Backend (0/1)   ││  ○ Migrate the database open    │
-│    Personal (0/2)    ││                                 │
+│  All                 ││  ── Backend                     │
+│❯ ▾ Work (2/5)        ││❯ ○ Migrate the database open    │
+│      Backend (0/1)   ││  ── Work                        │
+│    Personal (0/2)    ││  ○ Ship v1.0 release open       │
 │  + new category      ││                                 │
 ╰──────────────────────╯╰─────────────────────────────────╯
 ```
 
 - The sidebar starts on **All**, which lists every task. Walking down the tree
-  narrows the list: a category shows its own tasks first, then each
-  subcategory's under a `── Backend` heading.
+  narrows the list: as in the tree, each subcategory's tasks come first under
+  a `── Backend` heading, then the category's own tasks under its own heading.
+  Categories fold in the sidebar only (`z` in the list says so).
 - The list follows the current tab (or every state with `k`), and a search or
   state filter narrows both panes: the sidebar keeps only categories with
   matches. When the selected category disappears (switching tab, filtering,
@@ -192,6 +197,8 @@ todo progress --number 4   # shortcut: status --to working
 todo defer    --id k3f9qw2 # shortcut: status --to deferred
 todo reopen   --title "Cut the tag" [--cascade]
 todo edit     --number 4 --set-title "…" --set-desc "…" --set-plan "docs/plan.md" --set-ref APP-002
+todo move     --title "Cut the tag" --parent-title "Backend" [--first | --after-title "…"]
+todo move     --title "Backend" --root
 todo rm       --number 4
 todo prune                # drop every fully-completed task
 ```
@@ -201,6 +208,15 @@ todo prune                # drop every fully-completed task
 `add --status` defaults to `open`. `edit --set-plan ""` clears a task's plan,
 and `edit --set-ref ""` its reference. A reference another task already holds,
 or one given to a subtask, is refused as a usage error (exit code `2`).
+`move` places an item, with its subtree, under the parent named by
+`--parent-number`, `--parent-id` or `--parent-title` (or at the top level with
+`--root`, for a category): last among its kind there by default, first with
+`--first`, or right after the sibling named by `--after-number`, `--after-id` or
+`--after-title`, which must sit directly under that parent (exit code `2`
+otherwise). Subcategories always stay ahead of tasks. The move rules match the
+TUI's: a task never goes to the top level and a category never under a task
+(exit code `5`); a task with subtasks, or with a reference, cannot become a
+subtask; a moved subtask becomes a task and takes its state from its old parent.
 `reopen` takes a done task back to `working` (a subtask to `open`); a task that
 is not done keeps its state and nothing is written (with `--cascade` its
 subtasks are reopened). `--cascade` on `done` / `reopen` applies the change to
@@ -212,8 +228,9 @@ kind — a state on a category, a category under a task — exits with code `5`,
 and the error names the item.
 
 `--id` is stable: an item keeps its id for as long as it exists, so it is the
-safest way to address an item across a sequence of edits. `--number` shifts
-after any add/remove; `--title` is stable as long as it stays unique. Re-run
+safest way to address an item across a sequence of edits. `--number` follows
+the tree order (a category's subcategories before its tasks) and shifts after
+any add, move or remove; `--title` is stable as long as it stays unique. Re-run
 `todo list` when you rely on `--number`.
 
 Exit codes: `0` ok, `2` usage, `3` not found, `4` ambiguous title, `5` wrong
@@ -235,6 +252,7 @@ Errors go to stderr.
 | `p` / `P` | Move the task to the next / previous column (it takes that column's first state) |
 | `t` | Open the state dialog to set the task's state, including done (`↑`/`↓`, `enter` sets, `esc` cancels) |
 | `space` | Fold / unfold the selected category |
+| `z` | Fold every category at the selection's level (the selected category and its siblings; for a task, its category's) — or unfold them all when all are folded. Off while searching |
 | `m` | Grab the task to reorder it (arrows move it, `enter`/`esc`/`m` drops it) |
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it) |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |

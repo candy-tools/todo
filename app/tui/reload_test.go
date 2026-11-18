@@ -843,8 +843,9 @@ func TestRevertToPreWriteContentIsReloaded(t *testing.T) {
 
 func TestExternalWriteReloadsKeepingSelection(t *testing.T) {
 	m, path := newTestModel(t, "# A\n\n- [ ] a\n- [ ] b\n\n## A2\n\n- [ ] c\n")
-	// Rows: A, a, b, A2, c, placeholder. Fold A2, then select b.
-	m = press(m, "down", "down", "down", "left", "up")
+	// Rows: A, A2, c, a, b, placeholder (subcategories first). Fold A2, then
+	// select b.
+	m = press(m, "down", "left", "down", "down")
 	if got := m.tree.selected().Title; got != "b" {
 		t.Fatalf("precondition: expected b selected, got %q", got)
 	}

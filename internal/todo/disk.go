@@ -58,28 +58,32 @@ type diskSubtask struct {
 }
 
 // toDisk converts d to its on-disk form. Categories come in pre-order, so a
-// parent precedes its children; tasks come in tree order. A task's subtasks are
-// its task children; a category's description and plan are not stored.
+// parent precedes its children. Tasks come category by category, in that
+// same order, each category's own tasks in tree order: the file does not
+// hold where tasks sit against subcategories, so it keeps the order older
+// todos wrote (which listed a category's tasks before its subcategories) and
+// a write changes only the lines that changed. A task's subtasks are its task
+// children; a category's description and plan are not stored.
 func toDisk(d *Document) diskList {
 	l := diskList{Version: fileVersion, Categories: []diskCategory{}, Tasks: []diskTask{}}
-	for _, it := range d.Enumerate() {
-		switch {
-		case it.Kind == Category:
-			c := diskCategory{ID: it.ID, Title: it.Title}
-			if it.Parent != nil {
-				c.Parent = it.Parent.ID
+	for _, cat := range d.Enumerate() {
+		if cat.Kind != Category {
+			continue
+		}
+		c := diskCategory{ID: cat.ID, Title: cat.Title}
+		if cat.Parent != nil {
+			c.Parent = cat.Parent.ID
+		}
+		l.Categories = append(l.Categories, c)
+		for _, it := range cat.Children {
+			if it.Kind != Task {
+				continue
 			}
-			l.Categories = append(l.Categories, c)
-		case it.IsSubtask():
-			// written under its task
-		default:
 			t := diskTask{
 				ID: it.ID, Ref: it.Ref, Title: it.Title, Status: it.Status.String(),
 				Plan: it.Plan, Description: it.Description,
 			}
-			if c := it.EnclosingCategory(); c != nil {
-				t.Category = c.ID
-			}
+			t.Category = cat.ID
 			for _, ch := range it.Children {
 				if ch.Kind != Task {
 					continue
@@ -96,30 +100,13 @@ func toDisk(d *Document) diskList {
 }
 
 // fromDisk builds the Document tree of l, which must have passed validate.
-// Categories keep array order under their parent; a category's tasks come
-// before its subcategories. Every item gets Parent, Kind, Level and Status.
+// Categories keep array order under their parent; a category's subcategories
+// come before its tasks. Every item gets Parent, Kind, Level and Status.
 func fromDisk(l diskList) *Document {
 	d := &Document{}
 	cats := make(map[string]*Item, len(l.Categories))
 	for _, c := range l.Categories {
 		cats[c.ID] = &Item{ID: c.ID, Kind: Category, Title: c.Title}
-	}
-	// Tasks first, so they precede subcategories under their category.
-	for _, t := range l.Tasks {
-		it := &Item{
-			ID: t.ID, Kind: Task, Title: t.Title, Description: t.Description, Plan: t.Plan, Ref: t.Ref,
-		}
-		it.Status, _ = statusFromDisk(t.Status)
-		for _, s := range t.Subtasks {
-			st := Open
-			if s.Done {
-				st = Done
-			}
-			it.AppendChild(&Item{
-				ID: s.ID, Kind: Task, Title: s.Title, Status: st, Description: s.Description, Plan: s.Plan,
-			})
-		}
-		cats[t.Category].AppendChild(it)
 	}
 	var setLevel func(it *Item, level int)
 	setLevel = func(it *Item, level int) {
@@ -137,6 +124,23 @@ func fromDisk(l diskList) *Document {
 		} else {
 			cats[c.Parent].AppendChild(it)
 		}
+	}
+	// Tasks after the categories, so subcategories precede them.
+	for _, t := range l.Tasks {
+		it := &Item{
+			ID: t.ID, Kind: Task, Title: t.Title, Description: t.Description, Plan: t.Plan, Ref: t.Ref,
+		}
+		it.Status, _ = statusFromDisk(t.Status)
+		for _, s := range t.Subtasks {
+			st := Open
+			if s.Done {
+				st = Done
+			}
+			it.AppendChild(&Item{
+				ID: s.ID, Kind: Task, Title: s.Title, Status: st, Description: s.Description, Plan: s.Plan,
+			})
+		}
+		cats[t.Category].AppendChild(it)
 	}
 	for _, r := range d.Roots {
 		setLevel(r, 1)

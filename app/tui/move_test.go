@@ -328,18 +328,19 @@ func TestIndentUnderSubtaskRefusedInTUI(t *testing.T) {
 }
 
 func TestMoveModeCrossIntoCollapsedCategoryFollows(t *testing.T) {
-	// Descending into a collapsed subcategory reveals it so the cursor keeps up.
+	// Crossing into a collapsed subcategory reveals it so the cursor keeps up.
+	// Work's subcategory Sub comes before its task b, so b steps up into it.
 	m, _ := newTestModel(t, "# Work\n\n- [ ] b\n\n## Sub\n\n- [ ] w1\n")
-	m = press(m, "down", "down") // Sub
-	m = press(m, "left")         // collapse Sub
-	m = press(m, "up")           // back to task b
+	m = press(m, "down") // Sub
+	m = press(m, "left") // collapse Sub
+	m = press(m, "down") // on to task b
 	b := m.tree.selected()
 	if b == nil || b.Title != "b" {
 		t.Fatalf("expected to be on task b, got %v", b)
 	}
-	m = press(m, "m", "down") // grab b, descend into (collapsed) Sub
+	m = press(m, "m", "up") // grab b, step up into (collapsed) Sub
 	if b = find(m.doc, "b"); b.Parent == nil || b.Parent.Title != "Sub" {
-		t.Fatalf("b should have descended into Sub, parent=%v", b.Parent)
+		t.Fatalf("b should have stepped into Sub, parent=%v", b.Parent)
 	}
 	if !m.tree.grabbed {
 		t.Error("b should stay grabbed across the move's reload")
