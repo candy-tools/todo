@@ -31,14 +31,18 @@ func addCmd() *cobra.Command {
 					return usageErr(fmt.Sprintf("invalid --status %q (%s)", statusName, statusNames))
 				}
 				plan, _ := cmd.Flags().GetString("plan")
+				ref, _ := cmd.Flags().GetString("ref")
+				if ref, err = todo.CleanRef(ref); err != nil {
+					return usageErr("--ref: " + err.Error())
+				}
 				// The store places the task after the parent's last task as the tree
 				// is when it writes, so a sibling changed meanwhile does not matter.
-				id, res, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parent.ID)
+				id, res, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan, Ref: ref}, st, parent.ID)
 				if err != nil {
 					return err
 				}
 				if task, ok := res.Doc.ByID(id); ok {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), task.Title, categoryPath(task))
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), todo.Printable(task.DisplayTitle()), categoryPath(task))
 				}
 				return nil
 			})
@@ -47,6 +51,7 @@ func addCmd() *cobra.Command {
 	c.Flags().String("title", "", "the new task's title (required)")
 	c.Flags().String("desc", "", "the new task's description")
 	c.Flags().String("plan", "", "a path or reference to the task's plan")
+	c.Flags().String("ref", "", "the new task's reference, such as APP-001; unique in the list (not for a subtask)")
 	c.Flags().String("status", "open", "initial state: "+statusNames)
 	addSelectorFlags(c, "parent-")
 	return c

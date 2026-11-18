@@ -12,7 +12,7 @@ func TestValidate(t *testing.T) {
 	const a, b, c, d = "aaaaaaa", "bbbbbbb", "ccccccc", "ddddddd"
 	good := func() todo.DiskList {
 		return todo.DiskList{
-			Version:    3,
+			Version:    4,
 			Categories: []todo.DiskCategory{{ID: a, Title: "A"}},
 			Tasks: []todo.DiskTask{{ID: b, Category: a, Title: "T", Status: "open",
 				Subtasks: []todo.DiskSubtask{{ID: c, Title: "S"}}}},
@@ -58,6 +58,16 @@ func TestValidate(t *testing.T) {
 		{"task untrimmed title", func(l *todo.DiskList) { l.Tasks[0].Title = " T" }, "invalid list file: task " + b + ": title has leading or trailing whitespace"},
 		{"category untrimmed title", func(l *todo.DiskList) { l.Categories[0].Title = "A " }, "invalid list file: category " + a + ": title has leading or trailing whitespace"},
 		{"subtask untrimmed title", func(l *todo.DiskList) { l.Tasks[0].Subtasks[0].Title = "S " }, "invalid list file: subtask " + c + ": title has leading or trailing whitespace"},
+		{"task with a reference", func(l *todo.DiskList) { l.Tasks[0].Ref = "APP-001" }, ""},
+		{"untrimmed reference", func(l *todo.DiskList) { l.Tasks[0].Ref = "APP-001 " }, "invalid list file: task " + b + ": reference has leading or trailing whitespace"},
+		{"reference with a newline", func(l *todo.DiskList) { l.Tasks[0].Ref = "A\nB" },
+			"invalid list file: task " + b + ": invalid reference: it must not hold control characters such as newlines, tabs, escapes or bidi overrides"},
+		{"long reference", func(l *todo.DiskList) { l.Tasks[0].Ref = strings.Repeat("x", 51) },
+			"invalid list file: task " + b + ": invalid reference: it must be at most 50 characters"},
+		{"duplicate reference ignoring case", func(l *todo.DiskList) {
+			l.Tasks[0].Ref = "APP-001"
+			l.Tasks = append(l.Tasks, todo.DiskTask{ID: d, Category: a, Ref: "app-001", Title: "U", Status: "open"})
+		}, "invalid list file: task " + d + `: reference "app-001" is already used by task ` + b},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

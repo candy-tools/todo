@@ -7,6 +7,7 @@ type Fields struct {
 	Title       string
 	Description string
 	Plan        string // a path or reference to the task's plan
+	Ref         string // a top-level task's reference, such as "APP-001"; "" for none
 }
 
 // Changes are the text fields an Edit sets. A nil field keeps what the store
@@ -16,6 +17,7 @@ type Changes struct {
 	Title       *string
 	Description *string
 	Plan        *string
+	Ref         *string
 }
 
 // AddCategory adds a category under parentID ("" for a root), after the
@@ -43,8 +45,10 @@ func (s *Store) AppendCategory(ctx context.Context, title string, parentID strin
 // sibling afterID ("" places it first), and returns its ID. At the root it
 // fails with ErrWrongParent; under a subtask with ErrTooDeep; under a task
 // (making a subtask) with a state other than Open or Done, with
-// ErrSubtaskStatus. A title CleanTitle refuses fails it with ErrInvalidTitle.
-// It is the explicit-placement form of AppendTask, for a caller that must put
+// ErrSubtaskStatus, and with a reference, with ErrSubtaskRef. A title
+// CleanTitle refuses fails it with ErrInvalidTitle, a reference CleanRef
+// refuses with ErrInvalidRef, and one another task holds with
+// ErrDuplicateRef. It is the explicit-placement form of AppendTask, for a caller that must put
 // the task at a given position (tests use it to build an exact order); an
 // afterID that is no longer a child of parentID fails it with ErrConflict. A
 // caller that only wants the task after its last task sibling uses
@@ -87,11 +91,12 @@ func (s *Store) change(ctx context.Context, op func(d *Document) error) (WriteRe
 }
 
 // Edit sets the fields of item id that c names: its title and, for a task, its
-// description and plan. Fields c leaves nil, and kind, status and placement,
-// are kept, so an edit never reverts a field another process changed since the
-// caller read the item. A title CleanTitle refuses fails the edit with
-// ErrInvalidTitle, a missing id with ErrNotFound, and a description or plan
-// for a category with ErrNotTask. An edit that changes nothing (c names no
+// description, plan and reference. Fields c leaves nil, and kind, status and
+// placement, are kept, so an edit never reverts a field another process
+// changed since the caller read the item. A title CleanTitle refuses fails the
+// edit with ErrInvalidTitle, a missing id with ErrNotFound, and a description,
+// plan or reference for a category with ErrNotTask. A reference fails it as
+// for AddTask: ErrInvalidRef, ErrDuplicateRef, or ErrSubtaskRef for a subtask. An edit that changes nothing (c names no
 // field, or only values the item already holds) writes nothing.
 func (s *Store) Edit(ctx context.Context, id string, c Changes) (WriteResult, error) {
 	return s.write(ctx, func(d *Document) (bool, error) { return d.Edit(id, c) })
@@ -107,7 +112,8 @@ func (s *Store) Edit(ctx context.Context, id string, c Changes) (WriteResult, er
 // new parent must not be a subtask, or the move fails with ErrTooDeep; a move
 // into the item's own subtree fails with ErrInvalidMove. A task that becomes,
 // stays or stops being a subtask takes its status from StatusAfterMove; a task
-// moved between categories keeps its status.
+// moved between categories keeps its status. A task that has a reference
+// cannot become a subtask (ErrSubtaskRef).
 func (s *Store) Move(ctx context.Context, id, parentID, afterID string) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.Move(id, parentID, afterID) })
 }

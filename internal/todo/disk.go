@@ -12,8 +12,14 @@ import (
 	"unicode/utf8"
 )
 
-// fileVersion is the version of the JSON list file format.
-const fileVersion = 3
+// fileVersion is the version of the JSON list file format. Version 4 added
+// the task "ref" field.
+const fileVersion = 4
+
+// oldestFileVersion is the oldest format version this todo reads. Every
+// version from it up to fileVersion only adds optional fields, so such a file
+// reads as it is and is written back as fileVersion.
+const oldestFileVersion = 3
 
 // diskList is the JSON form of the whole list. Categories and tasks are flat
 // arrays that refer to each other by ID; field order is key order.
@@ -34,6 +40,7 @@ type diskCategory struct {
 type diskTask struct {
 	ID          string        `json:"id"`
 	Category    string        `json:"category"`
+	Ref         string        `json:"ref,omitempty"`
 	Title       string        `json:"title"`
 	Status      string        `json:"status"`
 	Plan        string        `json:"plan,omitempty"`
@@ -67,7 +74,7 @@ func toDisk(d *Document) diskList {
 			// written under its task
 		default:
 			t := diskTask{
-				ID: it.ID, Title: it.Title, Status: it.Status.String(),
+				ID: it.ID, Ref: it.Ref, Title: it.Title, Status: it.Status.String(),
 				Plan: it.Plan, Description: it.Description,
 			}
 			if c := it.EnclosingCategory(); c != nil {
@@ -100,7 +107,7 @@ func fromDisk(l diskList) *Document {
 	// Tasks first, so they precede subcategories under their category.
 	for _, t := range l.Tasks {
 		it := &Item{
-			ID: t.ID, Kind: Task, Title: t.Title, Description: t.Description, Plan: t.Plan,
+			ID: t.ID, Kind: Task, Title: t.Title, Description: t.Description, Plan: t.Plan, Ref: t.Ref,
 		}
 		it.Status, _ = statusFromDisk(t.Status)
 		for _, s := range t.Subtasks {
@@ -196,9 +203,10 @@ func (l *diskList) UnmarshalJSON(b []byte) error { return l.decode(b) }
 
 // decode decodes strictly: unknown fields fail. The version is read
 // first: a missing or non-integer one fails, one newer than fileVersion is
-// reported as ErrNewerFormat and an older one as an unsupported format
-// version, before anything else, since such a file may hold fields this
-// binary does not know. A value of the wrong type is reported
+// reported as ErrNewerFormat and one older than oldestFileVersion as an
+// unsupported format version, before anything else, since such a file may
+// hold fields this binary does not know. A version this binary reads is
+// decoded as fileVersion (see oldestFileVersion). A value of the wrong type is reported
 // at its line and column, by its JSON path and the kind expected; an unknown
 // field by its name and the item holding it. "Strict" stops at key case:
 // encoding/json matches keys to fields case-insensitively, so a hand-edited
@@ -219,7 +227,7 @@ func (l *diskList) decode(b []byte) error {
 	switch {
 	case version > fileVersion:
 		return newerFormatError(version)
-	case version < fileVersion: // before any field of a format this todo does not read
+	case version < oldestFileVersion: // before any field of a format this todo does not read
 		return invalidf("unsupported format version %d", version)
 	}
 	type plain diskList
@@ -233,6 +241,7 @@ func (l *diskList) decode(b []byte) error {
 		return decodeErr(b, lead, err)
 	}
 	*l = diskList(p)
+	l.Version = fileVersion
 	return nil
 }
 
@@ -384,7 +393,7 @@ func wantKind(t reflect.Type) string {
 var (
 	listFields     = []string{"version", "categories", "tasks"}
 	categoryFields = []string{"id", "title", "parent"}
-	taskFields     = []string{"id", "category", "title", "status", "plan", "description", "subtasks"}
+	taskFields     = []string{"id", "category", "ref", "title", "status", "plan", "description", "subtasks"}
 	subtaskFields  = []string{"id", "title", "done", "description", "plan"}
 )
 

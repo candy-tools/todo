@@ -215,8 +215,12 @@ type Item struct {
 	Status      Status // Task only
 	Description string // Task only: free-form text shown in the details view
 	Plan        string // Task only: path or reference of the plan for the task
-	Children    []*Item
-	Parent      *Item // nil for a root item
+	// Ref is a top-level task's free-form reference, such as "APP-001", shown
+	// before its title (see DisplayTitle); "" when it has none. No two tasks
+	// of a list hold the same one, ignoring case; a subtask holds none.
+	Ref      string
+	Children []*Item
+	Parent   *Item // nil for a root item
 }
 
 // Document is the in-memory TODO tree: its root items.

@@ -215,9 +215,11 @@ func (d *Document) addCategory(title, parentID string, at func(parent *Item) (in
 // sibling afterID ("" places it first), and returns its new ID. At the root it
 // fails with ErrWrongParent, under a subtask with ErrTooDeep, and under a task
 // (making a subtask) with a state other than Open or Done with
-// ErrSubtaskStatus. A missing parent is ErrNotFound; an afterID that is not a
-// child of the parent, or is a category, is ErrConflict; a title CleanTitle
-// refuses fails it with that error.
+// ErrSubtaskStatus, and with a reference with ErrSubtaskRef. A missing parent
+// is ErrNotFound; an afterID that is not a child of the parent, or is a
+// category, is ErrConflict; a title CleanTitle or a reference CleanRef refuses
+// fails it with that error, and a reference another task holds with
+// ErrDuplicateRef.
 func (d *Document) AddTask(f Fields, st Status, parentID, afterID string) (string, error) {
 	return d.addTask(f, st, parentID, func(parent *Item) (int, error) {
 		return d.slot(parent, Task, afterID, nil)
@@ -239,6 +241,10 @@ func (d *Document) addTask(f Fields, st Status, parentID string, at func(parent 
 	if err != nil {
 		return "", err
 	}
+	ref, err := CleanRef(f.Ref)
+	if err != nil {
+		return "", err
+	}
 	parent, err := d.parentItem(parentID)
 	if err != nil {
 		return "", err
@@ -249,23 +255,34 @@ func (d *Document) addTask(f Fields, st Status, parentID string, at func(parent 
 	if parent.Kind == Task && !st.SubtaskAllowed() {
 		return "", ErrSubtaskStatus
 	}
+	if err := d.checkRef(nil, ref, parent.Kind == Task); err != nil {
+		return "", err
+	}
 	pos, err := at(parent)
 	if err != nil {
 		return "", err
 	}
-	it := &Item{Kind: Task, Title: title, Status: st, Description: f.Description, Plan: f.Plan}
+	it := &Item{Kind: Task, Title: title, Status: st, Description: f.Description, Plan: f.Plan, Ref: ref}
 	return d.addNew(parent, pos, it), nil
 }
 
 // Edit sets the fields of item id that c names: its title and, for a task, its
-// description and plan. Fields c leaves nil are kept. changed is false when
-// every field c names already held its value. A missing id is ErrNotFound, a
-// title CleanTitle refuses fails it with that error, and a description or plan
-// for a category (even an empty one) fails the whole edit with ErrNotTask.
+// description, plan and reference. Fields c leaves nil are kept. changed is
+// false when every field c names already held its value. A missing id is
+// ErrNotFound, a title CleanTitle or a reference CleanRef refuses fails it
+// with that error, and a description, plan or reference for a category (even
+// an empty one) fails the whole edit with ErrNotTask. A reference fails it
+// with ErrSubtaskRef on a subtask and ErrDuplicateRef when another task holds
+// it; clearing one ("") always fits.
 func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
-	var title string
+	var title, ref string
 	if c.Title != nil {
 		if title, err = CleanTitle(*c.Title); err != nil {
+			return false, err
+		}
+	}
+	if c.Ref != nil {
+		if ref, err = CleanRef(*c.Ref); err != nil {
 			return false, err
 		}
 	}
@@ -273,8 +290,13 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if it.Kind != Task && (c.Description != nil || c.Plan != nil) {
+	if it.Kind != Task && (c.Description != nil || c.Plan != nil || c.Ref != nil) {
 		return false, ErrNotTask
+	}
+	if c.Ref != nil {
+		if err := d.checkRef(it, ref, it.IsSubtask()); err != nil {
+			return false, err
+		}
 	}
 	set := func(field *string, v *string) {
 		if v != nil && *field != *v {
@@ -287,6 +309,9 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	}
 	set(&it.Description, c.Description)
 	set(&it.Plan, c.Plan)
+	if c.Ref != nil {
+		set(&it.Ref, &ref)
+	}
 	return changed, nil
 }
 
@@ -426,7 +451,8 @@ func (d *Document) statuses() DoneStates {
 // A missing item or parent is ErrNotFound, and an afterID that is not a fitting
 // child of the parent (the item itself included) ErrConflict. A task that
 // becomes, stays or stops being a subtask takes its status from
-// StatusAfterMove; a task moved between categories keeps its status. A moved
+// StatusAfterMove; a task moved between categories keeps its status. A task
+// that has a reference cannot become a subtask (ErrSubtaskRef). A moved
 // category's subtree is re-levelled.
 func (d *Document) Move(id, parentID, afterID string) error {
 	it, err := d.lookup(id)
@@ -443,6 +469,9 @@ func (d *Document) Move(id, parentID, afterID string) error {
 	toSubtask := parent != nil && parent.Kind == Task
 	if it.Kind == Task && toSubtask && tooDeepUnder(it, parent.IsSubtask()) {
 		return ErrTooDeep
+	}
+	if it.Kind == Task && toSubtask && it.Ref != "" {
+		return ErrSubtaskRef
 	}
 	for p := parent; p != nil; p = p.Parent {
 		if p == it {

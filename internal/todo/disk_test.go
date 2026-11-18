@@ -69,15 +69,15 @@ func TestDiskRoundTripExample(t *testing.T) {
 // field order, categories before tasks, subtasks inline, empty optional
 // fields left out and a trailing newline.
 func TestDiskFileFormat(t *testing.T) {
-	path := todotest.SeedJSON(t, `{"version":3,"categories":[{"id":"c000000","title":"A"},`+
-		`{"id":"c000001","title":"B","parent":"c000000"}],"tasks":[{"id":"t000001","category":"c000000",`+
+	path := todotest.SeedJSON(t, `{"version":4,"categories":[{"id":"c000000","title":"A"},`+
+		`{"id":"c000001","title":"B","parent":"c000000"}],"tasks":[{"id":"t000001","category":"c000000","ref":"APP-001",`+
 		`"title":"one","status":"review","plan":"docs/p.md","description":"d","subtasks":[{"id":"s000001","title":"sub","done":true}]}]}`)
 	s := todo.NewStore(path)
 	if _, err := s.Edit(context.Background(), "c000001", todo.Changes{Title: new("B2")}); err != nil {
 		t.Fatal(err)
 	}
 	const want = `{
-  "version": 3,
+  "version": 4,
   "categories": [
     {
       "id": "c000000",
@@ -93,6 +93,7 @@ func TestDiskFileFormat(t *testing.T) {
     {
       "id": "t000001",
       "category": "c000000",
+      "ref": "APP-001",
       "title": "one",
       "status": "review",
       "plan": "docs/p.md",
@@ -136,7 +137,7 @@ func TestDiskEmptyListArrays(t *testing.T) {
 	if _, err := s.Delete(context.Background(), find(loadList(t, path), "A").ID); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := readFile(t, path), "{\n  \"version\": 3,\n  \"categories\": [],\n  \"tasks\": []\n}\n"; got != want {
+	if got, want := readFile(t, path), "{\n  \"version\": 4,\n  \"categories\": [],\n  \"tasks\": []\n}\n"; got != want {
 		t.Errorf("file = %q, want %q", got, want)
 	}
 }
@@ -196,7 +197,7 @@ func TestDiskTaskOrderBeforeSubcategories(t *testing.T) {
 
 func TestUnmarshalNewerVersion(t *testing.T) {
 	var l todo.DiskList
-	err := json.Unmarshal([]byte(`{"version":4,"extra":1}`), &l)
+	err := json.Unmarshal([]byte(`{"version":5,"extra":1}`), &l)
 	if !errors.Is(err, todo.ErrNewerFormat) {
 		t.Errorf("err = %v, want ErrNewerFormat", err)
 	}
@@ -263,15 +264,15 @@ func TestListFileErrorMessages(t *testing.T) {
 		{"version a fraction", `{"version": 3.5, "categories": [], "tasks": []}`,
 			`invalid list file: "version" must be a whole number, not 3.5`},
 		{"version missing", `{"categories": [], "tasks": []}`,
-			`invalid list file: no "version" field; this todo reads format version 3`},
+			`invalid list file: no "version" field; this todo reads format version 4`},
 		{"version null", `{"version": null, "categories": [], "tasks": []}`,
-			`invalid list file: no "version" field; this todo reads format version 3`},
+			`invalid list file: no "version" field; this todo reads format version 4`},
 		{"older version", `{"version": 2, "categories": [], "tasks": []}`,
 			"invalid list file: unsupported format version 2"},
 		{"older version with other fields", `{"version": 2, "items": []}`,
 			"invalid list file: unsupported format version 2"},
-		{"newer version", `{"version": 4, "categories": [], "tasks": [], "tags": []}`,
-			"list was written by a newer todo (format version 4); upgrade todo"},
+		{"newer version", `{"version": 5, "categories": [], "tasks": [], "tags": []}`,
+			"list was written by a newer todo (format version 5); upgrade todo"},
 		{"unknown top-level field", strings.Replace(good, `{"version": 3,`, `{"version": 3, "tags": [],`, 1),
 			`invalid list file: unknown field "tags"`},
 		{"unknown category field", strings.Replace(good, `"title": "C"`, `"title": "C", "color": "red"`, 1),

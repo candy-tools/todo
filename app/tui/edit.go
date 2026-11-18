@@ -77,7 +77,13 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 			m.status = "subtasks can't have subtasks"
 			return m, nil
 		}
-		m.form = newForm("", "", "", true, false)
+		// A new subtask has no reference, so its form shows none.
+		kind := formTask
+		m.target = t
+		if p := m.addParent(sel); p != nil && p.IsTask() {
+			kind = formSubtask
+		}
+		m.form = newForm(todo.Fields{}, kind, false)
 	case targetEdit:
 		if sel == nil || m.focused().onPlaceholder() {
 			return m, nil
@@ -90,7 +96,10 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 		// The form shows the stored text made safe to draw, as the rows do: a
 		// legacy value may hold control or bidi characters. The form compares
 		// against what it opened with, so an untouched field is not rewritten.
-		m.form = newForm(todo.Printable(sel.Title), todo.PrintableLines(sel.Description), todo.Printable(sel.Plan), sel.IsTask(), true)
+		m.form = newForm(todo.Fields{
+			Title: todo.Printable(sel.Title), Ref: todo.Printable(sel.Ref),
+			Description: todo.PrintableLines(sel.Description), Plan: todo.Printable(sel.Plan),
+		}, formKindOf(sel), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
 		if m.split && !m.sideFocus {
@@ -101,7 +110,7 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 			m.status = msgCategoriesInBacklog
 			return m, nil
 		}
-		m.form = newForm("", "", "", false, false)
+		m.form = newForm(todo.Fields{}, formCategory, false)
 	}
 	m.target = t
 	m.form.setWidth(m.width)
@@ -157,8 +166,8 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // the reloaded list (the form stays closed when the item is gone), and an add
 // goes next to or under the same item.
 func (m model) submitForm() (tea.Model, tea.Cmd) {
-	title, desc, plan := m.form.values()
-	if title == "" {
+	v := m.form.values()
+	if v.Title == "" {
 		return m, nil
 	}
 	m.mode = modeMain
@@ -197,9 +206,9 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	var newID string
 	if !m.commit("", func(ctx context.Context, s *todo.Store) (res todo.WriteResult, err error) {
 		if m.target == targetAddCategory {
-			newID, res, err = s.AppendCategory(ctx, title, parentID)
+			newID, res, err = s.AppendCategory(ctx, v.Title, parentID)
 		} else {
-			newID, res, err = s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan}, st, parentID)
+			newID, res, err = s.AppendTask(ctx, v, st, parentID)
 		}
 		return res, err
 	}) {

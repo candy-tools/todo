@@ -333,7 +333,7 @@ func everyWrite(s *Store, cat, task string) map[string]func() error {
 func TestStoreNewerVersion(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	content := `{"version": 4, "categories": [], "tasks": [], "tags": []}`
+	content := `{"version": 5, "categories": [], "tasks": [], "tags": []}`
 	if err := os.WriteFile(s.Path(), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

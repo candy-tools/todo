@@ -70,7 +70,7 @@ func writeListTable(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool
 			st = it.Status.String()
 		}
 		indent := strings.Repeat("  ", depthOf(it))
-		_, _ = fmt.Fprintf(w, "%3d %7s  %-9s %s%s\n", i+1, it.ID, st, indent, todo.Printable(it.Title))
+		_, _ = fmt.Fprintf(w, "%3d %7s  %-9s %s%s\n", i+1, it.ID, st, indent, todo.Printable(it.DisplayTitle()))
 	}
 	return nil
 }
@@ -81,6 +81,7 @@ type jsonItem struct {
 	Number      int        `json:"number"`
 	ID          string     `json:"id"`
 	Kind        string     `json:"kind"`
+	Ref         string     `json:"ref,omitempty"`
 	Title       string     `json:"title"`
 	Status      string     `json:"status,omitempty"`
 	Column      string     `json:"column,omitempty"`
@@ -118,6 +119,7 @@ func toJSONItem(it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]b
 		ji.Column = it.Column().String() // a subtask sits in its parent's column
 		ji.Description = it.Description
 		ji.Plan = it.Plan
+		ji.Ref = it.Ref
 	} else {
 		ji.Kind = "category"
 		ji.Level = it.Level

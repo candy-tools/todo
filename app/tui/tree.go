@@ -670,9 +670,9 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	}
 	state, warn, note := taskTrailer(r.item)
 	if selected {
-		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(todo.Printable(r.item.Title), t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
+		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(todo.Printable(r.item.DisplayTitle()), t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
 	}
-	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(todo.Printable(r.item.Title), t.vs.filter, titleStyle) +
+	return "  " + indent + helpTextStyle.Render(fold) + boxStyle.Render(glyph) + " " + highlight(todo.Printable(r.item.DisplayTitle()), t.vs.filter, titleStyle) +
 		helpTextStyle.Render(state) + deferStyle.Render(warn) + helpTextStyle.Render(note)
 }
 

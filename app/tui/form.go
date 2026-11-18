@@ -14,19 +14,43 @@ type formFocus int
 
 const (
 	focusTitle formFocus = iota
+	focusRef
 	focusDesc
 	focusPlan
 	focusSave
 	focusCancel
 )
 
+// formKind is what the form adds or edits, which decides its fields.
+type formKind int
+
+const (
+	formCategory formKind = iota // the title only
+	formSubtask                  // title, description and plan
+	formTask                     // a top-level task: also its reference
+)
+
+// formKindOf returns the formKind for editing it.
+func formKindOf(it *todo.Item) formKind {
+	switch {
+	case !it.IsTask():
+		return formCategory
+	case it.IsSubtask():
+		return formSubtask
+	}
+	return formTask
+}
+
 // form is the add/edit modal: a title input plus, for a task, a multi-line
-// description; a category form shows the title only. Save/Cancel sit below.
+// description and a plan, and for a top-level task a reference; a category form
+// shows the title only. Save/Cancel sit below.
 type form struct {
 	title   textinput.Model
+	ref     textinput.Model // a top-level task's reference: a single line
 	desc    textarea.Model
 	plan    textinput.Model // a task's plan link: a single line
 	focus   formFocus
+	kind    formKind
 	isTask  bool // false → category form (title only)
 	editing bool // false → adding (only affects the window title)
 	width   int  // terminal width, for sizing
@@ -36,14 +60,19 @@ type form struct {
 	meta string
 	// start holds the field values the form opened with, as values() reads them,
 	// so an edit can send only the fields the user changed.
-	start [3]string
+	start todo.Fields
 }
 
-func newForm(titleVal, descVal, planVal string, isTask, editing bool) form {
+func newForm(v todo.Fields, kind formKind, editing bool) form {
 	ti := textinput.New()
 	ti.Prompt = ""
 	ti.CharLimit = todo.MaxTitleLen
-	ti.SetValue(titleVal)
+	ti.SetValue(v.Title)
+
+	ri := textinput.New()
+	ri.Prompt = ""
+	ri.CharLimit = todo.MaxRefLen
+	ri.SetValue(v.Ref)
 
 	// The description and plan take no length limits of their own, so any stored
 	// value round-trips: textarea.New caps the line count at 99 (MaxHeight) and a
@@ -52,23 +81,27 @@ func newForm(titleVal, descVal, planVal string, isTask, editing bool) form {
 	ta.Prompt = ""
 	ta.MaxHeight = 0
 	ta.ShowLineNumbers = false
-	ta.SetValue(descVal)
+	ta.SetValue(v.Description)
 	ta.Blur()
 
 	pi := textinput.New()
 	pi.Prompt = ""
-	pi.SetValue(planVal)
+	pi.SetValue(v.Plan)
 
-	f := form{title: ti, desc: ta, plan: pi, isTask: isTask, editing: editing, focus: focusTitle}
-	f.start[0], f.start[1], f.start[2] = f.values()
+	f := form{title: ti, ref: ri, desc: ta, plan: pi, kind: kind, isTask: kind != formCategory, editing: editing, focus: focusTitle}
+	f.start = f.values()
 	f.title.Focus()
 	return f
 }
 
-// ring is the focus order: the title, then (for a task) the description and plan, then
-// the Save and Cancel buttons.
+// ring is the focus order: the title, then (for a top-level task) the
+// reference, (for a task) the description and plan, then the Save and Cancel
+// buttons.
 func (f form) ring() []formFocus {
-	if f.isTask {
+	switch f.kind {
+	case formTask:
+		return []formFocus{focusTitle, focusRef, focusDesc, focusPlan, focusSave, focusCancel}
+	case formSubtask:
 		return []formFocus{focusTitle, focusDesc, focusPlan, focusSave, focusCancel}
 	}
 	return []formFocus{focusTitle, focusSave, focusCancel}
@@ -96,6 +129,11 @@ func (f *form) applyFocus() tea.Cmd {
 		cmd = f.title.Focus()
 	} else {
 		f.title.Blur()
+	}
+	if f.focus == focusRef {
+		cmd = f.ref.Focus()
+	} else {
+		f.ref.Blur()
 	}
 	if f.focus == focusDesc {
 		cmd = f.desc.Focus()
@@ -128,6 +166,7 @@ func (f *form) setWidth(w int) {
 	f.width = w
 	iw := f.contentWidth()
 	f.title.Width = iw - 1
+	f.ref.Width = iw - 1
 	f.plan.Width = iw - 1
 	f.desc.SetWidth(iw - 2) // the description box's own border adds 2
 	f.desc.SetHeight(9)
@@ -139,6 +178,8 @@ func (f form) update(msg tea.Msg) (form, tea.Cmd) {
 	switch f.focus {
 	case focusTitle:
 		f.title, cmd = f.title.Update(msg)
+	case focusRef:
+		f.ref, cmd = f.ref.Update(msg)
 	case focusDesc:
 		f.desc, cmd = f.desc.Update(msg)
 	case focusPlan:
@@ -147,25 +188,37 @@ func (f form) update(msg tea.Msg) (form, tea.Cmd) {
 	return f, cmd
 }
 
-// values returns the trimmed title, the description and the trimmed plan entered.
-func (f form) values() (title, desc, plan string) {
-	return strings.TrimSpace(f.title.Value()), strings.Trim(f.desc.Value(), "\n"), strings.TrimSpace(f.plan.Value())
+// values returns the fields entered: the trimmed title, reference and plan,
+// and the description. A field the form does not show is "".
+func (f form) values() todo.Fields {
+	v := todo.Fields{Title: strings.TrimSpace(f.title.Value())}
+	if f.isTask {
+		v.Description = strings.Trim(f.desc.Value(), "\n")
+		v.Plan = strings.TrimSpace(f.plan.Value())
+	}
+	if f.kind == formTask {
+		v.Ref = strings.TrimSpace(f.ref.Value())
+	}
+	return v
 }
 
 // changes names the fields whose values differ from the ones the form opened
 // with (a category form has the title only), so saving an edit leaves alone a
 // field someone else changed while the form was open.
 func (f form) changes() todo.Changes {
-	title, desc, plan := f.values()
+	v := f.values()
 	var c todo.Changes
-	if title != f.start[0] {
-		c.Title = &title
+	if v.Title != f.start.Title {
+		c.Title = &v.Title
 	}
-	if f.isTask && desc != f.start[1] {
-		c.Description = &desc
+	if v.Ref != f.start.Ref {
+		c.Ref = &v.Ref
 	}
-	if f.isTask && plan != f.start[2] {
-		c.Plan = &plan
+	if v.Description != f.start.Description {
+		c.Description = &v.Description
+	}
+	if v.Plan != f.start.Plan {
+		c.Plan = &v.Plan
 	}
 	return c
 }
@@ -189,6 +242,12 @@ func (f form) view() string {
 	b.WriteString(fieldLabel("Title", f.focus == focusTitle))
 	b.WriteString("\n")
 	b.WriteString(f.underline(f.title.View(), f.focus == focusTitle))
+	if f.kind == formTask {
+		b.WriteString("\n\n")
+		b.WriteString(fieldLabel("Reference", f.focus == focusRef))
+		b.WriteString("\n")
+		b.WriteString(f.underline(f.ref.View(), f.focus == focusRef))
+	}
 	if f.isTask {
 		b.WriteString("\n\n")
 		b.WriteString(fieldLabel("Description", f.focus == focusDesc))

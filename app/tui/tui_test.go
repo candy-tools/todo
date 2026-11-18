@@ -323,10 +323,10 @@ func TestEditTaskTitleAndDescription(t *testing.T) {
 	if m.mode != modeForm {
 		t.Fatal("edit should open the form")
 	}
-	m = typeText(m, "-done") // title becomes "a-done"
-	m = press(m, "tab")      // focus description
+	m = typeText(m, "-done")   // title becomes "a-done"
+	m = press(m, "tab", "tab") // past the reference to the description
 	m = typeText(m, "some notes")
-	m = press(m, "tab")   // focus Save
+	m = press(m, "tab")   // the plan
 	m = press(m, "enter") // submit
 	it := find(m.doc, "a-done")
 	if it == nil {
