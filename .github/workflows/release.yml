@@ -34,6 +34,10 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # release the tag that triggered the run: when a final tag shares a
+          # commit with an rc tag (v0.8.0 / v0.8.0-rc1), goreleaser would
+          # otherwise pick the rc and collide with its existing release
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
           # cross-repo PAT so goreleaser can push the cask to candy-tools/homebrew-tap
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
