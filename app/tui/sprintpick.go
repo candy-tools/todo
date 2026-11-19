@@ -188,13 +188,14 @@ func (m model) applySprintPick(p sprintPicker, r sprintPickRow) (tea.Model, tea.
 
 // commitMoved commits write, which moves task id to another sprint or the
 // Backlog, like commit. When the task left the view, the cursor keeps its row
-// index (clamped) and the footer says where the task went, e.g. "moved to
-// Sprint 2 — new" or "moved to Backlog", unless a save error or the
+// index (clamped). When it left, or the view is the unified one (where it stays
+// shown but its membership changed), the footer says where the task went, e.g.
+// "moved to Sprint 2 — new" or "moved to Backlog", unless a save error or the
 // external-reload notice already holds it.
 func (m *model) commitMoved(id string, write storeWrite) {
 	m.commit(id, write)
 	it, ok := m.doc.ByID(id)
-	if !ok || m.focused().shown[it] || m.err != nil || m.status != "" {
+	if !ok || (m.focused().shown[it] && !m.view.all) || m.err != nil || m.status != "" {
 		return
 	}
 	if s, ok := m.doc.SprintByID(it.SprintID()); ok {

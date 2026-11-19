@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // rowKind tells a tree row backed by an item from the synthetic ones.
@@ -718,7 +719,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	if r.item.IsDone() {
 		titleStyle = doneTitleStyle
 	}
-	state, warn, note := taskTrailer(r.item)
+	state, warn, note := taskTrailer(r.item, t.sprintTag(r.item))
 	if selected {
 		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(todo.Printable(r.item.DisplayTitle()), t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
 	}
@@ -726,12 +727,31 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 		helpTextStyle.Render(state) + deferStyle.Render(warn) + helpTextStyle.Render(note)
 }
 
+// sprintTag is the sprint name a row of top-level task it shows next to its
+// state: only in the unified view, which mixes every sprint's tasks, and only
+// for a task in a sprint. The name is made safe to draw and cut to
+// maxNameWidth, as on the Sprint list. It is "" otherwise.
+func (t *tree) sprintTag(it *todo.Item) string {
+	if !t.vs.all || it.IsSubtask() || it.Sprint == "" {
+		return ""
+	}
+	s, ok := t.doc.SprintByID(it.Sprint)
+	if !ok {
+		return ""
+	}
+	return ansi.Truncate(todo.Printable(s.Name), maxNameWidth, "…")
+}
+
 // taskTrailer returns the unstyled pieces drawn after a task's title: the
-// state label and subtask progress (top-level tasks only), the no-plan warning,
-// and the ≡ marker. Each piece is empty or starts with a space.
-func taskTrailer(it *todo.Item) (state, warn, note string) {
+// state label, then sprint (the task's sprint name, when the row shows one;
+// see sprintTag) and subtask progress (top-level tasks only), the no-plan
+// warning, and the ≡ marker. Each piece is empty or starts with a space.
+func taskTrailer(it *todo.Item, sprint string) (state, warn, note string) {
 	if !it.IsSubtask() {
 		state = " " + it.Status.Label()
+		if sprint != "" {
+			state += " · " + sprint
+		}
 		if done, total := it.TaskCounts(); total > 0 {
 			state += fmt.Sprintf(" (%d/%d)", done, total)
 		}
