@@ -278,6 +278,9 @@ func (d *Document) addTask(f Fields, st Status, parentID string, at func(parent 
 		return "", err
 	}
 	it := &Item{Kind: Task, Title: title, Status: st, Description: f.Description, Plan: f.Plan, Ref: ref}
+	if parent.Kind != Task {
+		it.Sprint = f.Sprint
+	}
 	return d.addNew(parent, pos, it), nil
 }
 

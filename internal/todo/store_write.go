@@ -8,6 +8,7 @@ type Fields struct {
 	Description string
 	Plan        string // a path or reference to the task's plan
 	Ref         string // a top-level task's reference, such as "APP-001"; "" for none
+	Sprint      string // the sprint a new top-level task joins; "" for the backlog (a subtask ignores it)
 }
 
 // Changes are the text fields an Edit sets. A nil field keeps what the store
