@@ -1,9 +1,6 @@
 package todo
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
 // invalidf returns an ErrInvalidList with the message format makes of args.
 func invalidf(format string, args ...any) error {
@@ -21,6 +18,11 @@ func (l *diskList) validate() error {
 	}
 	if err := l.validateIDs(); err != nil {
 		return err
+	}
+	if l.View != nil {
+		if _, ok := screenFromName(l.View.Screen); !ok && l.View.Screen != "" {
+			return invalidf("view: unknown screen %q", l.View.Screen)
+		}
 	}
 	if err := l.validateSprints(); err != nil {
 		return err
@@ -71,7 +73,7 @@ func (l *diskList) validateSprints() error {
 		if clean != s.Name {
 			return invalidf("sprint %s: name has leading or trailing whitespace", s.ID)
 		}
-		key := strings.ToLower(s.Name)
+		key := sprintNameKey(s.Name)
 		if other, ok := names[key]; ok {
 			return invalidf("sprint %s: name %q is already used by sprint %s", s.ID, s.Name, other)
 		}

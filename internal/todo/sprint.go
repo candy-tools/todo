@@ -70,10 +70,15 @@ func (d *Document) SprintByID(id string) (*Sprint, bool) {
 	return nil, false
 }
 
+// sprintNameKey is the form two sprint names are compared in: names are unique
+// in a list ignoring case.
+func sprintNameKey(name string) string { return strings.ToLower(strings.ToUpper(name)) }
+
 // SprintByName returns the sprint with the given name, ignoring case.
 func (d *Document) SprintByName(name string) (*Sprint, bool) {
+	key := sprintNameKey(name)
 	for _, s := range d.Sprints {
-		if strings.EqualFold(s.Name, name) {
+		if sprintNameKey(s.Name) == key {
 			return s, true
 		}
 	}

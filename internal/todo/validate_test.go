@@ -58,6 +58,8 @@ func TestValidate(t *testing.T) {
 		{"task untrimmed title", func(l *todo.DiskList) { l.Tasks[0].Title = " T" }, "invalid list file: task " + b + ": title has leading or trailing whitespace"},
 		{"category untrimmed title", func(l *todo.DiskList) { l.Categories[0].Title = "A " }, "invalid list file: category " + a + ": title has leading or trailing whitespace"},
 		{"subtask untrimmed title", func(l *todo.DiskList) { l.Tasks[0].Subtasks[0].Title = "S " }, "invalid list file: subtask " + c + ": title has leading or trailing whitespace"},
+		{"unknown view screen", func(l *todo.DiskList) { l.View = &todo.DiskView{Screen: "x"} },
+			`invalid list file: view: unknown screen "x"`},
 		{"valid sprint", func(l *todo.DiskList) {
 			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
 			l.Tasks[0].Sprint = d
