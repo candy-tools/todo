@@ -152,7 +152,7 @@ func (d *Document) closedSprint(id string) bool {
 
 // Assign puts the top-level task taskID in sprint sprintID. A task from the
 // backlog becomes New; one from another sprint keeps its state. changed is
-// false when the task is already there. A missing task is ErrNotFound and a
+// false, even for a done sprint, when the task is already there. A missing task is ErrNotFound and a
 // missing sprint ErrSprintNotFound; a category is ErrNotTask and a subtask
 // ErrTooDeep; a done target sprint, or a done sprint the task is in now, is
 // ErrSprintClosed.
@@ -165,11 +165,11 @@ func (d *Document) Assign(taskID, sprintID string) (changed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if target.Status == SprintDone || d.closedSprint(it.Sprint) {
-		return false, ErrSprintClosed
-	}
 	if it.Sprint == sprintID {
 		return false, nil
+	}
+	if target.Status == SprintDone || d.closedSprint(it.Sprint) {
+		return false, ErrSprintClosed
 	}
 	if it.Sprint == "" {
 		it.Status = New

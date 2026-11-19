@@ -318,3 +318,28 @@ func TestPruneSprintLeavesOtherSprints(t *testing.T) {
 		t.Errorf("RemovableDoneIn after prune = %d", got)
 	}
 }
+
+func TestAssignSameClosedSprintIsNoChange(t *testing.T) {
+	f := newSprintFixture(t)
+	s := f.sprint("S")
+	task := f.task("t", Done, s)
+	if err := f.d.CloseSprint(s); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := f.d.Assign(task, s); err != nil || changed {
+		t.Errorf("Assign = %v, %v; want no change, no error", changed, err)
+	}
+}
+
+func TestDeleteSprintRefusedWithDoneTaskHoldingOpenSubtask(t *testing.T) {
+	f := newSprintFixture(t)
+	s := f.sprint("S")
+	task := f.task("t", Done, s)
+	f.sub(task, Open)
+	if err := f.d.DeleteSprint(s); !errors.Is(err, ErrSprintHasDone) {
+		t.Fatalf("err = %v, want ErrSprintHasDone", err)
+	}
+	if it := f.item(task); it.Sprint != s || it.Status != Done {
+		t.Errorf("task changed on error: %q %v", it.Sprint, it.Status)
+	}
+}
