@@ -118,3 +118,17 @@ func resolveSelector(cmd *cobra.Command, doc *todo.Document, prefix string) (*to
 		}
 	}
 }
+
+// resolveSprint reads --sprint and returns the sprint it names, by ID or by
+// name ignoring case. A missing flag is a usage error and an unknown sprint is
+// not-found.
+func resolveSprint(cmd *cobra.Command, doc *todo.Document) (*todo.Sprint, error) {
+	key, _ := cmd.Flags().GetString("sprint")
+	if key == "" {
+		return nil, usageErr("specify --sprint <id|name>")
+	}
+	if sp, ok := doc.ResolveSprint(key); ok {
+		return sp, nil
+	}
+	return nil, notFound("no sprint " + key)
+}
