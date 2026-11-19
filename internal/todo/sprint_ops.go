@@ -2,6 +2,7 @@ package todo
 
 import (
 	"fmt"
+	"strings"
 )
 
 // The sprint operations follow the rules of the list operations in ops.go:
@@ -40,22 +41,33 @@ func (d *Document) checkSprintName(name string, self *Sprint) (string, error) {
 	return name, nil
 }
 
-// AddSprint adds an open sprint named name with the given goal and returns its
-// new ID. A name CleanTitle refuses is ErrInvalidTitle, and one another sprint
-// holds (ignoring case) ErrDuplicateSprint.
+// goalSpace turns the line breaks and tabs of a sprint goal into spaces.
+var goalSpace = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ", "\t", " ")
+
+// cleanGoal returns goal on one line: its line breaks and tabs become spaces
+// and the spaces around it are trimmed, so a pasted or scripted goal never
+// spans lines.
+func cleanGoal(goal string) string {
+	return strings.TrimSpace(goalSpace.Replace(goal))
+}
+
+// AddSprint adds an open sprint named name with the given goal (on one line,
+// see cleanGoal) and returns its new ID. A name CleanTitle refuses is
+// ErrInvalidTitle, and one another sprint holds (ignoring case)
+// ErrDuplicateSprint.
 func (d *Document) AddSprint(name, goal string) (string, error) {
 	name, err := d.checkSprintName(name, nil)
 	if err != nil {
 		return "", err
 	}
 	id := newID(func(id string) bool { _, ok := d.SprintByID(id); return ok })
-	d.Sprints = append(d.Sprints, &Sprint{ID: id, Name: name, Goal: goal})
+	d.Sprints = append(d.Sprints, &Sprint{ID: id, Name: name, Goal: cleanGoal(goal)})
 	return id, nil
 }
 
 // EditSprint sets the fields of sprint id that c names. changed is false when
 // every field c names already held its value. A missing sprint is
-// ErrSprintNotFound; a name is checked as AddSprint checks it.
+// ErrSprintNotFound; a name is checked, and a goal cleaned, as AddSprint does.
 func (d *Document) EditSprint(id string, c SprintChanges) (changed bool, err error) {
 	s, err := d.sprint(id)
 	if err != nil {
@@ -71,8 +83,8 @@ func (d *Document) EditSprint(id string, c SprintChanges) (changed bool, err err
 		s.Name = name
 		changed = true
 	}
-	if c.Goal != nil && s.Goal != *c.Goal {
-		s.Goal = *c.Goal
+	if c.Goal != nil && s.Goal != cleanGoal(*c.Goal) {
+		s.Goal = cleanGoal(*c.Goal)
 		changed = true
 	}
 	return changed, nil

@@ -73,9 +73,6 @@ func (m model) sprintClosed(id string) bool {
 	return ok && s.Status == todo.SprintDone
 }
 
-// sprintColumns are the columns of a sprint board, in board order.
-var sprintColumns = []todo.Column{todo.ColNext, todo.ColInProgress, todo.ColDone}
-
 // shiftColumn is p/P: it moves the selected top-level task delta columns along
 // its sprint's board (no wrap), into the target column's first state. Into
 // Done it completes the task (cascade and undo snapshot); out of Done it
@@ -104,7 +101,8 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 		m.status = "already in the " + todo.ColBacklog.Title()
 		return m, nil
 	}
-	cur := max(slices.Index(sprintColumns, it.Column()), 0) // a state off the sprint board counts as Next
+	cols := todo.SprintColumns()
+	cur := max(slices.Index(cols, it.Column()), 0) // a state off the sprint board counts as Next
 	i := cur + delta
 	switch {
 	case i < 0:
@@ -113,11 +111,11 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 			return s.Unassign(ctx, id)
 		})
 		return m, nil
-	case i >= len(sprintColumns):
-		m.status = "no column beyond " + sprintColumns[cur].Title()
+	case i >= len(cols):
+		m.status = "no column beyond " + cols[cur].Title()
 		return m, nil
 	}
-	target := sprintColumns[i]
+	target := cols[i]
 	switch {
 	case target == todo.ColDone:
 		return m.complete(it)

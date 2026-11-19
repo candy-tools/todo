@@ -1,6 +1,7 @@
 package todo_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -97,6 +98,13 @@ func TestColumnNames(t *testing.T) {
 	}
 	if len(todo.Columns()) != 4 {
 		t.Errorf("Columns() = %v, want 4", todo.Columns())
+	}
+}
+
+func TestSprintColumns(t *testing.T) {
+	want := []todo.Column{todo.ColNext, todo.ColInProgress, todo.ColDone}
+	if got := todo.SprintColumns(); !slices.Equal(got, want) {
+		t.Errorf("SprintColumns() = %v, want %v", got, want)
 	}
 }
 

@@ -40,7 +40,7 @@ func newStatePicker(it *todo.Item) picker {
 			p.rows = append(p.rows, pickRow{state: st})
 		}
 	default:
-		for _, c := range sprintColumns {
+		for _, c := range todo.SprintColumns() {
 			p.rows = append(p.rows, pickRow{header: c.Title()})
 			for _, st := range c.States() {
 				p.rows = append(p.rows, pickRow{state: st})

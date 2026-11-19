@@ -38,16 +38,14 @@ func (t *tree) selectedID() string {
 	return ""
 }
 
-// boardColumns are a sprint board's tabs, in order.
-var boardColumns = []todo.Column{todo.ColNext, todo.ColInProgress, todo.ColDone}
-
 // stepColumn returns the board tab delta tabs away from c, wrapping around the
 // board in either direction.
 func stepColumn(c todo.Column, delta int) todo.Column {
-	n := len(boardColumns)
-	for i, col := range boardColumns {
+	cols := todo.SprintColumns()
+	n := len(cols)
+	for i, col := range cols {
 		if col == c {
-			return boardColumns[((i+delta)%n+n)%n]
+			return cols[((i+delta)%n+n)%n]
 		}
 	}
 	return todo.ColNext
@@ -63,8 +61,8 @@ func tabKey(key string, current todo.Column) (todo.Column, bool) {
 	case "shift+tab":
 		return stepColumn(current, -1), true
 	}
-	if len(key) == 1 && key[0] >= '1' && int(key[0]-'1') < len(boardColumns) {
-		return boardColumns[key[0]-'1'], true
+	if cols := todo.SprintColumns(); len(key) == 1 && key[0] >= '1' && int(key[0]-'1') < len(cols) {
+		return cols[key[0]-'1'], true
 	}
 	return 0, false
 }
@@ -100,8 +98,9 @@ func boardBar(name, goal string, done bool, counts map[todo.Column]int, active t
 // tabBar renders a sprint board's tabs: every tab's title and the task count
 // in counts, the active one bracketed and accented.
 func tabBar(counts map[todo.Column]int, active todo.Column) string {
-	parts := make([]string, 0, len(boardColumns))
-	for _, c := range boardColumns {
+	cols := todo.SprintColumns()
+	parts := make([]string, 0, len(cols))
+	for _, c := range cols {
 		label := fmt.Sprintf("%s %d", c.Title(), counts[c])
 		if c == active {
 			parts = append(parts, selectedRowStyle.Render("["+label+"]"))

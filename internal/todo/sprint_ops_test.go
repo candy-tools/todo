@@ -340,3 +340,48 @@ func TestDeleteSprintRefusedWithDoneTaskHoldingOpenSubtask(t *testing.T) {
 		t.Errorf("task changed on error: %q %v", it.Sprint, it.Status)
 	}
 }
+
+func TestSprintGoalIsOneLine(t *testing.T) {
+	f := newSprintFixture(t)
+	id, err := f.d.AddSprint("S", "  ship\nsprints\r\nnow\t!  \n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := f.d.SprintByID(id)
+	if want := "ship sprints now !"; s.Goal != want {
+		t.Errorf("AddSprint goal = %q, want %q", s.Goal, want)
+	}
+	goal := "\tfirst\nsecond "
+	if _, err := f.d.EditSprint(id, SprintChanges{Goal: &goal}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "first second"; s.Goal != want {
+		t.Errorf("EditSprint goal = %q, want %q", s.Goal, want)
+	}
+	// A goal that cleans to the one it holds is no change.
+	same := " first second\n"
+	if changed, err := f.d.EditSprint(id, SprintChanges{Goal: &same}); err != nil || changed {
+		t.Errorf("EditSprint to the same goal = %v, %v; want no change", changed, err)
+	}
+}
+
+func TestCloseThenPruneThenDeleteSprint(t *testing.T) {
+	f := newSprintFixture(t)
+	s := f.sprint("S")
+	done := f.task("t", Done, s)
+	if err := f.d.CloseSprint(s); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.d.PruneSprint(s); n != 1 {
+		t.Fatalf("PruneSprint of the closed sprint = %d, want 1", n)
+	}
+	if _, err := f.d.lookup(done); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the done task is still there: %v", err)
+	}
+	if err := f.d.DeleteSprint(s); err != nil {
+		t.Fatalf("DeleteSprint after the prune: %v", err)
+	}
+	if _, ok := f.d.SprintByID(s); ok || len(f.d.Sprints) != 0 {
+		t.Errorf("sprints = %v, want none", f.d.Sprints)
+	}
+}

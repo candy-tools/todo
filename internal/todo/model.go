@@ -133,6 +133,10 @@ func (s Status) SubtaskAllowed() bool { return s == Open || s == Done }
 // Columns returns the four columns in board order.
 func Columns() []Column { return []Column{ColBacklog, ColNext, ColInProgress, ColDone} }
 
+// SprintColumns returns the columns of a sprint board, in board order: every
+// column but the Backlog.
+func SprintColumns() []Column { return []Column{ColNext, ColInProgress, ColDone} }
+
 // String returns the column's short name: backlog, next, progress or done.
 func (c Column) String() string {
 	switch c {
