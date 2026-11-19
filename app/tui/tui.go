@@ -25,6 +25,7 @@ const (
 	modeHelp        // the "?" shortcuts dialog
 	modeStatePick   // the "t" dialog: pick the selected task's state
 	modeStateFilter // the "f" dialog: tick the states the tab shows
+	modeSprintPick  // the K, p and o dialog: pick a sprint (or the Backlog)
 	// modeSearch is the "/" search bar, focused and capturing keys. The query
 	// lives in search; the resulting filter lives on the view (m.view.filter),
 	// so it stays applied for navigation after the bar closes.
@@ -116,6 +117,8 @@ type model struct {
 
 	pick     picker     // the open state dialog, for modeStatePick and modeStateFilter
 	pickItem *todo.Item // the task the "t" dialog sets the state of
+	// sprintPick is the open sprint dialog, for modeSprintPick.
+	sprintPick sprintPicker
 
 	search textinput.Model // the "/" search bar's input, for modeSearch
 
@@ -247,6 +250,8 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateStatePick(msg)
 	case modeStateFilter:
 		return m.updateStateFilter(msg)
+	case modeSprintPick:
+		return m.updateSprintPick(msg)
 	default:
 		// While an item is grabbed, the arrows drive the move instead of navigation.
 		if m.focused().grabbed {
@@ -285,6 +290,8 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = msgNoOpenSprints
 		}
 		return m, nil
+	case "K":
+		return m.openJumpPicker()
 	}
 	if m.view.onSprintList() {
 		return m.updateSprintList(msg)
@@ -411,7 +418,12 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "p":
+		if it := m.selectedItem(); it != nil && it.IsTask() && !it.IsSubtask() && it.Sprint == "" {
+			return m.openAssignPicker(it)
+		}
 		return m.shiftColumn(1)
+	case "o":
+		return m.openSendToPicker()
 	case "P":
 		return m.shiftColumn(-1)
 	case "t":

@@ -1290,7 +1290,7 @@ func TestReplacedFileIsReloaded(t *testing.T) {
 		t.Errorf("status = %q, want the external-change notice", m.status)
 	}
 
-	m = press(selectTitle(t, m, "b"), "p")
+	m = pickState(t, selectTitle(t, m, "b"), todo.New)
 	if m.err != nil {
 		t.Fatalf("a write after the replacement failed: %v", m.err)
 	}
@@ -1341,7 +1341,7 @@ func TestSavedWriteResetsPollFails(t *testing.T) {
 	}
 	writeList(t, path, good)
 
-	m = press(selectTitle(t, m, "a"), "p")
+	m = pickState(t, selectTitle(t, m, "a"), todo.New)
 	if m.err != nil {
 		t.Fatalf("the save failed: %v", m.err)
 	}

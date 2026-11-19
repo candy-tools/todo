@@ -34,9 +34,9 @@ func selectTitle(t *testing.T, m model, title string) model {
 func TestBracketMovesToNextColumn(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n- [ ] b\n")
 	m = press(m, "down") // a, row 1
-	m = press(m, "p")
+	m = pickState(t, m, todo.New)
 	if st := storedItem(t, path, "a").Status; st != todo.New {
-		t.Fatalf("] on a Backlog task stored %v, want new", st)
+		t.Fatalf("t on a Backlog task stored %v, want new", st)
 	}
 	if contains(rowTitles(m.tree), "a") {
 		t.Errorf("a must leave Backlog, rows = %v", rowTitles(m.tree))
@@ -49,14 +49,6 @@ func TestBracketMovesToNextColumn(t *testing.T) {
 	}
 	if got := m.footer(200); !strings.Contains(got, "moved to Next — new") {
 		t.Errorf("footer = %q, want the move notice", got)
-	}
-	// From Next, ] lands in In Progress's first state. The task joined no
-	// sprint, so it is followed in the unified view.
-	m = press(m, "a")
-	m = selectTitle(t, m, "a")
-	m = press(m, "p")
-	if st := storedItem(t, path, "a").Status; st != todo.Working {
-		t.Errorf("] on a Next task stored %v, want working", st)
 	}
 }
 
@@ -154,7 +146,7 @@ func TestBracketAtEdgeIsNoop(t *testing.T) {
 }
 
 func TestBracketUnknownStatusIsBacklog(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m, _ := newTestModel(t, "# C\n- [ ] a\n")
 	m = setStatusInMemory(t, m, "a", todo.Status(9))
 	m = selectTitle(t, m, "a")
 	before := storeFP(t, m)
@@ -162,9 +154,10 @@ func TestBracketUnknownStatusIsBacklog(t *testing.T) {
 	if got.status != "no column beyond Backlog" || storeFP(t, got) != before {
 		t.Errorf("[ on an unknown status must hint as at Backlog's edge, status %q", got.status)
 	}
-	press(m, "p")
-	if st := storedItem(t, path, "a").Status; st != todo.New {
-		t.Errorf("] on an unknown status stored %v, want new", st)
+	// An unknown status is a backlog task: p offers sprints (none here).
+	got = press(m, "p")
+	if got.mode != modeMain || got.status != msgNoOpenSprints || storeFP(t, got) != before {
+		t.Errorf("p on an unknown status: mode %v status %q, want the no-sprints hint", got.mode, got.status)
 	}
 }
 

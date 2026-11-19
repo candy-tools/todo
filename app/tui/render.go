@@ -20,6 +20,8 @@ func (m model) View() string {
 		return placeCenter(m.mainView(true), helpModal(m.width, m.height, m.helpOffset))
 	case modeStatePick, modeStateFilter:
 		return placeCenter(m.mainView(true), m.pick.view())
+	case modeSprintPick:
+		return placeCenter(m.mainView(true), m.sprintPick.view())
 	default:
 		return m.mainView(false)
 	}
