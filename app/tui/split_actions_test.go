@@ -58,7 +58,7 @@ func TestSplitAddOnAllRefused(t *testing.T) {
 	if m.mode != modeMain || !strings.Contains(m.footer(200), "pick a category in the sidebar") {
 		t.Errorf("n on All: mode %v footer %q", m.mode, m.footer(200))
 	}
-	m.setColumn(todo.ColNext) // nothing in Next: the list is empty
+	toTab(&m, todo.ColNext) // nothing in Next: the list is empty
 	m = press(m, "x", "n")
 	if m.mode != modeMain || !strings.Contains(m.footer(200), "pick a category in the sidebar") {
 		t.Errorf("n in an empty list on All: mode %v footer %q", m.mode, m.footer(200))
@@ -83,7 +83,7 @@ func TestSplitEditCategoryInSidebar(t *testing.T) {
 		t.Fatalf("e on Work should edit it, mode %v", m.mode)
 	}
 	m = press(m, "esc")
-	m.setColumn(todo.ColNext)
+	toTab(&m, todo.ColNext)
 	m = sideSelect(t, m, "Work")
 	m = press(m, "e")
 	if m.mode != modeMain || !strings.Contains(m.footer(200), msgCategoriesInBacklog) {
@@ -205,7 +205,7 @@ func TestSplitFilteredStateChangeNamesColumn(t *testing.T) {
 	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
 		{"id": "t000001", "category": "c000000", "title": "o", "status": "open"},
 		{"id": "t000002", "category": "c000000", "title": "r", "status": "ready"}]}`)
-	m.setColumn(todo.ColNext)
+	toTab(&m, todo.ColNext)
 	m = filterTick(t, m, todo.Ready)
 	m = press(m, "v", "x")
 	m = selectTitle(t, m, "r")

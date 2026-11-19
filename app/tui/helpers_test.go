@@ -38,24 +38,51 @@ func modelOn(t *testing.T, path string) model {
 	return send(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 }
 
-// newTestModelOn is newTestModel switched to the board tab for column c, for
-// tests that act on items outside the Backlog (working or done tasks).
+// importedID is the ID of the Imported sprint of m's list: the sprint a
+// markdown seed puts its tasks in a sprint state ([/], [x]) in, as an upgrade
+// or import does, or the one setStatusExternally makes. Without one it is the
+// ID an upgrade gives it.
+func importedID(m model) string {
+	if s, ok := m.doc.SprintByName(todo.ImportedSprintName); ok {
+		return s.ID
+	}
+	return "0000000"
+}
+
+// newTestModelOn is newTestModel switched to the view for column c: the
+// Backlog for ColBacklog, else that tab of the Imported sprint's board, where
+// the seed's tasks outside the Backlog are. Tests use it to act on working or
+// done tasks.
 func newTestModelOn(t *testing.T, src string, c todo.Column) (model, string) {
 	t.Helper()
 	m, path := newTestModel(t, src)
-	m.setColumn(c)
+	toTab(&m, c)
 	return m, path
 }
 
-// showOn switches m to the tab for column c and selects the row titled title,
-// failing the test when that tab doesn't show it. Tests use it to follow a task
-// that changed column (and so left the tab it was in).
+// toTab switches m to the Backlog for ColBacklog, else to the tab for c of
+// the Imported sprint's board, without storing the view.
+func toTab(m *model, c todo.Column) {
+	if c == todo.ColBacklog {
+		m.switchScreen(screenBacklog, "")
+		return
+	}
+	if id := importedID(*m); m.view.screen != screenSprint || m.view.sprint != id || m.view.all {
+		m.switchScreen(screenSprint, id)
+	}
+	m.setColumn(c)
+}
+
+// showOn switches m to the view for column c, as newTestModelOn does, and
+// selects the row titled title, failing the test when that view doesn't show
+// it. Tests use it to follow a task that changed column (and so left the tab
+// it was in).
 func showOn(t *testing.T, m model, c todo.Column, title string) model {
 	t.Helper()
-	m.setColumn(c)
+	toTab(&m, c)
 	it := find(m.doc, title)
 	if it == nil || !m.tree.selectID(it.ID) {
-		t.Fatalf("%q is not shown on %s (rows %v)", title, c.Title(), rowTitles(m.tree))
+		t.Fatalf("%q is not shown on %s (rows %v)", title, m.view.title(), rowTitles(m.tree))
 	}
 	return m
 }

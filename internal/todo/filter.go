@@ -165,9 +165,10 @@ func (it *Item) countColumns(sprint string, counts map[Column]int) {
 }
 
 // CountInColumn counts the top-level tasks in column c under the item,
-// descending through subcategories.
-func (it *Item) CountInColumn(c Column) int {
+// descending through subcategories. A non-empty sprint counts only that
+// sprint's tasks; "" counts every task.
+func (it *Item) CountInColumn(sprint string, c Column) int {
 	counts := map[Column]int{}
-	it.countColumns("", counts)
+	it.countColumns(sprint, counts)
 	return counts[c]
 }

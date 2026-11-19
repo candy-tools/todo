@@ -39,24 +39,24 @@ func TestOpensOnStoredView(t *testing.T) {
 	}
 }
 
-// Without a view section the TUI opens on the board, without the split.
+// Without a view section the TUI opens on the Backlog, without the split.
 func TestOpensOnDefaultView(t *testing.T) {
 	m, _ := newJSONModel(t, viewSaveList(""))
-	if m.view.all || m.split {
-		t.Errorf("opened with unified=%v split=%v, want both off", m.view.all, m.split)
+	if m.view.all || m.split || m.view.screen != screenBacklog {
+		t.Errorf("opened with unified=%v split=%v screen=%v, want the Backlog", m.view.all, m.split, m.view.screen)
 	}
 }
 
-// k stores the unified view in the list file, and k again the board.
+// a stores the unified view in the list file, and a again the screen under it.
 func TestUnifiedToggleIsStored(t *testing.T) {
 	m, path := newJSONModel(t, viewSaveList(""))
-	m = press(m, "k")
+	m = press(m, "a")
 	if got := storedView(t, path); !got.Unified {
-		t.Errorf("after k the file holds %+v, want unified", got)
+		t.Errorf("after a the file holds %+v, want unified", got)
 	}
-	press(m, "k")
+	press(m, "a")
 	if got := storedView(t, path); got.Unified {
-		t.Errorf("after k again the file holds %+v, want the board", got)
+		t.Errorf("after a again the file holds %+v, want the Backlog", got)
 	}
 }
 
@@ -77,7 +77,7 @@ func TestSplitToggleIsStored(t *testing.T) {
 // for an external change.
 func TestViewSaveIsNotExternal(t *testing.T) {
 	m, _ := newJSONModel(t, viewSaveList(""))
-	m = press(m, "k")
+	m = press(m, "a")
 	m = pollCmdOnce(m)
 	if m.status != "" || m.err != nil {
 		t.Errorf("after storing the view: status=%q err=%v, want neither", m.status, m.err)

@@ -104,14 +104,14 @@ func TestSplitSidebarFollowsTab(t *testing.T) {
 	m = setStatusExternally(t, m, path, "b", todo.Ready)
 	m = press(m, "v")
 	m = sideSelect(t, m, "Backend")
-	m.setColumn(todo.ColNext)
+	toTab(&m, todo.ColNext)
 	if got := m.side.selected(); got == nil || got.Title != "Backend" {
 		t.Errorf("Backend holds a Next task: it should stay selected, got %v", got)
 	}
 	if got := rowDesc(m.tree); !equalStrings(got, []string{"b"}) {
 		t.Errorf("Next rows for Backend = %v", got)
 	}
-	m.setColumn(todo.ColDone)
+	toTab(&m, todo.ColDone)
 	if !m.side.onAll() {
 		t.Errorf("Done shows no Backend: the sidebar should fall back to All, got %v", m.side.selected())
 	}
@@ -176,21 +176,21 @@ func TestSplitVOffSelectsFocused(t *testing.T) {
 func TestSplitToggleIgnoredWhileGrabbed(t *testing.T) {
 	m, _ := newTestModel(t, splitDoc)
 	m = selectTitle(t, m, "a")
-	m = press(m, "m", "v", "k")
+	m = press(m, "m", "v", "a")
 	if m.split || m.view.all {
-		t.Errorf("v and k must be ignored while an item is grabbed: split=%v all=%v", m.split, m.view.all)
+		t.Errorf("v and a must be ignored while an item is grabbed: split=%v all=%v", m.split, m.view.all)
 	}
 }
 
 func TestSplitWithUnified(t *testing.T) {
 	m, path := newTestModel(t, splitDoc)
 	m = setStatusExternally(t, m, path, "b", todo.Working)
-	m = press(m, "v", "k")
+	m = press(m, "v", "a")
 	m = sideSelect(t, m, "Backend")
 	if got := rowDesc(m.tree); !equalStrings(got, []string{"b"}) {
 		t.Errorf("unified Backend rows = %v", got)
 	}
-	m = press(m, "k")
+	m = press(m, "a")
 	if got := m.side.selected(); got == nil || got.Title != "Backend" {
 		t.Errorf("Backlog shows every category: Backend should stay, got %v", got)
 	}

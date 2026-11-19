@@ -9,7 +9,7 @@ import (
 func TestSetActiveStatesKeepsOtherColumns(t *testing.T) {
 	v := newViewState()
 	v.states[todo.Deferred] = true // a Backlog filter
-	v.column = todo.ColNext
+	v.screen, v.sprint, v.column = screenSprint, "s000001", todo.ColNext
 	v.setActiveStates(map[todo.Status]bool{todo.Ready: true})
 	if !v.states[todo.Deferred] || !v.states[todo.Ready] {
 		t.Fatalf("states = %v, want Deferred kept and Ready added", v.states)

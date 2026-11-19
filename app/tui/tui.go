@@ -70,10 +70,17 @@ type model struct {
 
 	// Layout: what the trees show and how the screen is split.
 	//
-	// view is the tab, search query and state filter every tree shows the
-	// list through; the model changes it (setColumn, setFilter, setStates)
-	// and rebuilds the trees.
+	// view is the screen, tab, search query and state filter every tree shows
+	// the list through; the model changes it (switchScreen, setColumn,
+	// setFilter, setStates) and rebuilds the trees.
 	view *viewState
+	// sprints is the Sprint list screen, shown instead of the trees there.
+	sprints sprintList
+	// lastSprint is the ID of the sprint whose board was shown last, where
+	// "k" goes back to from the other screens; boardTabs is the tab each
+	// sprint board showed last, by sprint ID.
+	lastSprint string
+	boardTabs  map[string]todo.Column
 	// tree is the main pane: the category/task tree, or — in the split view —
 	// the task list of the category picked in side, the sidebar.
 	tree tree
@@ -153,6 +160,7 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		version:   metainfo.Version,
 		doc:       doc,
 		view:      v,
+		boardTabs: map[string]todo.Column{},
 		tree:      newTree(doc, v),
 		side:      newSidebar(doc, v),
 		mode:      modeMain,
@@ -243,21 +251,46 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// updateMain handles the main-view keys: the screen keys work everywhere; the
+// Sprint list has its own (see updateSprintList); the rest act on the trees.
 func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	switch msg.String() {
 	case "q":
+		if m.view.screen == screenSprint {
+			m.showSprints()
+			return m, nil
+		}
 		return m, tea.Quit
 	case "esc":
 		return m.escOrQuit()
-	case "/":
-		return m.openSearch()
 	case "?":
 		m.mode, m.helpOffset = modeHelp, 0
+		return m, nil
+	case "b":
+		m.showBacklog()
+		return m, nil
+	case "s":
+		m.showSprints()
+		return m, nil
+	case "k":
+		if id, ok := m.nextOpenSprint(); ok {
+			m.showSprint(id)
+		} else {
+			m.status = msgNoOpenSprints
+		}
+		return m, nil
+	}
+	if m.view.onSprintList() {
+		return m.updateSprintList(msg)
+	}
+	switch msg.String() {
+	case "/":
+		return m.openSearch()
 	case "f":
 		m.pick = newFilterPicker("Filter "+m.view.title()+" by state", m.view.columns(), m.view.filterSet())
 		m.mode = modeStateFilter
-	case "k":
+	case "a":
 		m.setUnified(!m.view.all)
 		m.saveView()
 	case "v":
@@ -267,9 +300,9 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.split {
 			m.sideFocus = !m.sideFocus
 		}
-	case "up", "w":
+	case "up":
 		m.focused().moveUp()
-	case "down", "s":
+	case "down":
 		m.focused().moveDown()
 	case "pgup":
 		m.focused().pageUp()
@@ -280,15 +313,38 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right":
 		m.focused().expand()
 	default:
-		if c, ok := tabKey(msg.String(), m.view.column); ok {
+		if c, ok := tabKey(msg.String(), m.view.column); ok && m.view.screen == screenSprint {
 			if m.view.all {
-				m.status = "press k to show the board"
+				m.status = "press a to show the board"
 				return m, nil
 			}
 			m.setColumn(c)
 			return m, nil
 		}
 		return m.updateMainItemKey(msg)
+	}
+	return m, nil
+}
+
+// updateSprintList handles the keys of the Sprint list: the arrows move the
+// selection and enter opens the selected sprint's board. Every other key does
+// nothing there.
+func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up":
+		m.sprints.move(m.doc, -1)
+	case "down":
+		m.sprints.move(m.doc, 1)
+	case "pgup":
+		m.sprints.move(m.doc, -navStep)
+	case "pgdown":
+		m.sprints.move(m.doc, navStep)
+	case "enter":
+		if s := m.sprints.selected(m.doc); s != nil {
+			m.showSprint(s.ID)
+		} else {
+			m.status = msgNoOpenSprints
+		}
 	}
 	return m, nil
 }

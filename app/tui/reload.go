@@ -200,6 +200,18 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 	m.noteExternal()
 }
 
+// leaveGoneSprint moves from a sprint board whose sprint the list no longer
+// holds (another session deleted it) to the Sprint list. The view is not
+// stored: the list that lost the sprint is no write of this session.
+func (m *model) leaveGoneSprint() {
+	if m.view.screen != screenSprint {
+		return
+	}
+	if _, ok := m.doc.SprintByID(m.view.sprint); !ok {
+		m.switchScreen(screenSprints, "")
+	}
+}
+
 // noteExternal drops the undo snapshots and says so in the footer, after the
 // model took a list that someone else changed.
 func (m *model) noteExternal() {

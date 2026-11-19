@@ -38,12 +38,16 @@ func (m model) mainView(dim bool) string {
 		bodyH = 3
 	}
 	var body string
-	if m.split {
+	switch {
+	case m.view.onSprintList():
+		// The Sprint list replaces the trees, split view or not.
+		body = titledBox("Sprints", m.sprints.view(m.doc, w-2, m.treeViewHeight()), w, bodyH, !dim)
+	case m.split:
 		sw := sidebarWidth(w)
 		left := titledBox("Categories", m.side.view(sw-2, m.treeViewHeight()), sw, bodyH, !dim && m.sideFocus)
 		right := titledBox("Tasks", m.tree.view(w-sw-2, m.treeViewHeight()), w-sw, bodyH, !dim && !m.sideFocus)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-	} else {
+	default:
 		body = titledBox("Tasks", m.tree.view(w-2, m.treeViewHeight()), w, bodyH, !dim)
 	}
 	return m.header(w) + "\n" + body + "\n" + m.footer(w)
@@ -75,7 +79,8 @@ func (m model) treeViewHeight() int {
 const headerHeight = 2
 
 // header renders the title line (app, version, file, overall progress) and,
-// under it, the board's tab bar.
+// under it, the screen's line: a sprint board's name and tab bar, or the
+// Backlog's, the Sprint list's or the unified view's label.
 func (m model) header(width int) string {
 	done, total := overallCounts(m.doc)
 	left := headerAppStyle.Render("todo") + " " + headerHintSty.Render(m.version) + "  " + headerHintSty.Render(filepath.Base(m.store.Path()))
@@ -85,15 +90,28 @@ func (m model) header(width int) string {
 		gap = 1
 	}
 	title := ansi.Truncate(" "+left+strings.Repeat(" ", gap)+right, width, "")
-	counts := m.doc.ColumnCounts("")
-	if m.view.all {
+	return title + "\n" + m.screenLine(width)
+}
+
+// screenLine is the header's second line for the view on screen.
+func (m model) screenLine(width int) string {
+	switch {
+	case m.view.all:
 		total := 0
-		for _, n := range counts {
+		for _, n := range m.doc.ColumnCounts("") {
 			total += n
 		}
-		return title + "\n" + allStatesBar(total, width)
+		return screenBar(fmt.Sprintf("All states · %d tasks", total), width)
+	case m.view.screen == screenBacklog:
+		return screenBar(fmt.Sprintf("Backlog · %d tasks", m.doc.ColumnCounts("")[todo.ColBacklog]), width)
+	case m.view.screen == screenSprints:
+		return screenBar(fmt.Sprintf("Sprints · %d open", len(m.doc.OpenSprints())), width)
 	}
-	return title + "\n" + tabBar(counts, m.view.column, width)
+	name, done := m.view.sprint, false
+	if s, ok := m.doc.SprintByID(m.view.sprint); ok {
+		name, done = s.Name, s.Status == todo.SprintDone
+	}
+	return boardBar(name, done, m.doc.ColumnCounts(m.view.sprint), m.view.column, width)
 }
 
 func (m model) footer(width int) string {
@@ -132,8 +150,17 @@ func (m model) footer(width int) string {
 		return ansi.Truncate(" "+strings.Join(info, "  "), width, "")
 	}
 	// The full key list lives in the "?" dialog; the footer only points at it.
-	parts := []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
-	if m.split {
+	var parts []string
+	switch {
+	case m.view.onSprintList():
+		parts = []string{hint("?", "Help"), hint("enter", "Open"), hint("q", "Quit")}
+	case m.view.screen == screenSprint:
+		// q leaves a board for the Sprint list, under the unified view too.
+		parts = []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Sprints")}
+	default:
+		parts = []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
+	}
+	if m.split && !m.view.onSprintList() {
 		parts = append(parts, hint("x", "Pane"))
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")

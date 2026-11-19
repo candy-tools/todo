@@ -21,12 +21,12 @@ func storeFP(t *testing.T, m model) todo.Fingerprint {
 	return fp
 }
 
-// selectTitle moves the cursor onto the row titled title in the current tab.
+// selectTitle moves the cursor onto the row titled title in the current view.
 func selectTitle(t *testing.T, m model, title string) model {
 	t.Helper()
 	it := find(m.doc, title)
 	if it == nil || !m.tree.selectID(it.ID) {
-		t.Fatalf("%q is not shown on %s (rows %v)", title, m.view.column.Title(), rowTitles(m.tree))
+		t.Fatalf("%q is not shown on %s (rows %v)", title, m.view.title(), rowTitles(m.tree))
 	}
 	return m
 }
@@ -50,8 +50,10 @@ func TestBracketMovesToNextColumn(t *testing.T) {
 	if got := m.footer(200); !strings.Contains(got, "moved to Next — new") {
 		t.Errorf("footer = %q, want the move notice", got)
 	}
-	// From Next, ] lands in In Progress's first state.
-	m = showOn(t, m, todo.ColNext, "a")
+	// From Next, ] lands in In Progress's first state. The task joined no
+	// sprint, so it is followed in the unified view.
+	m = press(m, "a")
+	m = selectTitle(t, m, "a")
 	m = press(m, "p")
 	if st := storedItem(t, path, "a").Status; st != todo.Working {
 		t.Errorf("] on a Next task stored %v, want working", st)
@@ -255,11 +257,11 @@ func TestStateFilter(t *testing.T) {
 		t.Errorf("footer should show the state filter, got %q", got)
 	}
 	// Other tabs ignore Backlog's states.
-	m.setColumn(todo.ColDone)
+	toTab(&m, todo.ColDone)
 	if len(m.view.activeStates()) != 0 {
 		t.Errorf("Done must not inherit Backlog's state filter")
 	}
-	m.setColumn(todo.ColBacklog)
+	toTab(&m, todo.ColBacklog)
 	m = press(m, "esc")
 	if len(m.view.activeStates()) != 0 || !hasRow(m, "a") {
 		t.Errorf("esc must clear the state filter, rows %v", rowTitles(m.tree))
