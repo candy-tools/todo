@@ -400,7 +400,7 @@ func TestWDoesNotMove(t *testing.T) {
 func TestSprintListIgnoresTreeKeys(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
-	for _, key := range []string{"v", "x", "e", "d", "n", "m", "t", "p", "/", "f"} {
+	for _, key := range []string{"v", "x", "m", "t", "p", "/", "f"} {
 		got := press(m, key)
 		if got.mode != modeMain || got.split || got.view.screen != screenSprints || got.tree.grabbed {
 			t.Errorf("%q on the Sprint list must do nothing: mode %v split %v screen %v", key, got.mode, got.split, got.view.screen)

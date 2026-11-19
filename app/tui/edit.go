@@ -27,6 +27,10 @@ const (
 	// (or a task inside one) is selected.
 	targetAddCategory
 	targetEdit // rename/re-describe the selected item
+	// targetAddSprint adds a sprint, from the Sprint list.
+	targetAddSprint
+	// targetEditSprint renames or re-words the goal of the sprint in m.editingSprint.
+	targetEditSprint
 )
 
 // msgPickCategory is the footer hint for adding a task in the split view with
@@ -138,9 +142,10 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.form.applyFocus()
 		}
 	case "enter":
-		// Enter in the description inserts a newline; on the title or Save it
-		// submits, on Cancel it closes.
-		if m.form.focus == focusDesc {
+		// Enter in the description inserts a newline (not in a sprint's goal,
+		// which is one line); on the title or Save it submits, on Cancel it
+		// closes.
+		if m.form.focus == focusDesc && m.form.kind != formSprint {
 			break
 		}
 		if m.form.focus == focusCancel {
@@ -171,8 +176,12 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeMain
-	if m.target == targetEdit {
+	switch m.target {
+	case targetEdit:
 		m.submitEdit()
+		return m, nil
+	case targetAddSprint, targetEditSprint:
+		m.submitSprint()
 		return m, nil
 	}
 

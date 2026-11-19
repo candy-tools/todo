@@ -125,6 +125,12 @@ func (m model) footer(width int) string {
 		// A transient message (a refused move, where a task went) wins over the
 		// move and filter lines; the next key clears it.
 		return ansi.Truncate(" "+helpTextStyle.Render(m.status), width, "")
+	case m.view.onSprintList():
+		// The list's own keys; a board's search filter does not carry over.
+		return ansi.Truncate(" "+strings.Join([]string{
+			hint("n", "New"), hint("e", "Edit"), hint("c", "Close/reopen"), hint("d", "Delete"),
+			hint("enter", "Open"), hint("?", "Help"), hint("q", "Quit"),
+		}, "  "), width, "")
 	case m.focused().grabbed:
 		// Move mode: the arrows reorder/re-nest the grabbed item.
 		parts := []string{
@@ -152,15 +158,13 @@ func (m model) footer(width int) string {
 	// The full key list lives in the "?" dialog; the footer only points at it.
 	var parts []string
 	switch {
-	case m.view.onSprintList():
-		parts = []string{hint("?", "Help"), hint("enter", "Open"), hint("q", "Quit")}
 	case m.view.screen == screenSprint:
 		// q leaves a board for the Sprint list, under the unified view too.
 		parts = []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Sprints")}
 	default:
 		parts = []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
 	}
-	if m.split && !m.view.onSprintList() {
+	if m.split {
 		parts = append(parts, hint("x", "Pane"))
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")

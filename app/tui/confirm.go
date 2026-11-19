@@ -73,8 +73,9 @@ func padBody(body string, pad int) string {
 type confirmAction int
 
 const (
-	confirmDelete    confirmAction = iota // delete the selected item (m.deleting)
-	confirmClearDone                      // remove every completed task
+	confirmDelete       confirmAction = iota // delete the selected item (m.deleting)
+	confirmClearDone                         // remove every completed task
+	confirmDeleteSprint                      // delete the selected sprint (m.deletingSprint)
 )
 
 // openDelete opens the confirm dialog for the selected item (focused on the
@@ -135,8 +136,11 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // doConfirm runs the confirmed action for the open dialog.
 func (m model) doConfirm() (tea.Model, tea.Cmd) {
-	if m.confirmAction == confirmClearDone {
+	switch m.confirmAction {
+	case confirmClearDone:
 		return m.doClearDone()
+	case confirmDeleteSprint:
+		return m.doDeleteSprint()
 	}
 	return m.doDelete()
 }
@@ -199,8 +203,11 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 
 // confirmQuestion phrases the prompt for the open confirm dialog.
 func (m model) confirmQuestion() string {
-	if m.confirmAction == confirmClearDone {
+	switch m.confirmAction {
+	case confirmClearDone:
 		return fmt.Sprintf("Remove %d completed task(s)?", m.doc.RemovableDone())
+	case confirmDeleteSprint:
+		return fmt.Sprintf("Delete sprint %q? Its unfinished tasks go back to the Backlog.", todo.Printable(m.deletingSprint.Name))
 	}
 	return deletionQuestion(m.deleting)
 }

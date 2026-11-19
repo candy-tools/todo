@@ -100,6 +100,11 @@ type model struct {
 	target   formTarget
 	editing  *todo.Item // the item being edited, for targetEdit
 	deleting *todo.Item // the item the confirm dialog is guarding, for modeConfirm
+	// editingSprint is the ID of the sprint the open form edits, for
+	// targetEditSprint; deletingSprint is the one the confirm dialog guards, for
+	// confirmDeleteSprint.
+	editingSprint  string
+	deletingSprint *todo.Sprint
 	// confirmOnDelete is which confirm-dialog button has focus: false = Cancel
 	// (the safe default so a stray key can't delete), true = Delete.
 	confirmOnDelete bool
@@ -327,18 +332,29 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateSprintList handles the keys of the Sprint list: the arrows move the
-// selection and enter opens the selected sprint's board. Every other key does
-// nothing there.
+// selection, enter opens the selected sprint's board, n adds a sprint, e edits
+// the selected one, c closes or reopens it and d deletes it. Every other key
+// does nothing there.
 func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "n":
+		return m.openSprintForm(nil)
+	case "e":
+		if s := m.sprints.selected(m.doc); s != nil {
+			return m.openSprintForm(s)
+		}
+	case "c":
+		return m.toggleSprintClosed()
+	case "d":
+		return m.openDeleteSprint()
 	case "up":
-		m.sprints.move(m.doc, -1)
+		m.moveSprints(-1)
 	case "down":
-		m.sprints.move(m.doc, 1)
+		m.moveSprints(1)
 	case "pgup":
-		m.sprints.move(m.doc, -navStep)
+		m.moveSprints(-navStep)
 	case "pgdown":
-		m.sprints.move(m.doc, navStep)
+		m.moveSprints(navStep)
 	case "enter":
 		if s := m.sprints.selected(m.doc); s != nil {
 			m.showSprint(s.ID)
