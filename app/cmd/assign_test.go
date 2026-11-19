@@ -115,6 +115,41 @@ func TestAddWithSprintOnSubtaskIsUsageError(t *testing.T) {
 	}
 }
 
+func TestAddSprintStateNeedsSprintFlag(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n")
+	addSprint(t, path, "Alpha")
+	before := bytesOf(t, path)
+	_, err := runCmd(t, "add", "--file", path, "--title", "x", "--parent-title", "Work", "--status", "working")
+	if codeOf(t, err) != exitUsage || err.Error() != "--status working needs --sprint <id|name>" {
+		t.Fatalf("--status working without --sprint: %v", err)
+	}
+	if string(bytesOf(t, path)) != string(before) {
+		t.Error("the list must be left unchanged")
+	}
+}
+
+func TestAddSprintWithBacklogStateIsUsageError(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n")
+	addSprint(t, path, "Alpha")
+	before := bytesOf(t, path)
+	for _, st := range []string{"open", "deferred", "wontdo"} {
+		_, err := runCmd(t, "add", "--file", path, "--title", "x", "--parent-title", "Work", "--sprint", "Alpha", "--status", st)
+		if want := "--sprint needs a sprint state (new|ready|working|review|followup|done)"; codeOf(t, err) != exitUsage || err.Error() != want {
+			t.Errorf("--sprint with --status %s: %v, want %q", st, err, want)
+		}
+	}
+	if string(bytesOf(t, path)) != string(before) {
+		t.Error("the list must be left unchanged")
+	}
+}
+
+func TestListSprintWithBacklogColumnIsUsageError(t *testing.T) {
+	path, _ := sprintListFixture(t)
+	if _, err := runCmd(t, "list", "--file", path, "--sprint", "Alpha", "--column", "backlog"); codeOf(t, err) != exitUsage {
+		t.Errorf("--sprint with --column backlog: %v", err)
+	}
+}
+
 // sprintListFixture has a backlog task and one task per sprint column.
 func sprintListFixture(t *testing.T) (path, id string) {
 	t.Helper()

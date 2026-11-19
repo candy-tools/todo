@@ -44,6 +44,15 @@ func addCmd() *cobra.Command {
 				if !ok {
 					return usageErr(fmt.Sprintf("invalid --status %q (%s)", statusName, statusNames))
 				}
+				// A top-level task's state and sprint go together: say which flag
+				// is missing or wrong rather than what the store would refuse.
+				switch {
+				case parent.IsTask():
+				case st.InSprint() && sprintID == "":
+					return usageErr(fmt.Sprintf("--status %s needs --sprint <id|name>", st))
+				case !st.InSprint() && sprintID != "":
+					return usageErr("--sprint needs a sprint state (" + sprintStateNames() + ")")
+				}
 				plan, _ := cmd.Flags().GetString("plan")
 				ref, _ := cmd.Flags().GetString("ref")
 				if ref, err = todo.CleanRef(ref); err != nil {
@@ -70,6 +79,18 @@ func addCmd() *cobra.Command {
 	c.Flags().String("sprint", "", "put the new task in this sprint, by id or name (top-level tasks only)")
 	addSelectorFlags(c, "parent-")
 	return c
+}
+
+// sprintStateNames lists the states a task in a sprint can take, in board
+// order, e.g. "new|ready|working|review|followup|done".
+func sprintStateNames() string {
+	var names []string
+	for _, c := range todo.SprintColumns() {
+		for _, st := range c.States() {
+			names = append(names, st.String())
+		}
+	}
+	return strings.Join(names, "|")
 }
 
 func addCategoryCmd() *cobra.Command {

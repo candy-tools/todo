@@ -37,6 +37,8 @@ func listCmd() *cobra.Command {
 				return usageErr("--backlog and --sprint are mutually exclusive")
 			case backlog && colName != "":
 				return usageErr("--backlog and --column are mutually exclusive")
+			case inSprint && colName == todo.ColBacklog.String():
+				return usageErr("--sprint and --column backlog are mutually exclusive: a sprint has no backlog column")
 			case backlog:
 				colName = todo.ColBacklog.String()
 			}
@@ -49,7 +51,7 @@ func listCmd() *cobra.Command {
 				sprintID = sp.ID
 			}
 			if colName != "" || inSprint {
-				cols := []todo.Column{todo.ColNext, todo.ColInProgress, todo.ColDone}
+				cols := todo.SprintColumns()
 				if colName != "" {
 					col, ok := todo.ColumnFromName(colName)
 					if !ok {

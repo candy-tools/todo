@@ -174,9 +174,20 @@ func TestSprintRmRefusedWithDone(t *testing.T) {
 	path := todotest.Seed(t, "")
 	id := addSprint(t, path, "Alpha")
 	sprintTask(t, path, "a", id, todo.Done)
+	before := bytesOf(t, path)
 	_, err := runCmd(t, "sprint", "rm", "--file", path, "--sprint", "Alpha")
 	if err == nil || codeOf(t, err) != exitUsage || err.Error() != todo.ErrSprintHasDone.Error() {
 		t.Errorf("err = %v", err)
+	}
+	if string(bytesOf(t, path)) != string(before) {
+		t.Error("a refused rm must leave the list unchanged")
+	}
+	// Closed, it is refused the same way.
+	if _, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "Alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCmd(t, "sprint", "rm", "--file", path, "--sprint", "Alpha"); codeOf(t, err) != exitUsage {
+		t.Errorf("rm of a closed sprint with done tasks: %v", err)
 	}
 }
 
