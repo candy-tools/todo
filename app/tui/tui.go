@@ -265,33 +265,8 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // Sprint list has its own (see updateSprintList); the rest act on the trees.
 func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
-	switch msg.String() {
-	case "q":
-		if m.view.screen == screenSprint {
-			m.showSprints()
-			return m, nil
-		}
-		return m, tea.Quit
-	case "esc":
-		return m.escOrQuit()
-	case "?":
-		m.mode, m.helpOffset = modeHelp, 0
-		return m, nil
-	case "b":
-		m.showBacklog()
-		return m, nil
-	case "s":
-		m.showSprints()
-		return m, nil
-	case "k":
-		if id, ok := m.nextOpenSprint(); ok {
-			m.showSprint(id)
-		} else {
-			m.status = msgNoOpenSprints
-		}
-		return m, nil
-	case "K":
-		return m.openJumpPicker()
+	if next, cmd, ok := m.updateScreenKey(msg); ok {
+		return next, cmd
 	}
 	if m.view.onSprintList() {
 		return m.updateSprintList(msg)
@@ -336,6 +311,43 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateMainItemKey(msg)
 	}
 	return m, nil
+}
+
+// updateScreenKey handles the keys that work on every screen: q (back to the
+// Sprint list from a board, else quit), esc, ? and the screen jumps b, s, k and
+// K. The bool reports whether the key was one of them.
+func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	switch msg.String() {
+	case "q":
+		if m.view.screen == screenSprint {
+			m.showSprints()
+			return m, nil, true
+		}
+		return m, tea.Quit, true
+	case "esc":
+		next, cmd := m.escOrQuit()
+		return next, cmd, true
+	case "?":
+		m.mode, m.helpOffset = modeHelp, 0
+		return m, nil, true
+	case "b":
+		m.showBacklog()
+		return m, nil, true
+	case "s":
+		m.showSprints()
+		return m, nil, true
+	case "k":
+		if id, ok := m.nextOpenSprint(); ok {
+			m.showSprint(id)
+		} else {
+			m.status = msgNoOpenSprints
+		}
+		return m, nil, true
+	case "K":
+		next, cmd := m.openJumpPicker()
+		return next, cmd, true
+	}
+	return m, nil, false
 }
 
 // updateSprintList handles the keys of the Sprint list: the arrows move the

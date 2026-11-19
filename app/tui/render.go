@@ -159,8 +159,8 @@ func (m model) footer(width int) string {
 	}
 	// The full key list lives in the "?" dialog; the footer only points at it.
 	var parts []string
-	switch {
-	case m.view.screen == screenSprint:
+	switch m.view.screen {
+	case screenSprint:
 		// q leaves a board for the Sprint list, under the unified view too.
 		parts = []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Sprints")}
 	default:

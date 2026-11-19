@@ -63,39 +63,10 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	sel := m.focused().selected()
 	switch t {
 	case targetAddSibling, targetAddChild:
-		if m.view.onBoard() && m.sprintClosed(m.view.sprint) {
-			m.status = todo.ErrSprintClosed.Error()
+		var ok bool
+		if m, ok = m.prepareAddForm(t); !ok {
 			return m, nil
 		}
-		sel = m.taskAnchor()
-		if sel == nil && m.split {
-			m.status = msgPickCategory
-			return m, nil
-		}
-		if sel == nil {
-			// Outside Backlog a tab shows only categories holding its tasks, and c
-			// is refused there, so point at a tab that shows the category instead.
-			m.status = "Add a category first (press c) — tasks live under a category."
-			if !m.view.editsCategories() {
-				m.status = "add tasks from a tab that shows their category (Backlog shows all)"
-			}
-			return m, nil
-		}
-		if t == targetAddChild && sel.IsSubtask() {
-			m.status = "subtasks can't have subtasks"
-			return m, nil
-		}
-		// A new subtask has no reference, so its form shows none.
-		kind := formTask
-		m.target = t
-		if p := m.addParent(sel); p != nil && p.IsTask() {
-			if m.sprintClosed(p.SprintID()) { // under a closed sprint's task, from the unified view
-				m.status = todo.ErrSprintClosed.Error()
-				return m, nil
-			}
-			kind = formSubtask
-		}
-		m.form = newForm(todo.Fields{}, kind, false)
 	case targetEdit:
 		if sel == nil || m.focused().onPlaceholder() {
 			return m, nil
@@ -128,6 +99,45 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	m.form.setWidth(m.width)
 	m.mode = modeForm
 	return m, textinput.Blink
+}
+
+// prepareAddForm builds the add-task / add-subtask form for openForm. When the
+// add is refused it sets the footer message and reports false.
+func (m model) prepareAddForm(t formTarget) (model, bool) {
+	if m.view.onBoard() && m.sprintClosed(m.view.sprint) {
+		m.status = todo.ErrSprintClosed.Error()
+		return m, false
+	}
+	sel := m.taskAnchor()
+	if sel == nil && m.split {
+		m.status = msgPickCategory
+		return m, false
+	}
+	if sel == nil {
+		// Outside Backlog a tab shows only categories holding its tasks, and c
+		// is refused there, so point at a tab that shows the category instead.
+		m.status = "Add a category first (press c) — tasks live under a category."
+		if !m.view.editsCategories() {
+			m.status = "add tasks from a tab that shows their category (Backlog shows all)"
+		}
+		return m, false
+	}
+	if t == targetAddChild && sel.IsSubtask() {
+		m.status = "subtasks can't have subtasks"
+		return m, false
+	}
+	// A new subtask has no reference, so its form shows none.
+	kind := formTask
+	m.target = t
+	if p := m.addParent(sel); p != nil && p.IsTask() {
+		if m.sprintClosed(p.SprintID()) { // under a closed sprint's task, from the unified view
+			m.status = todo.ErrSprintClosed.Error()
+			return m, false
+		}
+		kind = formSubtask
+	}
+	m.form = newForm(todo.Fields{}, kind, false)
+	return m, true
 }
 
 func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

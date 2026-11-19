@@ -48,7 +48,7 @@ func TestNOnBacklogAddsOpen(t *testing.T) {
 	m = press(m, "a")
 	m = selectTitle(t, m, "working")
 	m = typeText(press(m, "n"), "other")
-	m = press(m, "enter")
+	_ = press(m, "enter")
 	if it := find(loadSprintDoc(t, path), "other"); it == nil || it.Sprint != "" || it.Status != todo.Open {
 		t.Errorf("stored other = %+v, want the Backlog and open", it)
 	}
