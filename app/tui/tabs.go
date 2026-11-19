@@ -70,14 +70,36 @@ func tabKey(key string, current todo.Column) (todo.Column, bool) {
 }
 
 // boardBar renders a sprint board's header line: the sprint's name, marked
-// when the sprint is done, then the tab bar — every tab's title and the
-// sprint's task count there, the active one bracketed and accented, e.g.
-// "Sprint 13 · [Next 3]   In Progress 2   Done 4".
-func boardBar(name string, done bool, counts map[todo.Column]int, active todo.Column, width int) string {
+// when the sprint is done, and its goal when it has one, then the tab bar —
+// every tab's title and the sprint's task count there, the active one
+// bracketed and accented, e.g.
+// "Sprint 13 · ship sprint support   [Next 3]   In Progress 2   Done 4".
+// When the line is wider than width the goal is cut first, so the tab bar
+// stays whole; the tab bar is cut only when even the name leaves no room.
+func boardBar(name, goal string, done bool, counts map[todo.Column]int, active todo.Column, width int) string {
 	head := todo.Printable(name)
 	if done {
 		head += " ✓ done"
 	}
+	tabs := tabBar(counts, active)
+	const sep, goalSep = "   ", " · "
+	line := " " + categoryStyle.Render(head)
+	if goal = todo.Printable(goal); goal != "" {
+		room := width - ansi.StringWidth(line) - ansi.StringWidth(goalSep) - ansi.StringWidth(sep) - ansi.StringWidth(tabs)
+		if ansi.StringWidth(goal) > room {
+			goal = ansi.Truncate(goal, room, "…")
+		}
+		// A goal cut to nothing but the ellipsis tells nothing: drop it.
+		if room > 1 {
+			line += headerHintSty.Render(goalSep) + plainStyle.Render(goal)
+		}
+	}
+	return ansi.Truncate(line+sep+tabs, width, "")
+}
+
+// tabBar renders a sprint board's tabs: every tab's title and the task count
+// in counts, the active one bracketed and accented.
+func tabBar(counts map[todo.Column]int, active todo.Column) string {
 	parts := make([]string, 0, len(boardColumns))
 	for _, c := range boardColumns {
 		label := fmt.Sprintf("%s %d", c.Title(), counts[c])
@@ -87,7 +109,7 @@ func boardBar(name string, done bool, counts map[todo.Column]int, active todo.Co
 			parts = append(parts, headerHintSty.Render(label))
 		}
 	}
-	return ansi.Truncate(" "+categoryStyle.Render(head)+headerHintSty.Render(" · ")+strings.Join(parts, "   "), width, "")
+	return strings.Join(parts, "   ")
 }
 
 // screenBar renders the header line of a screen without tabs, e.g.

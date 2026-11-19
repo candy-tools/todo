@@ -107,11 +107,11 @@ func (m model) screenLine(width int) string {
 	case m.view.screen == screenSprints:
 		return screenBar(fmt.Sprintf("Sprints · %d open", len(m.doc.OpenSprints())), width)
 	}
-	name, done := m.view.sprint, false
+	name, goal, done := m.view.sprint, "", false
 	if s, ok := m.doc.SprintByID(m.view.sprint); ok {
-		name, done = s.Name, s.Status == todo.SprintDone
+		name, goal, done = s.Name, s.Goal, s.Status == todo.SprintDone
 	}
-	return boardBar(name, done, m.doc.ColumnCounts(m.view.sprint), m.view.column, width)
+	return boardBar(name, goal, done, m.doc.ColumnCounts(m.view.sprint), m.view.column, width)
 }
 
 func (m model) footer(width int) string {

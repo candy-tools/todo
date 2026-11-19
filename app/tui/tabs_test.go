@@ -190,7 +190,7 @@ func TestTabBarCounts(t *testing.T) {
 	}
 	toTab(&m, todo.ColNext)
 	out := m.View()
-	for _, want := range []string{"Imported · ", "[Next 0]", "In Progress 1", "Done 1"} {
+	for _, want := range []string{"Imported   [Next 0]", "In Progress 1", "Done 1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("tab bar misses %q:\n%s", want, out)
 		}

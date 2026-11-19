@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // seedSprint is a sprint of a sprintJSON list; status is "open" or "done".
@@ -124,11 +125,33 @@ func TestBoardHeaderMarksDoneSprint(t *testing.T) {
 	m, _ := threeSprints(t)
 	m.showSprint("s00000b")
 	m = press(m, "3")
-	if h := m.header(100); !strings.Contains(h, "B ✓ done · ") || !strings.Contains(h, "[Done 1]") {
+	if h := m.header(100); !strings.Contains(h, "B ✓ done   ") || strings.Contains(h, "B ✓ done · ") || !strings.Contains(h, "[Done 1]") {
 		t.Errorf("header = %q, want B marked done", h)
 	}
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "bDone"}) {
 		t.Errorf("B's Done rows = %v, want only B's task", got)
+	}
+}
+
+func TestBoardHeaderShowsGoal(t *testing.T) {
+	m, _ := threeSprints(t)
+	m.showSprint("s00000c")
+	if h := m.header(100); !strings.Contains(h, "C · goal c") || !strings.Contains(h, "[Next 0]") {
+		t.Errorf("header = %q, want C's name and goal before the tabs", h)
+	}
+	long := strings.Repeat("a very long goal ", 20)
+	m, _ = newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Goal: long, Status: "open"}},
+		seedTask{ID: "t000001", Title: "w", Status: "working", Sprint: "s00000a"}))
+	m.showSprint("s00000a")
+	h := m.header(100)
+	line := strings.Split(h, "\n")[1]
+	if w := ansi.StringWidth(line); w > 100 {
+		t.Errorf("the board line is %d wide, want at most 100: %q", w, line)
+	}
+	for _, want := range []string{"A · a very long goal", "…", "[Next 0]", "In Progress 1", "Done 0"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("a long goal must be cut, not the tabs: line %q misses %q", line, want)
+		}
 	}
 }
 
