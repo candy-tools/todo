@@ -85,7 +85,7 @@ func (m model) header(width int) string {
 		gap = 1
 	}
 	title := ansi.Truncate(" "+left+strings.Repeat(" ", gap)+right, width, "")
-	counts := m.doc.ColumnCounts()
+	counts := m.doc.ColumnCounts("")
 	if m.view.all {
 		total := 0
 		for _, n := range counts {

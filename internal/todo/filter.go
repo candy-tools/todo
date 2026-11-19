@@ -75,18 +75,22 @@ func (d *Document) VisibleWhere(match func(*Item) bool) map[*Item]bool {
 	return visible
 }
 
-// inColumns reports whether it is a top-level task sitting in one of cols.
-func inColumns(it *Item, cols []Column) bool {
-	return it.Kind == Task && !it.IsSubtask() && slices.Contains(cols, it.Status.Column())
+// inColumns reports whether it is a top-level task sitting in one of cols and
+// in sprint. An empty sprint means any membership, backlog or sprint.
+func inColumns(it *Item, sprint string, cols []Column) bool {
+	return it.Kind == Task && !it.IsSubtask() && slices.Contains(cols, it.Status.Column()) &&
+		(sprint == "" || it.Sprint == sprint)
 }
 
 // ColumnItems returns the items to show for the board columns cols (one tab,
 // or several at once): the top-level tasks in any of them, their subtasks, and
 // the category path above them. When cols includes Backlog every category is
 // shown too, so empty categories stay reachable for adding tasks. The result
-// is never nil; an empty map means nothing shows.
-func (d *Document) ColumnItems(cols ...Column) map[*Item]bool {
-	visible := d.VisibleWhere(func(it *Item) bool { return inColumns(it, cols) })
+// is never nil; an empty map means nothing shows. A non-empty sprint keeps only
+// that sprint's tasks; "" means any membership, so the Backlog is
+// ("", ColBacklog), as backlog states imply no sprint.
+func (d *Document) ColumnItems(sprint string, cols ...Column) map[*Item]bool {
+	visible := d.VisibleWhere(func(it *Item) bool { return inColumns(it, sprint, cols) })
 	if slices.Contains(cols, ColBacklog) {
 		var walk func(it *Item)
 		walk = func(it *Item) {
@@ -107,10 +111,10 @@ func (d *Document) ColumnItems(cols ...Column) map[*Item]bool {
 // ColumnMatches returns the items shown for the columns cols while searching
 // for query: the in-view items on a path to a match that is itself in view
 // (see VisibleWhere), so a match in another column never keeps its category as
-// a bare row. A blank query is no search: it returns ColumnItems(cols...).
+// a bare row. A blank query is no search: it returns ColumnItems(sprint, cols...).
 // The TUI and `list --column --filter` both use it, so they agree.
-func (d *Document) ColumnMatches(query string, cols ...Column) map[*Item]bool {
-	inTab := d.ColumnItems(cols...)
+func (d *Document) ColumnMatches(query, sprint string, cols ...Column) map[*Item]bool {
+	inTab := d.ColumnItems(sprint, cols...)
 	if strings.TrimSpace(query) == "" {
 		return inTab
 	}
@@ -127,8 +131,8 @@ func (d *Document) ColumnMatches(query string, cols ...Column) map[*Item]bool {
 // and ColumnMatches), to the top-level tasks in cols whose status is in
 // states, their subtasks and the category path above them. Categories left
 // without such a task drop out. It returns a new map and leaves vis untouched.
-func (d *Document) KeepStates(vis map[*Item]bool, states map[Status]bool, cols ...Column) map[*Item]bool {
-	keep := d.VisibleWhere(func(it *Item) bool { return inColumns(it, cols) && states[it.Status] })
+func (d *Document) KeepStates(vis map[*Item]bool, states map[Status]bool, sprint string, cols ...Column) map[*Item]bool {
+	keep := d.VisibleWhere(func(it *Item) bool { return inColumns(it, sprint, cols) && states[it.Status] })
 	out := make(map[*Item]bool, len(keep))
 	for it := range keep {
 		if vis[it] {
@@ -138,24 +142,25 @@ func (d *Document) KeepStates(vis map[*Item]bool, states map[Status]bool, cols .
 	return out
 }
 
-// ColumnCounts counts the top-level tasks in each board column.
-func (d *Document) ColumnCounts() map[Column]int {
+// ColumnCounts counts the top-level tasks in each board column. A non-empty
+// sprint counts only that sprint's tasks; "" counts every task.
+func (d *Document) ColumnCounts(sprint string) map[Column]int {
 	counts := map[Column]int{}
 	for _, r := range d.Roots {
-		r.countColumns(counts)
+		r.countColumns(sprint, counts)
 	}
 	return counts
 }
 
-func (it *Item) countColumns(counts map[Column]int) {
+func (it *Item) countColumns(sprint string, counts map[Column]int) {
 	if it.Kind == Task {
-		if !it.IsSubtask() {
+		if !it.IsSubtask() && (sprint == "" || it.Sprint == sprint) {
 			counts[it.Status.Column()]++
 		}
 		return
 	}
 	for _, c := range it.Children {
-		c.countColumns(counts)
+		c.countColumns(sprint, counts)
 	}
 }
 
@@ -163,6 +168,6 @@ func (it *Item) countColumns(counts map[Column]int) {
 // descending through subcategories.
 func (it *Item) CountInColumn(c Column) int {
 	counts := map[Column]int{}
-	it.countColumns(counts)
+	it.countColumns("", counts)
 	return counts[c]
 }

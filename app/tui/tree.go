@@ -134,13 +134,13 @@ func (t *tree) shownID() func(id string) bool {
 // is on for the tab (see todo.Document.KeepStates).
 func (t *tree) visibleItems() map[*todo.Item]bool {
 	cols := t.vs.columns()
-	vis := t.doc.ColumnMatches(t.vs.filter, cols...)
+	vis := t.doc.ColumnMatches(t.vs.filter, "", cols...)
 	if active := t.vs.activeStates(); len(active) > 0 {
 		keep := map[todo.Status]bool{}
 		for _, st := range active {
 			keep[st] = true
 		}
-		vis = t.doc.KeepStates(vis, keep, cols...)
+		vis = t.doc.KeepStates(vis, keep, "", cols...)
 	}
 	return vis
 }
