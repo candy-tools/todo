@@ -248,6 +248,45 @@ type View struct {
 	// Split shows the categories in a sidebar beside a task list (the TUI's
 	// "v").
 	Split bool
+	// Screen is the screen the TUI opens on.
+	Screen Screen
+	// Sprint is the ID of the sprint the sprint screen shows; it may name a
+	// sprint that no longer exists, which the TUI treats as no sprint.
+	Sprint string
+}
+
+// Screen is a screen of the TUI. The list file stores it by name (see
+// String), so the names are pinned.
+type Screen int
+
+const (
+	// ScreenBacklog is the backlog, the screen todo opens on.
+	ScreenBacklog Screen = 0
+	// ScreenSprints is the list of sprints.
+	ScreenSprints Screen = 1
+	// ScreenSprint is one sprint's board.
+	ScreenSprint Screen = 2
+)
+
+var screenNames = map[Screen]string{ScreenBacklog: "backlog", ScreenSprints: "sprints", ScreenSprint: "sprint"}
+
+// String returns the screen's name, or "screen(N)" for an unknown value so it
+// stays visible.
+func (s Screen) String() string {
+	if n, ok := screenNames[s]; ok {
+		return n
+	}
+	return fmt.Sprintf("screen(%d)", int(s))
+}
+
+// screenFromName parses a screen name; ok is false for an unknown name.
+func screenFromName(name string) (Screen, bool) {
+	for s, n := range screenNames {
+		if n == name {
+			return s, true
+		}
+	}
+	return ScreenBacklog, false
 }
 
 // IsTask reports whether the item is a task (rather than a category).

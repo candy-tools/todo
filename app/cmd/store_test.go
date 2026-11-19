@@ -187,7 +187,7 @@ func TestAutoImportWritesJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := bytesOf(t, ".todo.json")
-	if !contains(string(raw), `"version": 5`) || !contains(string(raw), `"title": "alpha"`) {
+	if !contains(string(raw), `"version": 6`) || !contains(string(raw), `"title": "alpha"`) {
 		t.Errorf(".todo.json is not the JSON list:\n%s", raw)
 	}
 	if _, err := os.Stat(".todo.db"); !os.IsNotExist(err) {

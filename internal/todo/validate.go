@@ -1,6 +1,9 @@
 package todo
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // invalidf returns an ErrInvalidList with the message format makes of args.
 func invalidf(format string, args ...any) error {
@@ -8,14 +11,18 @@ func invalidf(format string, args ...any) error {
 }
 
 // validate checks l against the format's rules and returns the first failure,
-// in this order: version, malformed IDs, duplicate IDs, missing category
-// parents, parent cycles, missing task categories, unknown statuses, titles,
-// references.
+// in this order: version, malformed IDs, duplicate IDs, sprints, missing
+// category parents, parent cycles, missing task categories, unknown statuses,
+// missing task sprints, titles, references. It checks the structure only: which
+// tasks may sit in which sprint is the operations' rule, not the file's.
 func (l *diskList) validate() error {
 	if l.Version != fileVersion {
 		return invalidf("unsupported format version %d", l.Version)
 	}
 	if err := l.validateIDs(); err != nil {
+		return err
+	}
+	if err := l.validateSprints(); err != nil {
 		return err
 	}
 	parents, err := l.validateCategories()
@@ -32,10 +39,65 @@ func (l *diskList) validate() error {
 			return invalidf("task %s: unknown status %q", t.ID, t.Status)
 		}
 	}
+	if err := l.validateTaskSprints(); err != nil {
+		return err
+	}
 	if err := l.validateTitles(); err != nil {
 		return err
 	}
 	return l.validateRefs()
+}
+
+// validateSprints checks every sprint: a well formed ID that no other sprint
+// has, a name CleanTitle accepts unchanged that no other sprint has ignoring
+// case, and a known status, in that order over all sprints.
+func (l *diskList) validateSprints() error {
+	ids := make(map[string]bool, len(l.Sprints))
+	for i, s := range l.Sprints {
+		if !validID(s.ID) {
+			return invalidf("%s: malformed id %q: %s", titled("sprint", s.Name, fmt.Sprintf("sprints[%d]", i)), s.ID, idRule)
+		}
+		if ids[s.ID] {
+			return invalidf("duplicate sprint id %s", s.ID)
+		}
+		ids[s.ID] = true
+	}
+	names := make(map[string]string, len(l.Sprints)) // folded name to the ID of the sprint holding it
+	for _, s := range l.Sprints {
+		clean, err := CleanTitle(s.Name)
+		if err != nil {
+			return invalidf("sprint %s: %v", s.ID, err)
+		}
+		if clean != s.Name {
+			return invalidf("sprint %s: name has leading or trailing whitespace", s.ID)
+		}
+		key := strings.ToLower(s.Name)
+		if other, ok := names[key]; ok {
+			return invalidf("sprint %s: name %q is already used by sprint %s", s.ID, s.Name, other)
+		}
+		names[key] = s.ID
+	}
+	for _, s := range l.Sprints {
+		if _, ok := SprintStatusFromName(s.Status); !ok {
+			return invalidf("sprint %s: unknown status %q", s.ID, s.Status)
+		}
+	}
+	return nil
+}
+
+// validateTaskSprints checks every task that names a sprint names one the list
+// has.
+func (l *diskList) validateTaskSprints() error {
+	have := make(map[string]bool, len(l.Sprints))
+	for _, s := range l.Sprints {
+		have[s.ID] = true
+	}
+	for _, t := range l.Tasks {
+		if t.Sprint != "" && !have[t.Sprint] {
+			return invalidf("task %s: sprint %q does not exist", t.ID, t.Sprint)
+		}
+	}
+	return nil
 }
 
 // validateRefs checks every task reference is one CleanRef accepts unchanged
