@@ -454,3 +454,60 @@ func TestReopenFromSnapshotIntoPickedState(t *testing.T) {
 		t.Errorf("leaving Done must consume the snapshot, got %d", len(m.snapshots))
 	}
 }
+
+// closedBoard is a closed sprint holding one done task, shipped, with a done
+// subtask, beside an open sprint and a backlog task, shown on the closed
+// sprint's Done tab with shipped selected.
+func closedBoard(t *testing.T) (model, string) {
+	t.Helper()
+	m, path := newJSONModel(t, `{"version": 6,
+		"sprints": [{"id": "s000001", "name": "Closed", "status": "done"}, {"id": "s000002", "name": "Open", "status": "open"}],
+		"categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "sprint": "s000001", "title": "shipped", "status": "done",
+			"subtasks": [{"id": "p000001", "title": "part", "done": true}]},
+		{"id": "t000002", "category": "c000000", "title": "idle", "status": "open"}]}`)
+	return onBoard(t, m, "s000001", todo.ColDone, "shipped"), path
+}
+
+// On a closed sprint's board every key that would change a task's membership
+// or state, or add a task, leaves the file alone and says why.
+func TestClosedBoardKeysShowReopenHint(t *testing.T) {
+	for _, key := range []string{"p", "P", "t", "n", "N", "o"} {
+		t.Run(key, func(t *testing.T) {
+			m, _ := closedBoard(t)
+			before := storeFP(t, m)
+			m = press(m, key)
+			if m.status != "reopen the sprint first" || m.err != nil {
+				t.Errorf("status %q err %v, want the reopen hint", m.status, m.err)
+			}
+			if m.mode != modeMain {
+				t.Errorf("mode = %v, want no dialog opened", m.mode)
+			}
+			if storeFP(t, m) != before {
+				t.Error("the file changed")
+			}
+		})
+	}
+}
+
+// A write the list refuses (here the sprint closed by another process since
+// the board was drawn) shows its reason in the footer, not as a failed save.
+func TestRefusedWriteIsAStatus(t *testing.T) {
+	m, path := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{{ID: "s000001", Name: "Sprint 1", Status: "open"}},
+		seedTask{ID: "t000001", Title: "x", Status: "done", Sprint: "s000001"}))
+	m = onBoard(t, m, "s000001", todo.ColDone, "x")
+	if _, err := openSecond(t, path).CloseSprint(context.Background(), "s000001"); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "P")
+	if m.err != nil || m.status != "reopen the sprint first" {
+		t.Errorf("err %v status %q, want no save error and the reopen hint", m.err, m.status)
+	}
+	if strings.Contains(m.footer(200), "save failed") {
+		t.Errorf("footer = %q", m.footer(200))
+	}
+	if it := find(loadSprintDoc(t, path), "x"); it.Status != todo.Done {
+		t.Errorf("x = %v, want still done", it.Status)
+	}
+}

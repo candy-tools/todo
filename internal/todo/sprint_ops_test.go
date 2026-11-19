@@ -83,12 +83,9 @@ func TestAddTaskJoinsSprintOnlyAtTopLevel(t *testing.T) {
 	if got := f.item(id).Sprint; got != s {
 		t.Errorf("Sprint = %q, want %q", got, s)
 	}
-	sub, err := f.d.AppendTask(Fields{Title: "x", Sprint: s}, Open, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := f.item(sub).Sprint; got != "" {
-		t.Errorf("subtask Sprint = %q, want empty", got)
+	sub := f.sub(id, Open)
+	if it := f.item(sub); it.Sprint != "" || it.SprintID() != s {
+		t.Errorf("subtask Sprint = %q, SprintID %q; want none of its own, its task's %q", it.Sprint, it.SprintID(), s)
 	}
 }
 
@@ -234,6 +231,7 @@ func TestAssignAcrossSprintsKeepsState(t *testing.T) {
 func TestAssignClosedSprintRefused(t *testing.T) {
 	f := newSprintFixture(t)
 	open, closed := f.sprint("Open"), f.sprint("Closed")
+	doneTask := f.task("d", Done, closed)
 	if err := f.d.CloseSprint(closed); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +239,6 @@ func TestAssignClosedSprintRefused(t *testing.T) {
 	if _, err := f.d.Assign(backlog, closed); !errors.Is(err, ErrSprintClosed) {
 		t.Errorf("target closed: err = %v", err)
 	}
-	doneTask := f.task("d", Done, closed)
 	if _, err := f.d.Assign(doneTask, open); !errors.Is(err, ErrSprintClosed) {
 		t.Errorf("source closed: err = %v", err)
 	}
@@ -287,10 +284,10 @@ func TestUnassignBecomesOpen(t *testing.T) {
 	if changed, err := f.d.Unassign(task); err != nil || changed {
 		t.Errorf("backlog Unassign = %v, %v; want no change", changed, err)
 	}
+	doneTask := f.task("d", Done, s)
 	if err := f.d.CloseSprint(s); err != nil {
 		t.Fatal(err)
 	}
-	doneTask := f.task("d", Done, s)
 	if _, err := f.d.Unassign(doneTask); !errors.Is(err, ErrSprintClosed) {
 		t.Errorf("closed: err = %v", err)
 	}

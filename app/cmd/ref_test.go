@@ -68,7 +68,7 @@ func TestEditSetRef(t *testing.T) {
 
 // --id takes a task's reference, ignoring case, wherever it takes an ID.
 func TestIDSelectorTakesRef(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] a\n")
 	if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-ref", "APP-001"); err != nil {
 		t.Fatal(err)
 	}

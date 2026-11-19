@@ -129,12 +129,15 @@ var ErrNeedsSprint = classed(ErrBadRequest, "task is not in a sprint (use todo a
 // backlog state. Its class is ErrBadRequest.
 var ErrInSprint = classed(ErrBadRequest, "a task in a sprint cannot take a backlog state; unassign it first")
 
-// ErrSprintClosed is returned by a write that would put a task in a done
-// sprint. Its class is ErrBadRequest.
+// ErrSprintClosed is returned by a write that would change a done sprint's
+// tasks beyond what it allows: add a task or subtask to it, move a task into
+// or out of it, nest or lift its tasks, or leave one of them not done. Its
+// class is ErrBadRequest.
 var ErrSprintClosed = classed(ErrBadRequest, "reopen the sprint first")
 
 // ErrSprintMembership is returned by a write that would nest tasks of
-// different sprints. Its class is ErrBadRequest.
+// different sprints (the backlog counts as one), or give a subtask a sprint of
+// its own: a subtask follows its task. Its class is ErrBadRequest.
 var ErrSprintMembership = classed(ErrBadRequest, "tasks in different sprints cannot nest")
 
 // ErrDuplicateSprint is returned by a write that would give a sprint a name

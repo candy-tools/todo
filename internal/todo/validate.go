@@ -10,8 +10,9 @@ func invalidf(format string, args ...any) error {
 // validate checks l against the format's rules and returns the first failure,
 // in this order: version, malformed IDs, duplicate IDs, sprints, missing
 // category parents, parent cycles, missing task categories, unknown statuses,
-// missing task sprints, titles, references. It checks the structure only: which
-// tasks may sit in which sprint is the operations' rule, not the file's.
+// missing task sprints, sprint membership, titles, references. A file older
+// than version 6 is upgraded before (see upgradeSprints), so its tasks in a
+// sprint state pass the membership checks.
 func (l *diskList) validate() error {
 	if l.Version != fileVersion {
 		return invalidf("unsupported format version %d", l.Version)
@@ -42,6 +43,9 @@ func (l *diskList) validate() error {
 		}
 	}
 	if err := l.validateTaskSprints(); err != nil {
+		return err
+	}
+	if err := l.validateMembership(); err != nil {
 		return err
 	}
 	if err := l.validateTitles(); err != nil {
@@ -97,6 +101,36 @@ func (l *diskList) validateTaskSprints() error {
 	for _, t := range l.Tasks {
 		if t.Sprint != "" && !have[t.Sprint] {
 			return invalidf("task %s: sprint %q does not exist", t.ID, t.Sprint)
+		}
+	}
+	return nil
+}
+
+// validateMembership checks the membership rule on every task, in file order:
+// a task in a sprint state has a sprint and one in a backlog state has none,
+// and a done sprint holds only done tasks with done subtasks. The statuses
+// and sprints must already be valid.
+func (l *diskList) validateMembership() error {
+	done := make(map[string]bool, len(l.Sprints))
+	for _, s := range l.Sprints {
+		done[s.ID] = s.Status == SprintDone.String()
+	}
+	for _, t := range l.Tasks {
+		st, _ := statusFromDisk(t.Status)
+		switch {
+		case st.InSprint() && t.Sprint == "":
+			return invalidf("task %s: status %q needs a sprint", t.ID, t.Status)
+		case !st.InSprint() && t.Sprint != "":
+			return invalidf("task %s: backlog status %q in sprint %s", t.ID, t.Status, t.Sprint)
+		case !done[t.Sprint]:
+			continue
+		case st != Done:
+			return invalidf("sprint %s is done but task %s is not", t.Sprint, t.ID)
+		}
+		for _, s := range t.Subtasks {
+			if !s.Done {
+				return invalidf("sprint %s is done but subtask %s of task %s is not", t.Sprint, s.ID, t.ID)
+			}
 		}
 	}
 	return nil

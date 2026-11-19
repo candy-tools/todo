@@ -173,7 +173,7 @@ func TestStorePruneSeesFreshFile(t *testing.T) {
 	ctx := context.Background()
 	a := newStore(t)
 	cat := mustID(t)(a.AppendCategory(ctx, "C", ""))
-	done := mustID(t)(a.AppendTask(ctx, Fields{Title: "done"}, Done, cat))
+	done := mustID(t)(a.AppendTask(ctx, Fields{Title: "done", Sprint: testSprint(t, a)}, Done, cat))
 	if got := item(t, load(t, a), done); got.Status != Done {
 		t.Fatalf("done = %v", got.Status)
 	}

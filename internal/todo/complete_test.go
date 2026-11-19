@@ -292,7 +292,7 @@ func TestStoreSetStateRestoresOnlyDescendants(t *testing.T) {
 	s := newStore(t)
 	ids, snapshot, _ := completeForUndo(t, s)
 	other := NewStore(s.Path())
-	u := mustID(t)(other.AddTask(ctx, Fields{Title: "u"}, Working, ids.C, ids.task))
+	u := mustID(t)(other.AddTask(ctx, Fields{Title: "u", Sprint: testSprint(t, other)}, Working, ids.C, ids.task))
 	mustOK(t)(other.Move(ctx, ids.sub, u, ""))
 
 	mustOK(t)(s.SetState(ctx, ids.task, Working, StateOptions{Restore: snapshot}))

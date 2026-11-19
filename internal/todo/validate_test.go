@@ -62,8 +62,22 @@ func TestValidate(t *testing.T) {
 			`invalid list file: view: unknown screen "x"`},
 		{"valid sprint", func(l *todo.DiskList) {
 			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
-			l.Tasks[0].Sprint = d
+			l.Tasks[0].Sprint, l.Tasks[0].Status, l.Tasks[0].Subtasks[0].Done = d, "done", true
 		}, ""},
+		{"sprint state without a sprint", func(l *todo.DiskList) { l.Tasks[0].Status = "working" },
+			"invalid list file: task " + b + `: status "working" needs a sprint`},
+		{"backlog state in a sprint", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "open"}}
+			l.Tasks[0].Sprint, l.Tasks[0].Status = d, "deferred"
+		}, "invalid list file: task " + b + `: backlog status "deferred" in sprint ` + d},
+		{"done sprint holding a task not done", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
+			l.Tasks[0].Sprint, l.Tasks[0].Status = d, "review"
+		}, "invalid list file: sprint " + d + " is done but task " + b + " is not"},
+		{"done sprint holding an open subtask", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
+			l.Tasks[0].Sprint, l.Tasks[0].Status = d, "done"
+		}, "invalid list file: sprint " + d + " is done but subtask " + c + " of task " + b + " is not"},
 		{"malformed sprint id", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: "BAD", Name: "S1", Status: "open"}} },
 			`invalid list file: sprint "S1": malformed id "BAD": an id is 7 characters from 0-9 and a-z except i, l, o and u`},
 		{"duplicate sprint id", func(l *todo.DiskList) {

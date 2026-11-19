@@ -130,7 +130,8 @@ func (m model) openAssignPicker(task *todo.Item) (tea.Model, tea.Cmd) {
 
 // openSendToPicker is o: it opens the dialog that moves the selected sprint task
 // to another open sprint or back to the Backlog. A category, a subtask (it
-// follows its task) and a backlog task get a footer hint instead.
+// follows its task), a backlog task and a task of a closed sprint get a footer
+// hint instead.
 func (m model) openSendToPicker() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {
@@ -144,6 +145,9 @@ func (m model) openSendToPicker() (tea.Model, tea.Cmd) {
 		return m, nil
 	case it.SprintID() == "":
 		m.status = "use p to assign it to a sprint"
+		return m, nil
+	case m.sprintClosed(it.SprintID()):
+		m.status = todo.ErrSprintClosed.Error()
 		return m, nil
 	}
 	m.sprintPick, m.mode = newSendToPicker(m.doc, it), modeSprintPick

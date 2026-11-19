@@ -58,11 +58,15 @@ func (m *model) taskAnchor() *todo.Item {
 
 // openForm prepares and opens the add/edit modal for the given target. Outside
 // Backlog it refuses to add, rename or delete a category, and it refuses a
-// subtask under a subtask.
+// subtask under a subtask and a task that would join a closed sprint.
 func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	sel := m.focused().selected()
 	switch t {
 	case targetAddSibling, targetAddChild:
+		if m.view.onBoard() && m.sprintClosed(m.view.sprint) {
+			m.status = todo.ErrSprintClosed.Error()
+			return m, nil
+		}
 		sel = m.taskAnchor()
 		if sel == nil && m.split {
 			m.status = msgPickCategory
@@ -85,6 +89,10 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 		kind := formTask
 		m.target = t
 		if p := m.addParent(sel); p != nil && p.IsTask() {
+			if m.sprintClosed(p.SprintID()) { // under a closed sprint's task, from the unified view
+				m.status = todo.ErrSprintClosed.Error()
+				return m, nil
+			}
 			kind = formSubtask
 		}
 		m.form = newForm(todo.Fields{}, kind, false)

@@ -236,17 +236,16 @@ func (m model) toggleSprintClosed() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	id, closing := s.ID, s.Status == todo.SprintOpen
-	if !m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
-		if closing {
-			return st.CloseSprint(ctx, id)
+	m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+		if !closing {
+			return st.ReopenSprint(ctx, id)
 		}
-		return st.ReopenSprint(ctx, id)
-	}) {
-		var notDone *todo.SprintNotDoneError
-		if errors.As(m.err, &notDone) {
-			m.err, m.status = nil, "can't close: "+notDone.Error()
+		res, err := st.CloseSprint(ctx, id)
+		if errors.Is(err, todo.ErrSprintNotDone) {
+			err = fmt.Errorf("can't close: %w", err) // a refusal, shown as the status
 		}
-	}
+		return res, err
+	})
 	return m, nil
 }
 
@@ -278,10 +277,8 @@ func (m model) doDeleteSprint() (tea.Model, tea.Cmd) {
 	// accidental-complete undo window.
 	m.snapshots = map[string]todo.DoneStates{}
 	id := s.ID
-	if !m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+	m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
 		return st.DeleteSprint(ctx, id)
-	}) && errors.Is(m.err, todo.ErrSprintHasDone) {
-		m.err, m.status = nil, todo.ErrSprintHasDone.Error()
-	}
+	})
 	return m, nil
 }

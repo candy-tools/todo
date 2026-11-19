@@ -21,7 +21,7 @@ func codeOf(t *testing.T, err error) int {
 }
 
 func TestDoneByTitle(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] a\n- [ ] b\n")
 	if _, err := runCmd(t, "done", "--file", path, "--title", "a"); err != nil {
 		t.Fatalf("done: %v", err)
 	}
@@ -32,14 +32,14 @@ func TestDoneByTitle(t *testing.T) {
 }
 
 func TestDoneByNumberAndID(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] a\n")
 	if _, err := runCmd(t, "done", "--file", path, "--number", "2"); err != nil {
 		t.Fatalf("done --number: %v", err)
 	}
 	if !strings.Contains(todotest.Dump(t, path), "- [x] a") {
 		t.Error("done --number 2 should complete task a")
 	}
-	path2 := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	path2 := todotest.Seed(t, "# Work\n\n- [/] a\n")
 	id := idOf(t, path2, "a")
 	if _, err := runCmd(t, "done", "--file", path2, "--id", id); err != nil {
 		t.Fatalf("done --id: %v", err)
@@ -69,7 +69,7 @@ func TestDoneSelectorErrors(t *testing.T) {
 }
 
 func TestDoneCascade(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] child\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] parent\n  - [ ] child\n")
 	if _, err := runCmd(t, "done", "--file", path, "--title", "parent", "--cascade"); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestDoneCascade(t *testing.T) {
 }
 
 func TestDoneNoCascadeLeavesChildren(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] child\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] parent\n  - [ ] child\n")
 	if _, err := runCmd(t, "done", "--file", path, "--title", "parent"); err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestDoneNoCascadeLeavesChildren(t *testing.T) {
 }
 
 func TestProgressAndDefer(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	path := todotest.Seed(t, "# Work\n\n- [x] a\n- [ ] b\n")
 	if _, err := runCmd(t, "progress", "--file", path, "--title", "a"); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestProgressAndDefer(t *testing.T) {
 }
 
 func TestSelectByID(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [/] b\n")
 	id := idOf(t, path, "b")
 	if _, err := runCmd(t, "done", "--file", path, "--id", id); err != nil {
 		t.Fatalf("done --id: %v", err)
@@ -120,7 +120,7 @@ func TestSelectByID(t *testing.T) {
 }
 
 func TestStatusTo(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] a\n")
 	if _, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "ready"); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestStatusTo(t *testing.T) {
 }
 
 func TestStatusToConfirmationLine(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] a\n")
 	out, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "review")
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestStatusToInvalid(t *testing.T) {
 }
 
 func TestStatusToProgressAlias(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	path := todotest.Seed(t, "# Work\n\n- [x] a\n")
 	if _, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "progress"); err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestSubtaskBoardStateIsUsageError(t *testing.T) {
 }
 
 func TestStatusToDoneDoesNotCascade(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] child\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] parent\n  - [ ] child\n")
 	if _, err := runCmd(t, "status", "--file", path, "--title", "parent", "--to", "done"); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestReopenWithoutCascadeKeepsSubtasks(t *testing.T) {
 }
 
 func TestReopenNotDoneTaskKeepsItsState(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] parent\n  - [ ] child\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] a\n- [ ] parent\n  - [ ] child\n")
 	if _, err := runCmd(t, "status", "--file", path, "--title", "a", "--to", "new"); err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestReopenNotDoneTaskKeepsItsState(t *testing.T) {
 }
 
 func TestReopenCascadeOnNotDoneTaskOpensSubtasks(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [x] child\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] parent\n  - [x] child\n")
 	if _, err := runCmd(t, "status", "--file", path, "--title", "parent", "--to", "review"); err != nil {
 		t.Fatal(err)
 	}
@@ -330,11 +330,11 @@ func TestDoneHintsAtOpenSubtasks(t *testing.T) {
 		args     []string
 		hint     string
 	}{
-		{"two open", "- [ ] parent\n  - [ ] c1\n  - [ ] c2\n  - [x] c3\n", nil, "2 subtasks still open; --cascade completes them\n"},
-		{"one open", "- [ ] parent\n  - [ ] c1\n  - [x] c2\n", nil, "1 subtask still open; --cascade completes it\n"},
-		{"all done", "- [ ] parent\n  - [x] c1\n", nil, ""},
-		{"no subtasks", "- [ ] parent\n", nil, ""},
-		{"cascade", "- [ ] parent\n  - [ ] c1\n", []string{"--cascade"}, ""},
+		{"two open", "- [/] parent\n  - [ ] c1\n  - [ ] c2\n  - [x] c3\n", nil, "2 subtasks still open; --cascade completes them\n"},
+		{"one open", "- [/] parent\n  - [ ] c1\n  - [x] c2\n", nil, "1 subtask still open; --cascade completes it\n"},
+		{"all done", "- [/] parent\n  - [x] c1\n", nil, ""},
+		{"no subtasks", "- [/] parent\n", nil, ""},
+		{"cascade", "- [/] parent\n  - [ ] c1\n", []string{"--cascade"}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			path := todotest.Seed(t, "# Work\n\n"+c.md)
@@ -357,7 +357,7 @@ func TestDoneHintsAtOpenSubtasks(t *testing.T) {
 // earlier read: a subtask another writer added in between is counted.
 func TestDoneHintCountsTheWrittenList(t *testing.T) {
 	ctx := context.Background()
-	path := todotest.Seed(t, "# Work\n\n- [ ] parent\n  - [ ] c1\n")
+	path := todotest.Seed(t, "# Work\n\n- [/] parent\n  - [ ] c1\n")
 	s := todo.NewStore(path)
 	doc, _, err := s.Load(ctx)
 	if err != nil {

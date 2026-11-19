@@ -111,13 +111,7 @@ func containsTitle(items []jsonItem, title string) bool {
 // boardFixture builds a store with one task per column state of interest.
 func boardFixture(t *testing.T) string {
 	t.Helper()
-	path := todotest.Seed(t, "# Work\n\n- [ ] backlogged\n- [ ] busy\n  - [ ] sub\n- [ ] finished\n\n# Other\n\n- [ ] elsewhere\n")
-	for title, to := range map[string]string{"busy": "working", "finished": "done"} {
-		if _, err := runCmd(t, "status", "--file", path, "--title", title, "--to", to); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return path
+	return todotest.Seed(t, "# Work\n\n- [ ] backlogged\n- [/] busy\n  - [ ] sub\n- [x] finished\n\n# Other\n\n- [ ] elsewhere\n")
 }
 
 func TestListColumnFilter(t *testing.T) {

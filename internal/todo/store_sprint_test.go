@@ -13,7 +13,8 @@ func TestStoreSprintWritesPersist(t *testing.T) {
 
 	a := mustID(t)(s.AddSprint(ctx, "Alpha", "goal"))
 	b := mustID(t)(s.AddSprint(ctx, "Beta", ""))
-	if doc := load(t, s); len(doc.Sprints) != 2 || doc.Sprints[0].Goal != "goal" {
+	// addSample made the first sprint, for its working task.
+	if doc := load(t, s); len(doc.Sprints) != 3 || doc.Sprints[1].Goal != "goal" {
 		t.Fatalf("sprints after add = %+v", doc.Sprints)
 	}
 

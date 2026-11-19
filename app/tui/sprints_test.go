@@ -46,8 +46,9 @@ func TestSprintListNewDuplicateKeepsForm(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = typeText(press(m, "s", "n"), "a")
 	m = press(m, "enter")
-	if m.mode != modeForm || m.err == nil || !strings.Contains(m.err.Error(), "save failed") {
-		t.Errorf("a duplicate name: mode %v err %v, want the form open with a save error", m.mode, m.err)
+	// A refused write is no failed save: the reason is the footer status.
+	if m.mode != modeForm || m.err != nil || !strings.Contains(m.status, todo.ErrDuplicateSprint.Error()) {
+		t.Errorf("a duplicate name: mode %v err %v status %q, want the form open with the refusal", m.mode, m.err, m.status)
 	}
 }
 
