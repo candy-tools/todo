@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -228,6 +229,27 @@ func (m *model) toggleSplit() {
 	if target != nil {
 		m.tree.revealItem(target)
 	}
+}
+
+// applyView puts the model in the view v, the one the list file holds, when
+// the app opens. A later change of the file's view, by another session, is
+// not applied: it would switch the view under the user.
+func (m *model) applyView(v todo.View) {
+	m.setUnified(v.Unified)
+	if v.Split != m.split {
+		m.toggleSplit()
+	}
+}
+
+// saveView stores the view on screen (unified or the board, split or not) in
+// the list file, so the next session opens on it. It is a write like any
+// other (see commit): a failed one shows in the footer, and the view stays as
+// it is on screen.
+func (m *model) saveView() {
+	v := todo.View{Unified: m.view.all, Split: m.split}
+	m.commit(m.focused().selectedID(), func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+		return st.SetView(ctx, v)
+	})
 }
 
 // sidebarWidth is the split view's sidebar width for a terminal w wide: 30%,

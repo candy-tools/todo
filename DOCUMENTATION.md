@@ -112,8 +112,10 @@ Moving a task between columns:
 
 ## Views
 
-Two view toggles change how the board is laid out. They are independent, can
-be combined, and last for the session (todo always opens on the Backlog tab).
+Two view toggles change how the board is laid out. They are independent and
+can be combined. Both are saved in the list file (see Storage), so todo opens
+on the view you left, for everyone who opens that list; the board opens on the
+Backlog tab.
 
 **All states (`k`).** Hides the tabs and shows every task, whatever its state,
 in one tree; the tab bar becomes an `All states · N tasks` line. Press `k`
@@ -334,7 +336,10 @@ changes only the lines that changed.
 
 ```json
 {
-  "version": 4,
+  "version": 5,
+  "view": {
+    "split": true
+  },
   "categories": [
     {
       "id": "8v1wyaa",
@@ -367,10 +372,14 @@ changes only the lines that changed.
 }
 ```
 
-- `version` is the format version (now `4`). A file with a higher version is
-  refused: `list was written by a newer todo`. A version `3` file (from before
-  references) loads as it is and is written back as version `4` on the next
-  change, after which todo versions older than this one refuse it.
+- `version` is the format version (now `5`). A file with a higher version is
+  refused: `list was written by a newer todo`. A version `3` or `4` file (from
+  before references or the view) loads as it is and is written back as
+  version `5` on the next change, after which todo versions older than this one
+  refuse it.
+- `view` is the TUI view the list opens on: `unified` for All states (`k`),
+  `split` for the split view (`v`). Each is left out when false, and the whole
+  section when both are, which is the board without the split.
 - `categories` have an `id`, a `title` and, for a nested one, the `parent`
   category's id. Array order is the order among siblings.
 - `tasks` have an `id`, the `category` they sit under, a `title` and a `status`

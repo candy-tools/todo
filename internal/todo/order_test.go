@@ -112,7 +112,7 @@ func TestOpMoveLast(t *testing.T) {
 // array order, so the file stays byte for byte as it was.
 func TestDiskOldTaskOrderKept(t *testing.T) {
 	const old = `{
-  "version": 4,
+  "version": 5,
   "categories": [
     {
       "id": "aaaaaaa",

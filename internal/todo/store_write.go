@@ -132,6 +132,18 @@ func (s *Store) Delete(ctx context.Context, id string) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.Delete(id) })
 }
 
+// SetView stores v as the view the list is shown in. The items are left as
+// the file holds them; a view the file already holds writes nothing.
+func (s *Store) SetView(ctx context.Context, v View) (WriteResult, error) {
+	return s.write(ctx, func(d *Document) (bool, error) {
+		if d.View == v {
+			return false, nil
+		}
+		d.View = v
+		return true, nil
+	})
+}
+
 // Prune removes every fully-done task subtree (see Document.DoneSubtrees) and
 // returns how many tasks went. It finds them in the list as it is at write
 // time, not in the caller's copy, so a subtask another process just added

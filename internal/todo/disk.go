@@ -13,8 +13,8 @@ import (
 )
 
 // fileVersion is the version of the JSON list file format. Version 4 added
-// the task "ref" field.
-const fileVersion = 4
+// the task "ref" field, version 5 the "view" section.
+const fileVersion = 5
 
 // oldestFileVersion is the oldest format version this todo reads. Every
 // version from it up to fileVersion only adds optional fields, so such a file
@@ -24,9 +24,17 @@ const oldestFileVersion = 3
 // diskList is the JSON form of the whole list. Categories and tasks are flat
 // arrays that refer to each other by ID; field order is key order.
 type diskList struct {
-	Version    int            `json:"version"`
+	Version int `json:"version"`
+	// View is the view the TUI opens on; nil, and left out, for the default.
+	View       *diskView      `json:"view,omitempty"`
 	Categories []diskCategory `json:"categories"`
 	Tasks      []diskTask     `json:"tasks"`
+}
+
+// diskView is the view section; a false field is left out.
+type diskView struct {
+	Unified bool `json:"unified,omitempty"`
+	Split   bool `json:"split,omitempty"`
 }
 
 // diskCategory is a category; Parent is "" for a root category.
@@ -63,9 +71,13 @@ type diskSubtask struct {
 // hold where tasks sit against subcategories, so it keeps the order older
 // todos wrote (which listed a category's tasks before its subcategories) and
 // a write changes only the lines that changed. A task's subtasks are its task
-// children; a category's description and plan are not stored.
+// children; a category's description and plan are not stored. The default
+// view is left out.
 func toDisk(d *Document) diskList {
 	l := diskList{Version: fileVersion, Categories: []diskCategory{}, Tasks: []diskTask{}}
+	if d.View != (View{}) {
+		l.View = &diskView{Unified: d.View.Unified, Split: d.View.Split}
+	}
 	for _, cat := range d.Enumerate() {
 		if cat.Kind != Category {
 			continue
@@ -104,6 +116,9 @@ func toDisk(d *Document) diskList {
 // come before its tasks. Every item gets Parent, Kind, Level and Status.
 func fromDisk(l diskList) *Document {
 	d := &Document{}
+	if l.View != nil {
+		d.View = View{Unified: l.View.Unified, Split: l.View.Split}
+	}
 	cats := make(map[string]*Item, len(l.Categories))
 	for _, c := range l.Categories {
 		cats[c.ID] = &Item{ID: c.ID, Kind: Category, Title: c.Title}
@@ -395,7 +410,8 @@ func wantKind(t reflect.Type) string {
 
 // The fields each object of the file may hold.
 var (
-	listFields     = []string{"version", "categories", "tasks"}
+	listFields     = []string{"version", "view", "categories", "tasks"}
+	viewFields     = []string{"unified", "split"}
 	categoryFields = []string{"id", "title", "parent"}
 	taskFields     = []string{"id", "category", "ref", "title", "status", "plan", "description", "subtasks"}
 	subtaskFields  = []string{"id", "title", "done", "description", "plan"}
@@ -403,8 +419,9 @@ var (
 
 // unknownFieldOwner returns the item of the list file b that holds the
 // unknown field name, as "task bbbbbbb: " (or by its JSON path when it has no
-// valid ID), and "" for the top level or when it cannot tell. It looks through
-// the categories and the tasks in the order the file has them, so it names
+// valid ID) or "view: " for the view section, and "" for the top level or
+// when it cannot tell. It looks through the view, the categories and the
+// tasks in the order the file has them, so it names
 // the first object holding the field, as the decoder met it.
 func unknownFieldOwner(b []byte, name string) string {
 	type object = map[string]json.RawMessage
@@ -415,6 +432,7 @@ func unknownFieldOwner(b []byte, name string) string {
 		return !slices.ContainsFunc(fields, func(f string) bool { return strings.EqualFold(f, name) })
 	}
 	var doc struct {
+		View       object   `json:"view"`
 		Categories []object `json:"categories"`
 		Tasks      []object `json:"tasks"`
 	}
@@ -454,6 +472,10 @@ func unknownFieldOwner(b []byte, name string) string {
 	for _, key := range topKeys(b) {
 		var owner string
 		switch {
+		case strings.EqualFold(key, "view"):
+			if unknown(doc.View, viewFields) {
+				owner = "view: "
+			}
 		case strings.EqualFold(key, "categories"):
 			owner = inCategories()
 		case strings.EqualFold(key, "tasks"):

@@ -225,9 +225,24 @@ type Item struct {
 	Parent   *Item // nil for a root item
 }
 
-// Document is the in-memory TODO tree: its root items.
+// Document is the in-memory TODO tree: its root items, and the view the list
+// is shown in.
 type Document struct {
 	Roots []*Item
+	// View is how the list is shown, kept in the list file so every TUI
+	// session opens on it.
+	View View
+}
+
+// View is how the TUI shows the list. The zero View is the default: the
+// board's tabs, without the split view.
+type View struct {
+	// Unified shows every task, in any state, in one list instead of the
+	// board's tabs (the TUI's "k").
+	Unified bool
+	// Split shows the categories in a sidebar beside a task list (the TUI's
+	// "v").
+	Split bool
 }
 
 // IsTask reports whether the item is a task (rather than a category).
@@ -284,7 +299,7 @@ func (it *Item) AppendChild(c *Item) {
 // Clone returns a deep copy of the document: every item is copied, with its
 // Parent pointing into the copy, so changing one never shows in the other.
 func (d *Document) Clone() *Document {
-	c := &Document{Roots: make([]*Item, len(d.Roots))}
+	c := &Document{Roots: make([]*Item, len(d.Roots)), View: d.View}
 	for i, it := range d.Roots {
 		c.Roots[i] = it.clone(nil)
 	}

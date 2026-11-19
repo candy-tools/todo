@@ -145,7 +145,7 @@ func TestMatchesRef(t *testing.T) {
 }
 
 // A list file of format version 3, from before references, loads and is
-// written back as version 4.
+// written back as the current version.
 func TestDiskVersion3Loads(t *testing.T) {
 	path := todotest.SeedJSON(t, `{"version": 3, "categories": [{"id": "aaaaaaa", "title": "A"}],
 		"tasks": [{"id": "bbbbbbb", "category": "aaaaaaa", "title": "t", "status": "open"}]}`)
@@ -155,8 +155,8 @@ func TestDiskVersion3Loads(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := readFile(t, path)
-	if !strings.Contains(file, `"version": 4`) || !strings.Contains(file, `"ref": "APP-001"`) {
-		t.Errorf("file =\n%s\nwant version 4 with the ref", file)
+	if !strings.Contains(file, `"version": 5`) || !strings.Contains(file, `"ref": "APP-001"`) {
+		t.Errorf("file =\n%s\nwant version 5 with the ref", file)
 	}
 }
 

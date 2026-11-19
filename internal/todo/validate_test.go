@@ -12,7 +12,7 @@ func TestValidate(t *testing.T) {
 	const a, b, c, d = "aaaaaaa", "bbbbbbb", "ccccccc", "ddddddd"
 	good := func() todo.DiskList {
 		return todo.DiskList{
-			Version:    4,
+			Version:    5,
 			Categories: []todo.DiskCategory{{ID: a, Title: "A"}},
 			Tasks: []todo.DiskTask{{ID: b, Category: a, Title: "T", Status: "open",
 				Subtasks: []todo.DiskSubtask{{ID: c, Title: "S"}}}},
