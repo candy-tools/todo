@@ -35,8 +35,9 @@ task as its description. Tasks outside any header are gathered under an
 `Uncategorized` category, and text it can't map (such as prose between items)
 is reported as a warning and dropped.
 
-The screen is a **kanban board**: one tab per column, each showing a collapsible
-**category/task tree** of the tasks in that column. Tasks that carry a
+Work is organized in **sprints** (see Sprints below). There are three screens —
+the **Backlog**, the **Sprint list** and a **sprint board** per sprint — and the
+Backlog and each sprint board show a collapsible **category/task tree**. Tasks that carry a
 description are marked with a small `≡` glyph; press `enter` (or `e`) on any item
 to open its dialog, which shows the item's column, state and subtask progress and
 lets you edit its title, reference, description and plan in place (`esc` cancels,
@@ -46,7 +47,7 @@ Like a file explorer listing folders before files, a category shows its
 subcategories first and its own tasks below them — in the tree, in the split
 view's task list and in `todo list` alike.
 
-An example tab, as the tree shows it:
+An example screen, as the tree shows it:
 
 ```text
 ▾ Work (2/5)
@@ -67,25 +68,72 @@ A task's glyph shows its state: `○` open, `⏸` deferred, `⊘` won't do, `◌
 collapsed item, and a category shows how many of its tasks are done. A top-level
 task's row also names its state and, when it has subtasks, how many are done.
 
-## Board
+## Sprints
 
-The board has four columns, shown as tabs (with a task count each): **Backlog**,
-**Next**, **In Progress** and **Done**. A task's column comes from its state:
+A sprint is a named batch of work with an optional goal. Work flows through
+it: you **plan** by pulling tasks from the Backlog into a sprint (they become
+`new`), **refine** them to `ready`, **execute** them (`working`, `review`,
+`followup`) and **close** the sprint once every task is `done`. A sprint is
+either `open` or `done` (closed); there are no dates.
 
-| Column | States |
-|--------|--------|
-| Backlog | `open`, `deferred`, `wontdo` (shown as "won't do") |
-| Next | `new`, `ready` |
-| In Progress | `working`, `review`, `followup` |
-| Done | `done` |
+There are three screens:
 
-- **Categories** group tasks in every tab, but they can only be added, renamed,
-  moved or deleted in **Backlog**.
+- **Backlog** — the category tree of the tasks that are in no sprint. Every
+  category is shown, even an empty one, and categories are managed here. The
+  header reads `Backlog · N tasks`; `f` filters by backlog state.
+- **Sprint list** — one row per sprint with its name, status, goal and task
+  counts (Next · In Progress · Done). Open sprints come first in creation order,
+  then closed ones, newest first.
+- **Sprint board** — one sprint's tasks, with the header showing its name and
+  goal (and a `done` mark when it is closed) and three tabs with a count each:
+  **Next**, **In Progress** and **Done**.
+
+A task's place comes from its **sprint** and its **state**. A task is either in
+the Backlog or in exactly one sprint, and every write enforces that:
+
+| Where | Column | States |
+|-------|--------|--------|
+| Backlog (no sprint) | Backlog | `open`, `deferred`, `wontdo` (shown as "won't do") |
+| A sprint | Next | `new`, `ready` |
+| A sprint | In Progress | `working`, `review`, `followup` |
+| A sprint | Done | `done` |
+
+A sprint state on a task with no sprint, or a backlog state on a task in a
+sprint, is refused. Setting a state never moves a task in or out of a sprint:
+only assigning does (`p` / `o` in the TUI, `todo assign` / `todo unassign` on
+the command line).
+
+Sprint rules:
+
+- **Assigning** a backlog task to a sprint makes it `new`. A task assigned from
+  one sprint to another keeps its state. Unassigning returns it to the Backlog
+  as `open`. Its subtasks keep their open/done state and travel with it.
+- **Closing** is refused while any task of the sprint (subtasks included) is
+  not done: `can't close: N tasks not done`. Send the unfinished tasks to
+  another open sprint or back to the Backlog first. A closed sprint can be
+  reopened.
+- **Deleting** a sprint returns its unfinished tasks to the Backlog as `open`.
+  It is refused while the sprint holds done tasks, so finished work never
+  disappears as a side effect: close the sprint instead, or remove its done
+  tasks first.
+- **A closed sprint is frozen.** Assigning to it, adding a task to it, moving a
+  task out of it and setting one of its tasks to a state other than done are
+  refused with `reopen the sprint first`. Editing a task's text, deleting a
+  task, removing its done tasks and moving tasks between categories still work.
+- Sprint names are unique in the list, ignoring case.
+- **Nesting.** Indenting a task under another task is allowed only when both
+  are in the same sprint, or both in the Backlog.
+
+Other rules, as before:
+
+- **Categories** group tasks on every screen, but they can only be added,
+  renamed, moved or deleted in the **Backlog** (and the unified view).
 - **Subtasks** go one level deep: a subtask cannot have subtasks of its own. A
   subtask is only ever `open` or `done`, has no board state, and is shown in its
   parent's column. A task in any state can hold subtasks.
-- **New tasks** take the first state of the tab they are added in (Backlog
-  `open`, Next `new`, In Progress `working`, Done `done`). A new subtask is open.
+- **New tasks** take the first state of where they are added: `open` in the
+  Backlog, and on a sprint board the first state of the tab (Next `new`, In
+  Progress `working`, Done `done`), in that sprint. A new subtask is open.
 - **Plan.** Each task has an optional plan link — a path or reference to where
   its plan lives — edited in the task's dialog. A `ready` task with no plan is
   flagged **`⚠ no plan`** on its row in the tree and in its dialog.
@@ -96,37 +144,79 @@ The board has four columns, shown as tabs (with a task count each): **Backlog**,
   reference, so a task holding one cannot be indented under another task;
   clear the reference first. Search matches the reference too.
 
-Moving a task between columns:
+Moving a task between columns and sprints:
 
-- `p` / `P` move it to the next / previous column; it lands in that column's
-  first state.
-- `t` opens a dialog listing every state, grouped by column; picking one sets it
-  (and moves the task when the state belongs to another column). It is the only
-  key that sets a state — completing and reopening included. For a subtask it
-  offers `open` and `done`.
+- On a sprint board, `p` / `P` move it to the next / previous column; it lands
+  in that column's first state. `P` on a Next task sends it back to the Backlog
+  (it becomes `open`) and the footer says `moved to Backlog`.
+- On a backlog task, `p` opens a picker of the open sprints and assigns the
+  task to the one you choose (it becomes `new`). `P` does nothing there.
+- `o` opens a "send to" picker on a sprint task: the Backlog and the other open
+  sprints. A sprint keeps the task's state; the Backlog makes it `open`. It is
+  how unfinished work leaves a sprint before you close it. The footer says
+  where the task went (`moved to Sprint 14 — working`). It does nothing on a
+  subtask.
+- `t` opens a dialog listing the states that apply to the task (the backlog
+  states for a backlog task, the sprint states for a sprint task), grouped by
+  column; picking one sets it (and moves the task when the state belongs to
+  another column). It is the only key that sets a state — completing and
+  reopening included. For a subtask it offers `open` and `done`.
 - Moving a task out of Done with `P` sets it `working`. If you completed it in
   this session, its subtasks get their previous states back; otherwise they keep
   their current ones.
 - `m` grabs a task to reorder it (see Keys); grab mode steps over tasks hidden in
   the tab, and moves a task at most one category per key press.
+- On a closed sprint's board every key that would change a task's sprint or
+  state, `o` included, answers `reopen the sprint first`.
+
+### Sprint list
+
+`enter` opens the selected sprint's board, `n` creates a sprint (a form with
+Name and Goal), `e` edits its name and goal, `c` closes an open sprint or
+reopens a closed one, and `d` deletes it after a confirmation. A refused close
+or delete says why in the footer (`can't close: 3 tasks not done`; delete is
+refused while the sprint holds done tasks).
+
+### Moving around
+
+| Key | Goes to |
+|-----|---------|
+| `b` | The Backlog |
+| `s` | The Sprint list |
+| `enter` | From the Sprint list, the selected sprint's board |
+| `k` | On a sprint board, the next open sprint, wrapping around. From the Backlog or the list, the last sprint you viewed, else the first open one |
+| `K` | A dialog listing every sprint, closed ones marked `✓`; `enter` opens its board |
+| `q` | From a sprint board, back to the Sprint list (from the Backlog or the list it quits) |
+| `tab` / `shift+tab`, `1`–`3` | On a sprint board, switch between Next / In Progress / Done |
+
+`k`, `K` and `enter` with no sprint to go to show a hint instead
+(`no open sprints — press s, then n to create one`). Each sprint board
+remembers its own tab, folds and selection. todo saves the screen and sprint in
+the list file and reopens there; if the saved sprint no longer exists, it opens
+the Sprint list.
 
 ## Views
 
 Two view toggles change how the board is laid out. They are independent and
 can be combined. Both are saved in the list file (see Storage), so todo opens
-on the view you left, for everyone who opens that list; the board opens on the
-Backlog tab.
+on the view you left, for everyone who opens that list.
 
-**All states (`k`).** Hides the tabs and shows every task, whatever its state,
-in one tree; the tab bar becomes an `All states · N tasks` line. Press `k`
-again to get the board back, on the tab you were on. In this view:
+**Unified view (`a`).** On the Backlog or a sprint board, shows every task,
+whatever its state and sprint, in one tree; each task shows its sprint's name
+next to its state, and the header becomes an `All states · N tasks` line. Press
+`a` again to return to the screen you came from; `b`, `s`, `k` and `K` leave it
+and go where they say. In this view:
 
 - categories can be added, renamed, moved and deleted, as in Backlog, since
   every category is shown;
-- a new task starts `open`, as in Backlog;
+- `n` adds a backlog task (`open`) and `N` a subtask of the selected task;
+- each task's keys follow its own place: on a backlog task `p` opens the sprint
+  picker and `t` offers the backlog states; on a sprint task `p`, `P`, `t` and
+  `o` work as on its sprint board;
 - `f` offers every state, and its selection is the view's own — the tabs' state
   filters don't apply here and are untouched by it;
-- `tab`, `shift+tab` and `1`–`4` only remind you to press `k`.
+- `D` is refused with a hint (`open a sprint to remove its done tasks`);
+- `tab`, `shift+tab` and `1`–`3` only remind you to press `a`.
 
 **Split by category (`v`).** Shows the categories as a tree in a left sidebar
 (**Categories**) and the tasks of the selected one in a list on the right
@@ -147,7 +237,7 @@ back to the single tree, on the item that had focus.
   narrows the list: as in the tree, each subcategory's tasks come first under
   a `── Backend` heading, then the category's own tasks under its own heading.
   Categories fold in the sidebar only (`z` in the list says so).
-- The list follows the current tab (or every state with `k`), and a search or
+- The list follows the current screen (or every task in the unified view), and a search or
   state filter narrows both panes: the sidebar keeps only categories with
   matches. When the selected category disappears (switching tab, filtering,
   deleting it) the sidebar falls back to All.
@@ -169,6 +259,9 @@ todo list                 # aligned table: # · id · state · item
 todo list --json          # nested tree with number/id/ref/title/status/column/plan/path
 todo list --filter build  # only matching items and their path
 todo list --column next   # only tasks in one column: backlog|next|progress|done
+todo list --sprint "Sprint 13"  # only that sprint's tasks (by id or name)
+todo list --backlog       # only tasks in no sprint (same as --column backlog)
+todo sprint list [--all] [--json]  # open sprints with their task counts
 ```
 
 The `state` column of `todo list` shows the task's state name (`open`, `ready`,
@@ -176,6 +269,11 @@ The `state` column of `todo list` shows the task's state name (`open`, `ready`,
 `column` is the task's column (`backlog`, `next`, `progress` or `done`; a
 subtask reports its parent's column), `plan` is the plan link and `ref` the
 task's reference (left out when it has none; `title` never includes it).
+`sprint` is the id of the sprint a top-level task is in (left out for a backlog
+task). `--column` without `--sprint` covers that column across every sprint.
+`todo sprint list --json` is an array of `{id, name, goal, status, counts}`,
+where `status` is `open` or `done` and `counts` has the `next`, `progress` and
+`done` task counts. `--all` includes closed sprints.
 
 **Breaking change:** JSON `status` now says `"working"` where it used to say
 `"progress"`. On input, `progress` is still accepted as an alias of `working`.
@@ -191,7 +289,7 @@ Address an existing item three ways — exactly one, mutually exclusive:
 Common actions:
 
 ```sh
-todo add --title "Cut the tag" --parent-title "Ship v1.0" [--ref APP-001] [--desc "…"] [--plan docs/plan.md] [--status open|working|deferred|done|new|ready|review|followup|wontdo]
+todo add --title "Cut the tag" --parent-title "Ship v1.0" [--ref APP-001] [--desc "…"] [--plan docs/plan.md] [--sprint "Sprint 13"] [--status open|working|deferred|done|new|ready|review|followup|wontdo]
 todo add-category --title "Backend" [--parent-title "Work"]
 todo status   --number 4 --to ready
 todo done     --title "Cut the tag" [--cascade]
@@ -202,12 +300,21 @@ todo edit     --number 4 --set-title "…" --set-desc "…" --set-plan "docs/pla
 todo move     --title "Cut the tag" --parent-title "Backend" [--first | --after-title "…"]
 todo move     --title "Backend" --root
 todo rm       --number 4
-todo prune                # drop every fully-completed task
+todo prune --sprint "Sprint 13"  # drop that sprint's fully-completed tasks
+todo prune --all                 # drop them in every sprint and the backlog
+
+todo sprint add    --name "Sprint 13" [--goal "ship sprint support"]   # prints the new id
+todo sprint edit   --sprint "Sprint 13" [--set-name "…"] [--set-goal "…"]
+todo sprint close  --sprint "Sprint 13"
+todo sprint reopen --sprint "Sprint 13"
+todo sprint rm     --sprint "Sprint 13"
+todo assign        --sprint "Sprint 13" --number 4
+todo unassign      --number 4
 ```
 
 `status --to <state>` sets any state: `open`, `working`, `deferred`, `done`,
 `new`, `ready`, `review`, `followup` or `wontdo` (`progress` is accepted for `working`).
-`add --status` defaults to `open`. `edit --set-plan ""` clears a task's plan,
+`add --status` defaults to `open`, or `new` with `--sprint`. `edit --set-plan ""` clears a task's plan,
 and `edit --set-ref ""` its reference. A reference another task already holds,
 or one given to a subtask, is refused as a usage error (exit code `2`).
 `move` places an item, with its subtree, under the parent named by
@@ -223,6 +330,24 @@ subtask; a moved subtask becomes a task and takes its state from its old parent.
 is not done keeps its state and nothing is written (with `--cascade` its
 subtasks are reopened). `--cascade` on `done` / `reopen` applies the change to
 the task's subtasks too.
+
+**Sprints.** `--sprint` takes a sprint's id or its name (ignoring case); sprint
+names are unique, so a name is unambiguous. `todo sprint add` prints the new
+sprint's id. `assign` puts a task in a sprint: a backlog task becomes `new`, a
+task in another sprint moves there and keeps its state; `unassign` returns it
+to the backlog as `open`. `status`, `done`, `progress`, `defer` and `reopen`
+never change a task's sprint, so `status --to working` on a backlog task fails
+with `task is not in a sprint (use todo assign)`, and a backlog state on a
+sprint task is refused too. `sprint close` is refused while tasks are not done
+(`cannot close "S1": 1 task not done`); `sprint rm` returns a sprint's
+unfinished tasks to the backlog and is refused while it holds done tasks;
+changing the state of a task in a closed sprint fails with `reopen the sprint
+first`. All of these exit with code `2`; an unknown sprint exits `3`.
+
+**Breaking change:** `prune` now needs `--sprint <id|name>` or `--all`; a bare
+`todo prune` is a usage error (exit code `2`) rather than emptying every
+sprint's history. A new task in a sprint, and `status --to new` / `ready` /
+`working` / `review` / `followup` / `done` on a backlog task, behave as above.
 
 Breaking the board's rules — a subtask under a subtask, a board state on a
 subtask, or an invalid title — exits with code `2`. Asking an item of the wrong
@@ -245,35 +370,44 @@ Errors go to stderr.
 
 | Key | Action |
 |-----|--------|
-| `tab` / `shift+tab` | Next / previous board tab |
-| `1`–`4` | Jump to Backlog / Next / In Progress / Done |
-| `↑` / `↓` (or `w`/`s`) | Move the selection |
+| `↑` / `↓` | Move the selection (`w`/`s` no longer navigate) |
 | `PgUp` / `PgDn` | Move the selection by 10 rows |
 | `←` / `→` | Collapse / expand (Left on a leaf jumps to the parent) |
-| `enter` | Open the selected item's dialog — its column/state/progress plus its editable title, description & plan |
-| `p` / `P` | Move the task to the next / previous column (it takes that column's first state) |
-| `t` | Open the state dialog to set the task's state, including done (`↑`/`↓`, `enter` sets, `esc` cancels) |
 | `space` | Fold / unfold the selected category |
 | `z` | Fold every category at the selection's level (the selected category and its siblings; for a task, its category's) — or unfold them all when all are folded. Off while searching |
-| `m` | Grab the task to reorder it (arrows move it, `enter`/`esc`/`m` drops it) |
-| `n` | New task as a sibling — at the end of the current level (on a category, a task inside it) |
-| `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
-| `c` | Add a category (a subcategory when a category is selected) — Backlog only |
-| `e` | Edit the selected item's title (and a task's description and plan) |
-| `y` | Copy the selected item to the clipboard — a task's title and full (multi-line) description as plain text |
-| `d` | Delete the selected item (and its subtree) — asks to confirm |
-| `D` | Remove every completed task (keeping any with unfinished sub-tasks) — asks to confirm |
 | `/` | Search / filter the list (see below) |
 | `f` | Filter the tab by state: tick states with `space`, `enter` applies, `esc` clears the filter |
-| `k` | Show every state in one list (tabs hidden) / back to the board — see Views |
+| `b` | Go to the Backlog |
+| `s` | Go to the Sprint list |
+| `k` | Last viewed sprint; on a sprint board, the next open sprint |
+| `K` | Pick a sprint to go to |
+| `q` | On a sprint board, back to the Sprint list; on the Backlog or Sprint list, quit |
+| `tab` / `shift+tab` | Next / previous tab (sprint board) |
+| `1`–`3` | Jump to Next / In Progress / Done (sprint board) |
+| `a` | Unified view: every task, any sprint / back — see Views |
+| `p` / `P` | Move the task to the next / previous column (it takes that column's first state) |
+| `p` | On a backlog task: assign it to a sprint (picker of open sprints) |
+| `P` | On a Next task: send it back to the Backlog |
+| `o` | Send the task to another open sprint or the Backlog (picker) |
+| `t` | Open the state dialog to set the task's state, including done (`↑`/`↓`, `enter` sets, `esc` cancels) |
+| `m` | Grab the task to reorder it (arrows move it, `enter`/`esc`/`m` drops it) |
+| `y` | Copy the selected item to the clipboard — a task's title and full (multi-line) description as plain text |
+| `enter` / `e` | Open / edit the selected item's dialog — its column/state/progress plus its editable title, reference, description & plan |
+| `n` | New task as a sibling — at the end of the current level (on a category, a task inside it); on a sprint board, in that sprint |
+| `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
+| `c` | Add a category (a subcategory when a category is selected) — Backlog and unified view only |
+| `d` | Delete the selected item (and its subtree) — asks to confirm |
+| `D` | On a sprint board, remove that sprint's completed tasks (keeping any with unfinished sub-tasks) — asks to confirm |
 | `v` | Split view: categories sidebar + task list / back to the single tree — see Views |
 | `x` | In the split view, move the keys between the sidebar and the task list |
 | `?` | Show the shortcuts dialog (`↑`/`↓` scroll it on a short terminal; `?`, `esc`, `q` or `enter` closes it) |
-| `q` | Quit |
 | `esc` | Clear an active search, then the state filter, or quit when there is neither |
 
-Tasks always live under a category — there are no root-level tasks. On the
-Backlog tab the tree always ends with a **`+ new category`** row: select it and
+On the **Sprint list**: `enter` opens the sprint's board, `n` creates a sprint,
+`e` edits its name and goal, `c` closes or reopens it, `d` deletes it.
+
+Tasks always live under a category — there are no root-level tasks. In the
+Backlog the tree always ends with a **`+ new category`** row: select it and
 press `c` (or `enter`) to add a top-level category. On an existing category, `c` adds a
 subcategory instead.
 
@@ -286,7 +420,7 @@ Grab mode (`m`) is refused while a search or state filter is active.
 
 ## Search
 
-Press `/` to filter the current tab as you type — a grep over task/category
+Press `/` to filter the current screen as you type — a grep over task/category
 titles and task descriptions. The whole path to every match is kept, so a hit
 deep in a subtask keeps its parent tasks and category visible (searching `cat`
 still shows the tree down to a "catacombs" subtask), while non-matching branches
@@ -296,7 +430,7 @@ the current query.
 
 ## State filter
 
-Press `f` to pick which states the current tab shows: tick them with `space`
+Press `f` to pick which states the current screen shows: tick them with `space`
 (or `x`) and press `enter`. Only top-level tasks in a ticked state stay, with
 their subtasks and categories. Each tab keeps its own selection, the footer
 shows it, and it combines with a search. `esc` clears it; ticking nothing and
@@ -304,7 +438,7 @@ pressing `enter` does too.
 
 ## Completing a parent
 
-Setting a parent task to `done` (with `t`, or `p` into Done) completes it and
+Setting a parent task to `done` (with `t`, or `p` into Done on a sprint board) completes it and
 **all** of its subtasks at once. If you did it by accident, press `t` again: the
 dialog opens on the task's previous state, so `enter` restores it and its
 subtasks' states exactly — that undo memory is kept in RAM for the session, so
@@ -336,10 +470,20 @@ changes only the lines that changed.
 
 ```json
 {
-  "version": 5,
+  "version": 6,
   "view": {
+    "screen": "sprint",
+    "sprint": "a1b2c3d",
     "split": true
   },
+  "sprints": [
+    {
+      "id": "a1b2c3d",
+      "name": "Sprint 13",
+      "goal": "ship sprint support",
+      "status": "open"
+    }
+  ],
   "categories": [
     {
       "id": "8v1wyaa",
@@ -355,6 +499,7 @@ changes only the lines that changed.
     {
       "id": "4r2ft3y",
       "category": "s85fd4v",
+      "sprint": "a1b2c3d",
       "ref": "APP-001",
       "title": "Hot reload",
       "status": "ready",
@@ -372,19 +517,32 @@ changes only the lines that changed.
 }
 ```
 
-- `version` is the format version (now `5`). A file with a higher version is
-  refused: `list was written by a newer todo`. A version `3` or `4` file (from
-  before references or the view) loads as it is and is written back as
-  version `5` on the next change, after which todo versions older than this one
-  refuse it.
-- `view` is the TUI view the list opens on: `unified` for All states (`k`),
-  `split` for the split view (`v`). Each is left out when false, and the whole
-  section when both are, which is the board without the split.
+- `version` is the format version (now `6`). A file with a higher version is
+  refused: `list was written by a newer todo`. A version `3`, `4` or `5` file
+  (from before sprints) loads as it is and is written back as version `6` on
+  the next change, after which todo versions older than this one refuse it.
+  **Upgrade:** those files have tasks in Next, In Progress or Done with no
+  sprint, which version `6` forbids. On load, todo puts every such top-level
+  task into one open sprint named `Imported`, keeping its state, so nothing
+  changes column and nothing disappears. Backlog tasks stay out of any sprint,
+  and a file with no such task gets no `Imported` sprint. A markdown import
+  follows the same rule for its `[/]`, `[>]` and `[x]` tasks.
+- `view` is the screen and view the list opens on: `screen` is `backlog`
+  (default), `sprints` or `sprint`, with `sprint` the id of the board shown for
+  `screen: sprint`; `unified` is the unified view (`a`) and `split` the split
+  view (`v`). Each is left out when it is the default, and the whole section
+  when all are. A saved sprint that no longer exists opens the Sprint list.
+- `sprints` is always written, possibly empty, in creation order (which is the
+  `k` rotation order). A sprint has an `id`, a `name` (unique, ignoring case),
+  a `goal` (optional) and a `status`, `open` or `done`.
 - `categories` have an `id`, a `title` and, for a nested one, the `parent`
   category's id. Array order is the order among siblings.
 - `tasks` have an `id`, the `category` they sit under, a `title` and a `status`
   (`open`, `working`, `deferred`, `done`, `new`, `ready`, `review`, `followup`
-  or `wontdo`). `ref`, `plan`, `description` and `subtasks` are optional.
+  or `wontdo`). `sprint` (the id of the sprint the task is in), `ref`, `plan`,
+  `description` and `subtasks` are optional. A task with a sprint has a sprint
+  state and one without has a backlog state; a done sprint holds only done
+  tasks. A file that breaks one of these rules is refused.
   `ref` is unique in the file, ignoring case. Array order is the order within
   a category.
 - `subtasks` sit inside their task, one level deep. A subtask has an `id`, a
