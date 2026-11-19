@@ -220,7 +220,10 @@ type Item struct {
 	// Ref is a top-level task's free-form reference, such as "APP-001", shown
 	// before its title (see DisplayTitle); "" when it has none. No two tasks
 	// of a list hold the same one, ignoring case; a subtask holds none.
-	Ref      string
+	Ref string
+	// Sprint is a top-level task's sprint ID, "" for the backlog. A subtask
+	// follows its task (see SprintID) and holds none.
+	Sprint   string
 	Children []*Item
 	Parent   *Item // nil for a root item
 }
@@ -229,6 +232,8 @@ type Item struct {
 // is shown in.
 type Document struct {
 	Roots []*Item
+	// Sprints are the list's sprints, in creation order.
+	Sprints []*Sprint
 	// View is how the list is shown, kept in the list file so every TUI
 	// session opens on it.
 	View View
@@ -302,6 +307,10 @@ func (d *Document) Clone() *Document {
 	c := &Document{Roots: make([]*Item, len(d.Roots)), View: d.View}
 	for i, it := range d.Roots {
 		c.Roots[i] = it.clone(nil)
+	}
+	for _, s := range d.Sprints {
+		sc := *s
+		c.Sprints = append(c.Sprints, &sc)
 	}
 	return c
 }
