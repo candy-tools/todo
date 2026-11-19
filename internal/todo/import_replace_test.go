@@ -187,3 +187,19 @@ func TestImportCleansTitlesAndAssignsIDs(t *testing.T) {
 	bad.appendRoot(&Item{Kind: Category, Level: 1, Title: " "})
 	rejects(t, s, ErrInvalidTitle, func() error { return errOf(importInto(context.Background(), s, bad, true)) })
 }
+
+// A list that holds only a sprint is not empty: an import without replace is
+// refused rather than dropping the sprint.
+func TestImportFileSprintOnlyIsNotEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	old := []byte(`{"version": 6, "sprints": [{"id": "sssssss", "name": "S", "status": "open"}], "categories": [], "tasks": []}`)
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := importMarkdown(t, path, "# New\n", false); !errors.Is(err, ErrNotEmpty) {
+		t.Fatalf("ImportFile = %v, want ErrNotEmpty", err)
+	}
+	if got := fileBytes(t, path); !bytes.Equal(got, old) {
+		t.Fatalf("file after a refused import:\n%s", got)
+	}
+}

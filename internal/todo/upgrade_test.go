@@ -40,10 +40,17 @@ func TestUpgradeV5NoSprintStatesNoSprint(t *testing.T) {
 	}
 }
 
-// Two stores that each upgrade the same v5 file make the one Imported sprint.
+// Two stores that each load the same v5 file, before either writes, make the
+// same Imported sprint, so the two writes leave one.
 func TestUpgradeTwoWritersOneImportedSprint(t *testing.T) {
 	path := todotest.SeedJSON(t, `{"version": 5, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
 		{"id": "t000001", "category": "c000000", "title": "w", "status": "working"}]}`)
+	a, b := loadList(t, path), loadList(t, path)
+	for _, d := range []*todo.Document{a, b} {
+		if len(d.Sprints) != 1 || d.Sprints[0].ID != "0000000" {
+			t.Fatalf("Sprints = %+v, want the Imported sprint 0000000", d.Sprints)
+		}
+	}
 	for range 2 {
 		if _, err := todo.NewStore(path).Edit(context.Background(), "t000001", todo.Changes{Title: new("w2")}); err != nil {
 			t.Fatal(err)

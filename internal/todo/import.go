@@ -91,7 +91,7 @@ func count(it *Item, rep *ImportReport) {
 func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bool) (WriteResult, string, error) {
 	backup := ""
 	res, err := s.update(ctx, func(d *Document, cur jsonfile.Snapshot) (bool, error) {
-		holdsItems := len(d.Roots) > 0
+		holdsItems := len(d.Roots) > 0 || len(d.Sprints) > 0
 		if holdsItems && !replace {
 			return false, ErrNotEmpty
 		}
