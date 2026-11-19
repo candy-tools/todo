@@ -148,7 +148,7 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		return model{}, err
 	}
 	v := newViewState()
-	return model{
+	m := model{
 		store:     st,
 		version:   metainfo.Version,
 		doc:       doc,
@@ -159,7 +159,9 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		snapshots: map[string]todo.DoneStates{},
 		lastFP:    fp,
 		status:    strings.ReplaceAll(notice, "\n", " · "),
-	}, nil
+	}
+	m.applyView(doc.View)
+	return m, nil
 }
 
 // Init starts the change-poll loop that keeps the view in sync with external
@@ -257,8 +259,10 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeStateFilter
 	case "k":
 		m.setUnified(!m.view.all)
+		m.saveView()
 	case "v":
 		m.toggleSplit()
+		m.saveView()
 	case "x":
 		if m.split {
 			m.sideFocus = !m.sideFocus
