@@ -29,12 +29,36 @@ func listCmd() *cobra.Command {
 			}
 			filter, _ := cmd.Flags().GetString("filter")
 			visible := doc.VisibleItems(filter) // nil => show everything
-			if colName, _ := cmd.Flags().GetString("column"); colName != "" {
-				col, ok := todo.ColumnFromName(colName)
-				if !ok {
-					return usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
+			colName, _ := cmd.Flags().GetString("column")
+			backlog, _ := cmd.Flags().GetBool("backlog")
+			inSprint := cmd.Flags().Changed("sprint")
+			switch {
+			case backlog && inSprint:
+				return usageErr("--backlog and --sprint are mutually exclusive")
+			case backlog && colName != "":
+				return usageErr("--backlog and --column are mutually exclusive")
+			case backlog:
+				colName = todo.ColBacklog.String()
+			}
+			sprintID := ""
+			if inSprint {
+				sp, err := resolveSprint(cmd, doc)
+				if err != nil {
+					return err
 				}
-				visible = doc.ColumnMatches(filter, "", col) // search within the column, as the TUI tab does
+				sprintID = sp.ID
+			}
+			if colName != "" || inSprint {
+				cols := []todo.Column{todo.ColNext, todo.ColInProgress, todo.ColDone}
+				if colName != "" {
+					col, ok := todo.ColumnFromName(colName)
+					if !ok {
+						return usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
+					}
+					cols = []todo.Column{col}
+				}
+				// Search within the columns and sprint, as the TUI tab does.
+				visible = doc.ColumnMatches(filter, sprintID, cols...)
 			}
 			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
 				return writeListJSON(cmd.OutOrStdout(), doc, visible)
@@ -45,6 +69,8 @@ func listCmd() *cobra.Command {
 	c.Flags().Bool("json", false, "output the tree as JSON")
 	c.Flags().String("filter", "", "only show items matching this text (and their path)")
 	c.Flags().String("column", "", "only show tasks in this board column: "+columnNames)
+	c.Flags().String("sprint", "", "only show this sprint's tasks, by id or name")
+	c.Flags().Bool("backlog", false, "only show tasks not in a sprint (same as --column backlog)")
 	return c
 }
 
@@ -85,6 +111,7 @@ type jsonItem struct {
 	Title       string     `json:"title"`
 	Status      string     `json:"status,omitempty"`
 	Column      string     `json:"column,omitempty"`
+	Sprint      string     `json:"sprint,omitempty"` // the sprint's id; a subtask shows its parent's
 	Level       int        `json:"level,omitempty"`
 	Path        []string   `json:"path"`
 	Description string     `json:"description,omitempty"`
@@ -119,6 +146,7 @@ func toJSONItem(it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]b
 		ji.Column = it.Column().String() // a subtask sits in its parent's column
 		ji.Description = it.Description
 		ji.Plan = it.Plan
+		ji.Sprint = it.SprintID()
 		ji.Ref = it.Ref
 	} else {
 		ji.Kind = "category"

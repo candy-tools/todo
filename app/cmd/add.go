@@ -25,7 +25,21 @@ func addCmd() *cobra.Command {
 					return usageErr("--title: " + err.Error())
 				}
 				desc, _ := cmd.Flags().GetString("desc")
+				sprintID := ""
+				if cmd.Flags().Changed("sprint") {
+					if parent.IsTask() {
+						return usageErr("--sprint applies to top-level tasks; a subtask follows its task")
+					}
+					sp, err := resolveSprint(cmd, doc)
+					if err != nil {
+						return err
+					}
+					sprintID = sp.ID
+				}
 				statusName, _ := cmd.Flags().GetString("status")
+				if !cmd.Flags().Changed("status") && sprintID != "" {
+					statusName = todo.New.String()
+				}
 				st, ok := todo.StatusFromName(statusName)
 				if !ok {
 					return usageErr(fmt.Sprintf("invalid --status %q (%s)", statusName, statusNames))
@@ -37,7 +51,7 @@ func addCmd() *cobra.Command {
 				}
 				// The store places the task after the parent's last task as the tree
 				// is when it writes, so a sibling changed meanwhile does not matter.
-				id, res, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan, Ref: ref}, st, parent.ID)
+				id, res, err := s.AppendTask(ctx, todo.Fields{Title: title, Description: desc, Plan: plan, Ref: ref, Sprint: sprintID}, st, parent.ID)
 				if err != nil {
 					return err
 				}
@@ -52,7 +66,8 @@ func addCmd() *cobra.Command {
 	c.Flags().String("desc", "", "the new task's description")
 	c.Flags().String("plan", "", "a path or reference to the task's plan")
 	c.Flags().String("ref", "", "the new task's reference, such as APP-001; unique in the list (not for a subtask)")
-	c.Flags().String("status", "open", "initial state: "+statusNames)
+	c.Flags().String("status", "open", "initial state: "+statusNames+" (default open; new with --sprint)")
+	c.Flags().String("sprint", "", "put the new task in this sprint, by id or name (top-level tasks only)")
 	addSelectorFlags(c, "parent-")
 	return c
 }
