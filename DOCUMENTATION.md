@@ -184,9 +184,9 @@ refused while the sprint holds done tasks).
 | `b` | The Backlog |
 | `s` | The Sprint list |
 | `enter` | From the Sprint list, the selected sprint's board |
-| `k` | On a sprint board, the next open sprint, wrapping around. From the Backlog or the list, the last sprint you viewed, else the first open one |
+| `k` | On a sprint board, the next open sprint, wrapping around. From the Backlog or the list, the last sprint you viewed while it is open, else the first open one |
 | `K` | A dialog listing every sprint, closed ones marked `✓`; `enter` opens its board |
-| `q` | From a sprint board, back to the Sprint list (from the Backlog or the list it quits) |
+| `q` | From a sprint board, back to the Sprint list (from the Backlog or the list it quits). `esc` does the same once there is no search or state filter to clear |
 | `tab` / `shift+tab`, `1`–`3` | On a sprint board, switch between Next / In Progress / Done |
 
 `k`, `K` and `enter` with no sprint to go to show a hint instead
@@ -270,7 +270,8 @@ The `state` column of `todo list` shows the task's state name (`open`, `ready`,
 subtask reports its parent's column), `plan` is the plan link and `ref` the
 task's reference (left out when it has none; `title` never includes it).
 `sprint` is the id of the sprint a top-level task is in (left out for a backlog
-task). `--column` without `--sprint` covers that column across every sprint.
+task). `--column` without `--sprint` covers that column across every sprint;
+`--column backlog` with `--sprint` is a usage error.
 `todo sprint list --json` is an array of `{id, name, goal, status, counts}`,
 where `status` is `open` or `done` and `counts` has the `next`, `progress` and
 `done` task counts. `--all` includes closed sprints.
@@ -314,7 +315,9 @@ todo unassign      --number 4
 
 `status --to <state>` sets any state: `open`, `working`, `deferred`, `done`,
 `new`, `ready`, `review`, `followup` or `wontdo` (`progress` is accepted for `working`).
-`add --status` defaults to `open`, or `new` with `--sprint`. `edit --set-plan ""` clears a task's plan,
+`add --status` defaults to `open`, or `new` with `--sprint`; a sprint state
+without `--sprint`, or `--sprint` with a backlog state, is a usage error (exit
+code `2`). `edit --set-plan ""` clears a task's plan,
 and `edit --set-ref ""` its reference. A reference another task already holds,
 or one given to a subtask, is refused as a usage error (exit code `2`).
 `move` places an item, with its subtree, under the parent named by
@@ -343,6 +346,12 @@ sprint task is refused too. `sprint close` is refused while tasks are not done
 unfinished tasks to the backlog and is refused while it holds done tasks;
 changing the state of a task in a closed sprint fails with `reopen the sprint
 first`. All of these exit with code `2`; an unknown sprint exits `3`.
+
+The two prunes differ on subtasks. `prune --sprint` (like `D` on a sprint
+board) removes only the sprint's top-level tasks that are done with every
+subtask done; a done subtask under an unfinished task stays. `prune --all`
+also removes those done subtasks under unfinished tasks, in every sprint and
+the backlog.
 
 **Breaking change:** `prune` now needs `--sprint <id|name>` or `--all`; a bare
 `todo prune` is a usage error (exit code `2`) rather than emptying every
@@ -379,7 +388,7 @@ Errors go to stderr.
 | `f` | Filter the tab by state: tick states with `space`, `enter` applies, `esc` clears the filter |
 | `b` | Go to the Backlog |
 | `s` | Go to the Sprint list |
-| `k` | Last viewed sprint; on a sprint board, the next open sprint |
+| `k` | Last viewed sprint while it is open, else the first open one; on a sprint board, the next open sprint |
 | `K` | Pick a sprint to go to |
 | `q` | On a sprint board, back to the Sprint list; on the Backlog or Sprint list, quit |
 | `tab` / `shift+tab` | Next / previous tab (sprint board) |
@@ -401,7 +410,7 @@ Errors go to stderr.
 | `v` | Split view: categories sidebar + task list / back to the single tree — see Views |
 | `x` | In the split view, move the keys between the sidebar and the task list |
 | `?` | Show the shortcuts dialog (`↑`/`↓` scroll it on a short terminal; `?`, `esc`, `q` or `enter` closes it) |
-| `esc` | Clear an active search, then the state filter, or quit when there is neither |
+| `esc` | Clear an active search, then the state filter; when there is neither, back to the Sprint list from a sprint board, else quit |
 
 On the **Sprint list**: `enter` opens the sprint's board, `n` creates a sprint,
 `e` edits its name and goal, `c` closes or reopens it, `d` deletes it.
