@@ -32,9 +32,9 @@ var helpSections = []helpSection{
 	{"Screens", []helpBinding{
 		{"b", "The Backlog"},
 		{"s", "The Sprint list"},
-		{"k", "Last viewed sprint; on a board, the next open one"},
+		{"k", "Last viewed open sprint; on a board, the next open one"},
 		{"K", "Pick a sprint to go to"},
-		{"q", "On a sprint board: back to the Sprint list"},
+		{"q", "On a sprint board: back to the Sprint list (esc too)"},
 		{"tab  shift+tab", "Next / previous tab (sprint board)"},
 		{"1–3", "Jump to Next / In Progress / Done (sprint board)"},
 		{"a", "Unified view: every task, any sprint / back"},
@@ -70,7 +70,7 @@ var helpSections = []helpSection{
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},
 		{"q", "Quit (Backlog, Sprint list)"},
-		{"esc", "Clear search / state filter, or quit"},
+		{"esc", "Clear search / state filter, else like q"},
 	}},
 }
 

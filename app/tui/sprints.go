@@ -97,12 +97,19 @@ func (l *sprintList) selectID(d *todo.Document, id string) {
 // current one unless the cursor is outside it: the window only moves when the
 // cursor leaves it.
 func (l *sprintList) window(n, height int) int {
-	off := min(l.offset, max(n-height, 0))
+	return scrollWindow(l.offset, l.cursor, n, height)
+}
+
+// scrollWindow returns the index of the first of height rows to show out of n
+// with the cursor on row cursor: offset (clamped) unless the cursor is outside
+// that window, else the nearest one holding it.
+func scrollWindow(offset, cursor, n, height int) int {
+	off := min(offset, max(n-height, 0))
 	switch {
-	case l.cursor < off:
-		off = l.cursor
-	case l.cursor >= off+height:
-		off = l.cursor - height + 1
+	case cursor < off:
+		off = cursor
+	case cursor >= off+height:
+		off = cursor - height + 1
 	}
 	return max(off, 0)
 }

@@ -179,6 +179,46 @@ func TestQOnListQuits(t *testing.T) {
 	}
 }
 
+func TestEscOnBoardReturnsToList(t *testing.T) {
+	m, _ := threeSprints(t)
+	m.showSprint("s00000a")
+	// A search is cleared first, on the board.
+	m.setFilter("zzz")
+	nm, cmd := m.Update(keyMsg("esc"))
+	if m = nm.(model); quits(cmd) || m.view.screen != screenSprint || m.view.filter != "" {
+		t.Fatalf("esc with a search: screen %v filter %q quit %v, want the search cleared on the board", m.view.screen, m.view.filter, quits(cmd))
+	}
+	nm, cmd = m.Update(keyMsg("esc"))
+	if m = nm.(model); quits(cmd) || m.view.screen != screenSprints {
+		t.Fatalf("esc on a board: screen %v quit %v, want the Sprint list", m.view.screen, quits(cmd))
+	}
+	// The unified view over a board still quits.
+	m.showSprint("s00000a")
+	if _, cmd := press(m, "a").Update(keyMsg("esc")); !quits(cmd) {
+		t.Error("esc in the unified view must quit")
+	}
+}
+
+func TestKFromBacklogSkipsClosedLastViewed(t *testing.T) {
+	m, _ := threeSprints(t)
+	m.showSprint("s00000b") // B is done
+	m = press(m, "b", "k")
+	if m.view.screen != screenSprint || m.view.sprint != "s00000a" {
+		t.Errorf("k from the Backlog after a closed sprint: screen %v sprint %q, want the first open one, A", m.view.screen, m.view.sprint)
+	}
+}
+
+func TestEnterOnEmptySprintListHints(t *testing.T) {
+	m, _ := newJSONModel(t, sprintJSON(t, nil, nil))
+	m = press(m, "s", "enter")
+	if m.mode != modeMain || m.view.screen != screenSprints {
+		t.Errorf("enter on an empty Sprint list: mode %v screen %v, want to stay", m.mode, m.view.screen)
+	}
+	if want := "no open sprints — press s, then n to create one"; m.status != want {
+		t.Errorf("footer = %q, want %q", m.status, want)
+	}
+}
+
 func TestKRotatesOpenSprintsAndWraps(t *testing.T) {
 	m, _ := threeSprints(t)
 	m.showSprint("s00000a")

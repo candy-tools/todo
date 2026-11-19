@@ -114,11 +114,12 @@ func (m model) prepareAddForm(t formTarget) (model, bool) {
 		return m, false
 	}
 	if sel == nil {
-		// Outside Backlog a tab shows only categories holding its tasks, and c
-		// is refused there, so point at a tab that shows the category instead.
+		// A sprint board shows only categories holding its tasks, and c is
+		// refused there, so point at the Backlog, where a task is added and then
+		// assigned.
 		m.status = "Add a category first (press c) — tasks live under a category."
 		if !m.view.editsCategories() {
-			m.status = "add tasks from a tab that shows their category (Backlog shows all)"
+			m.status = "add it in the Backlog (b, n), then assign it with p"
 		}
 		return m, false
 	}

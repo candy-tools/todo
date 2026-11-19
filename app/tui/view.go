@@ -257,7 +257,7 @@ const msgNoOpenSprints = "no open sprints — press s, then n to create one"
 // nextOpenSprint returns the sprint "k" goes to. On a sprint board it is the
 // next open sprint after the board's in creation order, wrapping around (the
 // board's own when it is the only open one). Elsewhere it is the last viewed
-// sprint while it exists, else the first open one. ok is false when there is
+// sprint while it is open, else the first open one. ok is false when there is
 // none.
 func (m *model) nextOpenSprint() (id string, ok bool) {
 	d := m.doc
@@ -270,7 +270,7 @@ func (m *model) nextOpenSprint() (id string, ok bool) {
 		}
 		return "", false
 	}
-	if _, ok := d.SprintByID(m.lastSprint); ok {
+	if s, ok := d.SprintByID(m.lastSprint); ok && s.Status == todo.SprintOpen {
 		return m.lastSprint, true
 	}
 	if open := d.OpenSprints(); len(open) > 0 {

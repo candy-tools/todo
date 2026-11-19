@@ -396,8 +396,9 @@ func (m model) categoryLocked(it *todo.Item) bool {
 }
 
 // escOrQuit clears an active search (dismissing it the same way it's
-// cancelled), else the tab's state filter, or quits when there is nothing to
-// dismiss.
+// cancelled), else the tab's state filter. When there is nothing to dismiss it
+// goes back to the Sprint list from a sprint board, like q, and quits
+// elsewhere.
 func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 	if m.view.filter != "" {
 		m.clearFilter()
@@ -405,6 +406,10 @@ func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 	}
 	if states := m.view.activeStates(); len(states) > 0 {
 		m.clearStates()
+		return m, nil
+	}
+	if m.view.onBoard() {
+		m.showSprints()
 		return m, nil
 	}
 	return m, tea.Quit

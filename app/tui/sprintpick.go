@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -34,6 +35,7 @@ type sprintPicker struct {
 	purpose sprintPickPurpose
 	rows    []sprintPickRow
 	cursor  int
+	offset  int // the index of the first row shown
 	taskID  string
 }
 
@@ -87,10 +89,20 @@ func (p *sprintPicker) move(delta int) {
 	p.cursor = min(max(p.cursor+delta, 0), len(p.rows)-1)
 }
 
-// view renders the dialog: one row per choice, the cursor row accented.
-func (p sprintPicker) view() string {
+// scroll keeps the cursor among the rows the dialog shows on a terminal
+// termHeight rows tall: the window only moves when the cursor leaves it.
+func (p *sprintPicker) scroll(termHeight int) {
+	p.offset = scrollWindow(p.offset, p.cursor, len(p.rows), helpVisibleRows(len(p.rows), termHeight))
+}
+
+// view renders the dialog on a terminal termHeight rows tall: the rows that
+// fit, the cursor's always among them and accented.
+func (p sprintPicker) view(termHeight int) string {
+	p.scroll(termHeight)
 	var lines []string
-	for i, r := range p.rows {
+	end := min(p.offset+helpVisibleRows(len(p.rows), termHeight), len(p.rows))
+	for i := p.offset; i < end; i++ {
+		r := p.rows[i]
 		if i == p.cursor {
 			lines = append(lines, selectedRowStyle.Render("❯ "+r.label))
 		} else {
@@ -104,15 +116,33 @@ func (p sprintPicker) view() string {
 	return titledBox(p.title, body, width, lipgloss.Height(body)+2, true)
 }
 
-// openJumpPicker is K: it opens the dialog listing every sprint, or says there
-// is none.
+// pickHeight is the terminal height the sprint picker lays out for, 24 while
+// the size is unknown, as in mainView.
+func (m model) pickHeight() int {
+	if m.width == 0 {
+		return 24
+	}
+	return m.height
+}
+
+// openSprintPick opens picker p, scrolled to its cursor.
+func (m *model) openSprintPick(p sprintPicker) {
+	p.scroll(m.pickHeight())
+	m.sprintPick, m.mode = p, modeSprintPick
+}
+
+// openJumpPicker is K: it opens the dialog listing every sprint, the cursor on
+// the board's sprint when one is shown, or says there is none.
 func (m model) openJumpPicker() (tea.Model, tea.Cmd) {
 	p := newJumpPicker(m.doc)
 	if len(p.rows) == 0 {
 		m.status = msgNoOpenSprints
 		return m, nil
 	}
-	m.sprintPick, m.mode = p, modeSprintPick
+	if m.view.onBoard() {
+		p.cursor = max(slices.IndexFunc(p.rows, func(r sprintPickRow) bool { return r.sprintID == m.view.sprint }), 0)
+	}
+	m.openSprintPick(p)
 	return m, nil
 }
 
@@ -124,7 +154,7 @@ func (m model) openAssignPicker(task *todo.Item) (tea.Model, tea.Cmd) {
 		m.status = msgNoOpenSprints
 		return m, nil
 	}
-	m.sprintPick, m.mode = p, modeSprintPick
+	m.openSprintPick(p)
 	return m, nil
 }
 
@@ -150,18 +180,21 @@ func (m model) openSendToPicker() (tea.Model, tea.Cmd) {
 		m.status = todo.ErrSprintClosed.Error()
 		return m, nil
 	}
-	m.sprintPick, m.mode = newSendToPicker(m.doc, it), modeSprintPick
+	m.openSprintPick(newSendToPicker(m.doc, it))
 	return m, nil
 }
 
-// updateSprintPick handles keys in the sprint picker: the arrows move, enter
-// applies the highlighted row, esc or q cancels.
+// updateSprintPick handles keys in the sprint picker: the arrows move (the
+// rows scroll with the cursor), enter applies the highlighted row, esc or q
+// cancels.
 func (m model) updateSprintPick(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up":
 		m.sprintPick.move(-1)
+		m.sprintPick.scroll(m.pickHeight())
 	case "down":
 		m.sprintPick.move(1)
+		m.sprintPick.scroll(m.pickHeight())
 	case "esc", "q":
 		m.mode = modeMain
 	case "enter":

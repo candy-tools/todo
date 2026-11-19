@@ -1,10 +1,14 @@
 package tui
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // twoSprints is a list with the open sprints Sprint 1 and Sprint 2, the done
@@ -137,6 +141,65 @@ func TestOOnSubtaskHints(t *testing.T) {
 	m.tree.selectID(find(m.doc, "child").ID)
 	if m = press(m, "o"); m.mode != modeMain || m.status != "subtasks move with their task" {
 		t.Errorf("o on a subtask: mode %v status %q", m.mode, m.status)
+	}
+}
+
+// pickerRows lists the sprint rows the open sprint dialog shows on screen, by
+// label, the cursor's prefixed with "❯ ".
+func pickerRows(m model) []string {
+	var out []string
+	for _, l := range strings.Split(ansi.Strip(m.View()), "\n") {
+		for _, r := range m.sprintPick.rows {
+			if strings.Contains(l, "  "+r.label+" ") || strings.Contains(l, "❯ "+r.label+" ") {
+				if strings.Contains(l, "❯ "+r.label) {
+					out = append(out, "❯ "+r.label)
+				} else {
+					out = append(out, r.label)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func TestSprintPickerScrollsToCursor(t *testing.T) {
+	m := manySprints(t, 40)
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = press(m, "K")
+	shown := pickerRows(m)
+	if len(shown) == 0 || len(shown) >= 40 || shown[0] != "❯ S00" {
+		t.Fatalf("K on 80x24: rows shown %v, want a window starting at the cursor", shown)
+	}
+	h := len(shown)
+	for i := 0; i < h+2; i++ {
+		m = press(m, "down")
+	}
+	want := fmt.Sprintf("❯ S%02d", h+2)
+	shown = pickerRows(m)
+	if len(shown) != h || shown[len(shown)-1] != want {
+		t.Fatalf("after %d downs: rows %v, want %d rows ending on %s", h+2, shown, h, want)
+	}
+	// Going up inside the window does not move it.
+	first := shown[0]
+	m = press(m, "up")
+	if shown = pickerRows(m); shown[0] != first {
+		t.Errorf("up inside the window: first row %s, want %s", shown[0], first)
+	}
+	if m.sprintPick.offset == 0 {
+		t.Errorf("offset = 0, want the window kept scrolled")
+	}
+}
+
+func TestSprintPickerOpensOnCurrentSprint(t *testing.T) {
+	m := manySprints(t, 40)
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.showSprint("s000030")
+	m = press(m, "K")
+	if r := m.sprintPick.rows[m.sprintPick.cursor]; r.sprintID != "s000030" {
+		t.Fatalf("K on S30's board: cursor on %q, want S30", r.label)
+	}
+	if shown := pickerRows(m); !slices.Contains(shown, "❯ S30") {
+		t.Errorf("rows shown %v, want the cursor row S30 among them", shown)
 	}
 }
 
