@@ -194,3 +194,20 @@ func TestSprintUnknownExit3(t *testing.T) {
 		t.Errorf("missing --sprint: %v", err)
 	}
 }
+
+func TestSprintAddRequiresNameExit2(t *testing.T) {
+	path := todotest.Seed(t, "")
+	_, err := runCmd(t, "sprint", "add", "--file", path)
+	if err == nil || codeOf(t, err) != exitUsage {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestSprintEditPrintsNewName(t *testing.T) {
+	path := todotest.Seed(t, "")
+	addSprint(t, path, "Alpha")
+	out, err := runCmd(t, "sprint", "edit", "--file", path, "--sprint", "Alpha", "--set-name", "Gamma")
+	if err != nil || strings.TrimSpace(out) != "edit: Gamma" {
+		t.Errorf("out %q err %v", out, err)
+	}
+}

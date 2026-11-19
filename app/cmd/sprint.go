@@ -34,14 +34,15 @@ func sprintCounts(doc *todo.Document, id string) map[string]int {
 // writeSprintTable prints sprints as a table: id, status, per-column counts,
 // then the name and, when there is one, the goal.
 func writeSprintTable(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) {
-	_, _ = fmt.Fprintln(w, "     id  status  next  progress  done  name")
+	_, _ = fmt.Fprintln(w, "     id  status  next  progress  done  name — goal")
+	next, progress, done := todo.ColNext.String(), todo.ColInProgress.String(), todo.ColDone.String()
 	for _, sp := range sprints {
 		c := sprintCounts(doc, sp.ID)
 		label := todo.Printable(sp.Name)
 		if sp.Goal != "" {
 			label += " — " + todo.Printable(sp.Goal)
 		}
-		_, _ = fmt.Fprintf(w, "%7s  %-6s  %4d  %8d  %4d  %s\n", sp.ID, sp.Status.String(), c["next"], c["progress"], c["done"], label)
+		_, _ = fmt.Fprintf(w, "%7s  %-6s  %4d  %8d  %4d  %s\n", sp.ID, sp.Status.String(), c[next], c[progress], c[done], label)
 	}
 }
 
@@ -70,7 +71,11 @@ func withSprint(cmd *cobra.Command, verb string, write sprintWrite) error {
 		if err := write(ctx, s, sp); err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, todo.Printable(sp.Name))
+		name := sp.Name
+		if n, _ := cmd.Flags().GetString("set-name"); cmd.Flags().Changed("set-name") {
+			name = n
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, todo.Printable(name))
 		return nil
 	})
 }
@@ -123,6 +128,9 @@ func sprintAddCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			name, _ := cmd.Flags().GetString("name")
 			goal, _ := cmd.Flags().GetString("goal")
+			if name == "" {
+				return usageErr("specify --name")
+			}
 			return withStore(cmd, func(ctx context.Context, s *todo.Store, _ *todo.Document) error {
 				id, _, err := s.AddSprint(ctx, name, goal)
 				if err != nil {
@@ -135,7 +143,6 @@ func sprintAddCmd() *cobra.Command {
 	}
 	c.Flags().String("name", "", "the sprint's name")
 	c.Flags().String("goal", "", "the sprint's goal")
-	_ = c.MarkFlagRequired("name")
 	return c
 }
 
