@@ -35,9 +35,9 @@ func (m model) startMove() (tea.Model, tea.Cmd) {
 func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	switch msg.String() {
-	case "up", "w":
+	case "up":
 		return m.applyMove(todo.StepUp)
-	case "down", "s":
+	case "down":
 		return m.applyMove(todo.StepDown)
 	case "left":
 		return m.applyMove(todo.StepOut)

@@ -214,8 +214,11 @@ func TestNewTaskTakesTabFirstState(t *testing.T) {
 	m = press(m, "n")
 	m = typeText(m, "idea")
 	m = press(m, "enter")
-	if st := storedItem(t, path, "idea").Status; st != todo.New {
-		t.Errorf("a task added on Next = %v, want new", st)
+	if it := storedItem(t, path, "idea"); it.Status != todo.New || it.Sprint != m.view.sprint {
+		t.Errorf("a task added on Next = %v in sprint %q, want new in %q", it.Status, it.Sprint, m.view.sprint)
+	}
+	if got := m.tree.selected().Title; got != "idea" {
+		t.Errorf("the new task should be selected, got %q", got)
 	}
 }
 
@@ -225,8 +228,11 @@ func TestNewTaskOnTaskTakesTabFirstState(t *testing.T) {
 	m = press(m, "n")
 	m = typeText(m, "sibling")
 	m = press(m, "enter")
-	if st := storedItem(t, path, "sibling").Status; st != todo.Working {
-		t.Errorf("a task added on In Progress = %v, want working", st)
+	if it := storedItem(t, path, "sibling"); it.Status != todo.Working || it.Sprint != m.view.sprint {
+		t.Errorf("a task added on In Progress = %v in sprint %q, want working in %q", it.Status, it.Sprint, m.view.sprint)
+	}
+	if got := m.tree.selected(); got == nil || got.Title != "sibling" {
+		t.Errorf("the new task should be selected in the tab, got %v", got)
 	}
 }
 

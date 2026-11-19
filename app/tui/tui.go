@@ -418,9 +418,6 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "p":
-		if it := m.selectedItem(); it != nil && it.IsTask() && !it.IsSubtask() && it.Sprint == "" {
-			return m.openAssignPicker(it)
-		}
 		return m.shiftColumn(1)
 	case "o":
 		return m.openSendToPicker()

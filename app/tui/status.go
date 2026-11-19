@@ -12,9 +12,9 @@ import (
 // states, enter sets the highlighted one, esc or q cancels.
 func (m model) updateStatePick(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "up", "w":
+	case "up":
 		m.pick.move(-1)
-	case "down", "s":
+	case "down":
 		m.pick.move(1)
 	case "esc", "q":
 		m.mode, m.pickItem = modeMain, nil
@@ -65,11 +65,17 @@ func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// sprintColumns are the columns of a sprint board, in board order.
+var sprintColumns = []todo.Column{todo.ColNext, todo.ColInProgress, todo.ColDone}
+
 // shiftColumn is p/P: it moves the selected top-level task delta columns along
-// the board (no wrap), into the target column's first state. Into Done it
-// completes the task (cascade and undo snapshot); out of Done it reopens it,
-// restoring its subtasks from the snapshot when there is one. A subtask (it
-// follows its task) and a task at the board's edge only get a footer hint.
+// its sprint's board (no wrap), into the target column's first state. Into
+// Done it completes the task (cascade and undo snapshot); out of Done it
+// reopens it, restoring its subtasks from the snapshot when there is one. P
+// from Next sends the task back to the Backlog (it becomes open). On a backlog
+// task p opens the dialog that assigns it to a sprint, and P only hints. A
+// subtask (it follows its task) and a task at Done's edge only get a footer
+// hint.
 func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {
@@ -81,18 +87,26 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 	case it.IsSubtask():
 		m.status = "subtasks move with their task"
 		return m, nil
-	}
-	cols := todo.Columns()
-	cur := slices.Index(cols, it.Column())
-	if cur < 0 {
-		cur = 0 // a column off the board (an unknown status) counts as Backlog
-	}
-	i := cur + delta
-	if i < 0 || i >= len(cols) {
-		m.status = "no column beyond " + cols[cur].Title()
+	case it.SprintID() == "" && delta > 0:
+		return m.openAssignPicker(it)
+	case it.SprintID() == "":
+		m.status = "already in the " + todo.ColBacklog.Title()
 		return m, nil
 	}
-	target := cols[i]
+	cur := max(slices.Index(sprintColumns, it.Column()), 0) // a state off the sprint board counts as Next
+	i := cur + delta
+	switch {
+	case i < 0:
+		id := it.ID
+		m.commitMoved(id, func(ctx context.Context, s *todo.Store) (todo.WriteResult, error) {
+			return s.Unassign(ctx, id)
+		})
+		return m, nil
+	case i >= len(sprintColumns):
+		m.status = "no column beyond " + sprintColumns[cur].Title()
+		return m, nil
+	}
+	target := sprintColumns[i]
 	switch {
 	case target == todo.ColDone:
 		return m.complete(it)
@@ -104,10 +118,11 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 }
 
 // openStatePicker is t: it opens the dialog that sets the selected task's state
-// (any state for a top-level task, open or done for a subtask), the cursor on
-// its current state. On a task completed in this session the cursor starts on
-// the state it had before, so t then enter undoes an accidental complete.
-// Categories have no state, so they get a footer hint instead.
+// (a top-level task's Backlog or sprint states, by its membership; open or
+// done for a subtask), the cursor on its current state. On a task completed in
+// this session the cursor starts on the state it had before, so t then enter
+// undoes an accidental complete. Categories have no state, so they get a
+// footer hint instead.
 func (m model) openStatePicker() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {

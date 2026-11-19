@@ -74,7 +74,7 @@ type confirmAction int
 
 const (
 	confirmDelete       confirmAction = iota // delete the selected item (m.deleting)
-	confirmClearDone                         // remove every completed task
+	confirmClearDone                         // remove the board's sprint's completed tasks
 	confirmDeleteSprint                      // delete the selected sprint (m.deletingSprint)
 )
 
@@ -97,11 +97,20 @@ func (m model) openDelete() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// openClearDone opens the confirm dialog for removing every completed task
-// (focused on the safe Cancel button). A no-op with a status hint when there is
-// nothing to remove.
+// openClearDone is D: on a sprint board it opens the confirm dialog for
+// removing that sprint's completed tasks (focused on the safe Cancel button),
+// or says there are none. The Backlog holds no done tasks, and the unified view
+// would reach several sprints' history at once, so both only get a footer
+// hint.
 func (m model) openClearDone() (tea.Model, tea.Cmd) {
-	if m.doc.RemovableDone() == 0 {
+	switch {
+	case m.view.all:
+		m.status = "open a sprint to remove its done tasks"
+		return m, nil
+	case !m.view.onBoard():
+		m.status = "no done tasks in the " + todo.ColBacklog.Title()
+		return m, nil
+	case m.doc.RemovableDoneIn(m.view.sprint) == 0:
 		m.status = "No completed tasks to remove."
 		return m, nil
 	}
@@ -145,12 +154,13 @@ func (m model) doConfirm() (tea.Model, tea.Cmd) {
 	return m.doDelete()
 }
 
-// doClearDone removes every completed task from the store (which works out the
-// fully-done subtrees itself, as they are at write time), reloads, and keeps
-// the selection on the previously selected item when it survived (otherwise the
-// top row). Like a delete, it ends the accidental-complete undo window. The
-// footer says how many tasks went, and keeps the notice that the list changed
-// externally when the write found it so.
+// doClearDone removes the completed tasks of the board's sprint from the store
+// (which works out the fully-done subtrees itself, as they are at write time),
+// reloads, and keeps the selection on the previously selected item when it
+// survived (otherwise the top row). Like a delete, it ends the
+// accidental-complete undo window. The footer says how many tasks went, and
+// keeps the notice that the list changed externally when the write found it
+// so.
 func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	m.mode = modeMain
 	var focus string
@@ -160,8 +170,9 @@ func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	m.snapshots = map[string]todo.DoneStates{}
 	m.status = "" // so that only the write's own notice is kept below
 	var removed int
+	sprint := m.view.sprint
 	saved := m.commit(focus, func(ctx context.Context, st *todo.Store) (res todo.WriteResult, err error) {
-		removed, res, err = st.Prune(ctx)
+		removed, res, err = st.PruneSprint(ctx, sprint)
 		return res, err
 	})
 	if sel := m.focused().selected(); focus != "" && (sel == nil || sel.ID != focus) {
@@ -205,7 +216,7 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 func (m model) confirmQuestion() string {
 	switch m.confirmAction {
 	case confirmClearDone:
-		return fmt.Sprintf("Remove %d completed task(s)?", m.doc.RemovableDone())
+		return fmt.Sprintf("Remove %d completed task(s)?", m.doc.RemovableDoneIn(m.view.sprint))
 	case confirmDeleteSprint:
 		return fmt.Sprintf("Delete sprint %q? Its unfinished tasks go back to the Backlog.", todo.Printable(m.deletingSprint.Name))
 	}

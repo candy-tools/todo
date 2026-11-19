@@ -202,12 +202,14 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		parentID = parent.ID
 		delete(m.focused().collapsed, parentID) // the new item shows under its parent
 	}
-	// A new task enters the current tab in its column's first state, so it shows
-	// where it was added; a new subtask starts open (subtasks are open or done).
-	st := m.view.newTaskState()
+	// A new task enters the current tab in its column's first state (on a
+	// sprint board, in the board's sprint), so it shows where it was added; a
+	// new subtask starts open (subtasks are open or done) and follows its task.
+	st, sprint := m.view.newTaskPlacement()
 	if parent != nil && parent.IsTask() {
-		st = todo.Open
+		st, sprint = todo.Open, ""
 	}
+	v.Sprint = sprint
 
 	// A task goes after its parent's last task, a category after its parent's
 	// last child, as the store finds them when it writes, so a sibling another

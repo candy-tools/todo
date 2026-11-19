@@ -32,14 +32,14 @@ func selectTitle(t *testing.T, m model, title string) model {
 }
 
 func TestBracketMovesToNextColumn(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n- [ ] b\n")
+	m, path := newTestModelOn(t, "# C\n- [/] a\n- [/] b\n", todo.ColInProgress)
 	m = press(m, "down") // a, row 1
-	m = pickState(t, m, todo.New)
-	if st := storedItem(t, path, "a").Status; st != todo.New {
-		t.Fatalf("t on a Backlog task stored %v, want new", st)
+	m = press(m, "p")
+	if st := storedItem(t, path, "a").Status; st != todo.Done {
+		t.Fatalf("p on an In Progress task stored %v, want done", st)
 	}
 	if contains(rowTitles(m.tree), "a") {
-		t.Errorf("a must leave Backlog, rows = %v", rowTitles(m.tree))
+		t.Errorf("a must leave In Progress, rows = %v", rowTitles(m.tree))
 	}
 	if m.tree.cursor != 1 {
 		t.Errorf("the cursor must stay at row 1, got %d", m.tree.cursor)
@@ -47,7 +47,7 @@ func TestBracketMovesToNextColumn(t *testing.T) {
 	if got := m.tree.selected(); got == nil || got.Title != "b" {
 		t.Errorf("the row that took a's place must be selected, got %v", got)
 	}
-	if got := m.footer(200); !strings.Contains(got, "moved to Next — new") {
+	if got := m.footer(200); !strings.Contains(got, "moved to Done — done") {
 		t.Errorf("footer = %q, want the move notice", got)
 	}
 }
@@ -151,8 +151,8 @@ func TestBracketUnknownStatusIsBacklog(t *testing.T) {
 	m = selectTitle(t, m, "a")
 	before := storeFP(t, m)
 	got := press(m, "P")
-	if got.status != "no column beyond Backlog" || storeFP(t, got) != before {
-		t.Errorf("[ on an unknown status must hint as at Backlog's edge, status %q", got.status)
+	if got.status != "already in the Backlog" || storeFP(t, got) != before {
+		t.Errorf("P on an unknown status must hint as on a backlog task, status %q", got.status)
 	}
 	// An unknown status is a backlog task: p offers sprints (none here).
 	got = press(m, "p")
@@ -180,14 +180,14 @@ func TestSpaceAndXNeverChangeState(t *testing.T) {
 }
 
 func TestStatePickerSetsState(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m, path := newTestModelOn(t, "# C\n- [/] a\n", todo.ColInProgress)
 	m = selectTitle(t, m, "a")
 	m = press(m, "t")
-	if m.mode != modeStatePick || m.pick.selected() != todo.Open {
+	if m.mode != modeStatePick || m.pick.selected() != todo.Working {
 		t.Fatalf("t should open the picker on the current state, mode %v, on %v", m.mode, m.pick.selected())
 	}
-	// From open: deferred, won't do, then the Next heading is skipped to new, ready.
-	m = press(m, "down", "down", "down", "down")
+	// From working, up skips the In Progress heading to ready.
+	m = press(m, "up")
 	if got := m.pick.selected(); got != todo.Ready {
 		t.Fatalf("cursor on %v, want ready", got)
 	}
@@ -204,7 +204,7 @@ func TestStatePickerSetsState(t *testing.T) {
 }
 
 func TestStatePickerDoneAndCancel(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n  - [ ] s\n")
+	m, path := newTestModelOn(t, "# C\n- [/] a\n  - [ ] s\n", todo.ColInProgress)
 	m = selectTitle(t, m, "a")
 	before := storeFP(t, m)
 	m = press(m, "t", "down", "esc")
@@ -298,7 +298,7 @@ func TestReopenWithoutSnapshotKeepsSubtasks(t *testing.T) {
 // tree, but completing its task must still cascade to it: the store reads the
 // tree at write time.
 func TestCompleteCascadesToSubtaskAddedExternally(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m, path := newTestModelOn(t, "# C\n- [/] a\n", todo.ColInProgress)
 	a := find(m.doc, "a").ID
 	if _, _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "s"}, todo.Open, a, ""); err != nil {
 		t.Fatalf("external add: %v", err)

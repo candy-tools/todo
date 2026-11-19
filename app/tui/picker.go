@@ -27,14 +27,20 @@ type picker struct {
 }
 
 // newStatePicker builds the "t" dialog for task it: a subtask may only be open
-// or done; a top-level task may take any state, grouped by column. The cursor
-// starts on the task's current state.
+// or done; a backlog task may take the Backlog's states; a sprint task the
+// states of its sprint's board, grouped by column. The cursor starts on the
+// task's current state.
 func newStatePicker(it *todo.Item) picker {
 	p := picker{title: "Set state", subtask: it.IsSubtask()}
-	if p.subtask {
+	switch {
+	case p.subtask:
 		p.rows = []pickRow{{state: todo.Open}, {state: todo.Done}}
-	} else {
-		for _, c := range todo.Columns() {
+	case it.SprintID() == "":
+		for _, st := range todo.ColBacklog.States() {
+			p.rows = append(p.rows, pickRow{state: st})
+		}
+	default:
+		for _, c := range sprintColumns {
 			p.rows = append(p.rows, pickRow{header: c.Title()})
 			for _, st := range c.States() {
 				p.rows = append(p.rows, pickRow{state: st})

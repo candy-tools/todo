@@ -78,7 +78,9 @@ func TestHelpScrollsWhenTooTall(t *testing.T) {
 	if out := ansi.Strip(m.View()); !strings.Contains(out, "Show / hide this help") {
 		t.Errorf("scrolled to the end the last section should show:\n%s", out)
 	}
-	m = press(m, "pgup", "pgup", "pgup")
+	for range 10 {
+		m = press(m, "pgup")
+	}
 	if m.helpOffset != 0 {
 		t.Errorf("scrolling up must stop at the top, offset %d", m.helpOffset)
 	}

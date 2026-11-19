@@ -187,14 +187,15 @@ func (v *viewState) setActiveStates(next map[todo.Status]bool) {
 // Backlog and the unified view.
 func (v *viewState) editsCategories() bool { return v.all || v.screen == screenBacklog }
 
-// newTaskState is the state a new top-level task takes in the view, so it
-// shows where it was added: the board tab's first state, or open (Backlog's)
-// elsewhere.
-func (v *viewState) newTaskState() todo.Status {
+// newTaskPlacement is the state and sprint a new top-level task takes in the
+// view, so it shows where it was added: on a sprint board the tab's first
+// state in the board's sprint, elsewhere (the Backlog and the unified view)
+// open in the Backlog.
+func (v *viewState) newTaskPlacement() (todo.Status, string) {
 	if v.onBoard() {
-		return v.column.FirstState()
+		return v.column.FirstState(), v.sprint
 	}
-	return todo.ColBacklog.FirstState()
+	return todo.ColBacklog.FirstState(), ""
 }
 
 // setColumn switches every tree to the board tab for column c, one of the
@@ -448,9 +449,9 @@ func (m *model) adoptAll(doc *todo.Document, focusID string, onPH bool) {
 // the state filter off for it), esc or q cancels.
 func (m model) updateStateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "up", "w":
+	case "up":
 		m.pick.move(-1)
-	case "down", "s":
+	case "down":
 		m.pick.move(1)
 	case " ", "x":
 		m.pick.toggle()
