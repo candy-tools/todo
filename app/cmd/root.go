@@ -39,9 +39,9 @@ func execute(args []string, stdout, stderr io.Writer) int {
 		var je jsonError
 		je.Error.Code, je.Error.Exit, je.Error.Message = name, exit, strings.TrimRight(err.Error(), "\n")
 		b, _ := json.Marshal(je)
-		fmt.Fprintln(stderr, string(b))
+		_, _ = fmt.Fprintln(stderr, string(b))
 	} else {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 	}
 	return exit
 }

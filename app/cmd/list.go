@@ -27,40 +27,9 @@ func listCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			filter, _ := cmd.Flags().GetString("filter")
-			visible := doc.VisibleItems(filter) // nil => show everything
-			colName, _ := cmd.Flags().GetString("column")
-			backlog, _ := cmd.Flags().GetBool("backlog")
-			inSprint := cmd.Flags().Changed("sprint")
-			switch {
-			case backlog && inSprint:
-				return usageErr("--backlog and --sprint are mutually exclusive")
-			case backlog && colName != "":
-				return usageErr("--backlog and --column are mutually exclusive")
-			case inSprint && colName == todo.ColBacklog.String():
-				return usageErr("--sprint and --column backlog are mutually exclusive: a sprint has no backlog column")
-			case backlog:
-				colName = todo.ColBacklog.String()
-			}
-			sprintID := ""
-			if inSprint {
-				sp, err := resolveSprint(cmd, doc)
-				if err != nil {
-					return err
-				}
-				sprintID = sp.ID
-			}
-			if colName != "" || inSprint {
-				cols := todo.SprintColumns()
-				if colName != "" {
-					col, ok := todo.ColumnFromName(colName)
-					if !ok {
-						return usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
-					}
-					cols = []todo.Column{col}
-				}
-				// Search within the columns and sprint, as the TUI tab does.
-				visible = doc.ColumnMatches(filter, sprintID, cols...)
+			visible, err := listVisible(cmd, doc)
+			if err != nil {
+				return err
 			}
 			flat, _ := cmd.Flags().GetBool("flat")
 			kind, _ := cmd.Flags().GetString("kind")
@@ -90,6 +59,47 @@ func listCmd() *cobra.Command {
 	c.Flags().String("kind", "", "with --flat, only this kind: task|category")
 	c.Flags().String("status", "", "with --flat, only tasks in these states (comma-separated): "+statusNames)
 	return c
+}
+
+// listVisible returns the items `list` shows (nil => everything): those matching
+// --filter, narrowed to the board selection given by --column, --sprint or
+// --backlog. A conflicting selection or an unknown column or sprint is an error.
+func listVisible(cmd *cobra.Command, doc *todo.Document) (map[*todo.Item]bool, error) {
+	filter, _ := cmd.Flags().GetString("filter")
+	colName, _ := cmd.Flags().GetString("column")
+	backlog, _ := cmd.Flags().GetBool("backlog")
+	inSprint := cmd.Flags().Changed("sprint")
+	switch {
+	case backlog && inSprint:
+		return nil, usageErr("--backlog and --sprint are mutually exclusive")
+	case backlog && colName != "":
+		return nil, usageErr("--backlog and --column are mutually exclusive")
+	case inSprint && colName == todo.ColBacklog.String():
+		return nil, usageErr("--sprint and --column backlog are mutually exclusive: a sprint has no backlog column")
+	case backlog:
+		colName = todo.ColBacklog.String()
+	}
+	if colName == "" && !inSprint {
+		return doc.VisibleItems(filter), nil
+	}
+	sprintID := ""
+	if inSprint {
+		sp, err := resolveSprint(cmd, doc)
+		if err != nil {
+			return nil, err
+		}
+		sprintID = sp.ID
+	}
+	cols := todo.SprintColumns()
+	if colName != "" {
+		col, ok := todo.ColumnFromName(colName)
+		if !ok {
+			return nil, usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
+		}
+		cols = []todo.Column{col}
+	}
+	// Search within the columns and sprint, as the TUI tab does.
+	return doc.ColumnMatches(filter, sprintID, cols...), nil
 }
 
 // listKeep builds the --flat predicate from the --kind and --status values. A
