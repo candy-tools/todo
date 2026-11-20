@@ -46,7 +46,7 @@ func (m model) mainView(dim bool) string {
 		// board, split view or not.
 		sw := sidebarWidth(w)
 		left := titledBox("Sprints", m.sprints.view(m.doc, sw-2, m.sprintListHeight()), sw, bodyH, !dim && m.listFocus)
-		right := titledBox(m.boardTitle(), m.boardPane(w-sw-2), w-sw, bodyH, !dim && !m.listFocus)
+		right := titledBox(m.boardTitle(), m.boardPane(m.boardWidth()), w-sw, bodyH, !dim && !m.listFocus)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	case m.splitShown():
 		sw := sidebarWidth(w)
@@ -86,27 +86,48 @@ func (m model) boardPane(width int) string {
 }
 
 // boardBody renders the shown sprint's board, width wide: as much of its head
-// as fits (see boardHeadRows) over its tree.
+// as fits (see boardHeadRows) over its tree, or, in the columns layout, over
+// the three columns, the head's tab bar giving way to the column titles.
 func (m model) boardBody(width int) string {
 	s, ok := m.doc.SprintByID(m.view.sprint)
 	if !ok {
 		return m.tree.view(width, m.treeViewHeight())
 	}
-	head := boardHead(s, m.doc.ColumnCounts(s.ID), m.view.column, width)
+	counts := m.doc.ColumnCounts(s.ID)
+	head := boardHead(s, counts, m.view.column, width)
+	body := ""
+	if m.columnsShown() {
+		head[len(head)-1] = columnTitles(counts, m.view.column, width)
+		body = m.columnsBody(s.ID, width, m.treeViewHeight())
+	} else {
+		body = m.tree.view(width, m.treeViewHeight())
+	}
 	head = head[len(head)-m.boardHeadRows():]
-	return strings.Join(append(head, m.tree.view(width, m.treeViewHeight())), "\n")
+	return strings.Join(append(head, body), "\n")
 }
 
 // boardHeadRows is how many of the board head's lines show: all of them, less
 // as many as a short pane needs to keep one task row. The head gives up its
-// lines from the top, the goal first, then the progress, then the tab bar.
+// lines from the top, the goal first, then the progress, then the tab bar (in
+// the columns layout, the column titles, which take its row).
 func (m model) boardHeadRows() int {
 	return min(boardChrome, m.paneRows()-1)
 }
 
+// boardWidth is the inner width of the Sprints workspace's board pane at the
+// current terminal size. It mirrors the layout math in mainView.
+func (m model) boardWidth() int {
+	w := m.width
+	if w == 0 {
+		w = 80 // matches mainView's fallback when the terminal size is unknown
+	}
+	return w - sidebarWidth(w) - 2
+}
+
 // treeViewHeight is how many task rows the tree pane can show at the current
 // terminal size — the height handed to tree.view — less the board head's rows
-// on a sprint board. Update stores it on the trees (see fitTrees) so their
+// on a sprint board (the same in the columns layout, whose title row takes the
+// tab bar's). Update stores it on the trees (see fitTrees) so their
 // scroll math (reconcileOffset) matches what mainView renders; the two must
 // agree or the viewport clamp would fight the offset.
 func (m model) treeViewHeight() int {
@@ -265,7 +286,11 @@ func (m model) footer(width int) string {
 	parts := []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
 	switch {
 	case m.view.onBoard():
-		parts = append(parts, hint("tab", "Sprints"))
+		layout := "Columns"
+		if m.columnsShown() {
+			layout = "Tabs"
+		}
+		parts = append(parts, hint("tab", "Sprints"), hint("L", layout))
 	case m.splitShown():
 		parts = append(parts, hint("tab", "Pane"))
 	}

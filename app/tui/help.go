@@ -36,6 +36,7 @@ var helpSections = []helpSection{
 		{"K", "Pick a sprint to go to"},
 		{"[  ]", "Previous / next column (sprint board)"},
 		{"1–3", "Jump to Next / In Progress / Done (sprint board)"},
+		{"L", "Board as tabs / three columns"},
 		{"u", "Unified view: every task, any sprint / back"},
 	}},
 	{"Tasks", []helpBinding{

@@ -80,6 +80,10 @@ type model struct {
 	// board; listFocus is whether the keys go to it (true) or to the board.
 	sprints   sprintList
 	listFocus bool
+	// columns is the board's layout, flipped with "L": three columns side by
+	// side instead of tabs, when the board pane is wide enough (see
+	// columnsShown). Session only, never stored.
+	columns bool
 	// lastSprint is the ID of the sprint whose board was shown last, where
 	// "k" goes back to from the other screens; boardTabs is the tab each
 	// sprint board showed last, by sprint ID.
@@ -371,9 +375,9 @@ func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 
 // updateViewKey handles the keys that change how the trees show the list,
 // from the Sprints workspace's sidebar too, where they act on the board: /
-// (search), f (state filter), u (unified view) and v (split view, which the
-// Sprints workspace does not show). The bool reports whether the key was one
-// of them.
+// (search), f (state filter), u (unified view), v (split view, which the
+// Sprints workspace does not show) and L (the board as tabs or columns). The
+// bool reports whether the key was one of them.
 func (m model) updateViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "/":
@@ -398,6 +402,8 @@ func (m model) updateViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			m.openSplitOnSelection()
 			m.saveView()
 		}
+	case "L":
+		m.toggleColumns()
 	default:
 		return m, nil, false
 	}
