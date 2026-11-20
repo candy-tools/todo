@@ -49,9 +49,13 @@ func TestPNoLongerMovesColumns(t *testing.T) {
 	if storeFP(t, m) != before {
 		t.Fatal("P must not write any more")
 	}
+	// p opens Planning, which stores the view browsed to but moves no task.
+	task := find(m.doc, "working")
+	col, status := task.Column(), task.Status
 	m = press(m, "p")
-	if storeFP(t, m) != before {
-		t.Fatal("p must not write any more")
+	task = find(m.doc, "working")
+	if task.Column() != col || task.Status != status {
+		t.Fatalf("p moved the task: %v %v, was %v %v", task.Column(), task.Status, col, status)
 	}
 }
 

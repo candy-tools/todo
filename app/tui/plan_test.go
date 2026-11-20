@@ -327,6 +327,9 @@ func TestPlannedSprintDeletedElsewhereLeaves(t *testing.T) {
 	if m.view.screen != screenSprint || m.view.sprint == "s00000c" {
 		t.Fatalf("after the delete: screen %v sprint %q", m.view.screen, m.view.sprint)
 	}
+	if m.status != msgPlanGone || m.err != nil {
+		t.Errorf("after the delete: status %q err %v, want %q", m.status, m.err, msgPlanGone)
+	}
 	if storeFP(t, m) != before {
 		t.Error("leaving Planning for a gone sprint must not store the view")
 	}
@@ -338,8 +341,146 @@ func TestPlanningEmptyBacklog(t *testing.T) {
 	if !strings.Contains(ansi.Strip(m.View()), "nothing in the Backlog") {
 		t.Errorf("empty backlog view:\n%s", ansi.Strip(m.View()))
 	}
-	if !strings.Contains(ansi.Strip(m.View()), "no tasks yet") {
-		t.Errorf("empty sprint view:\n%s", ansi.Strip(m.View()))
+}
+
+func TestPlanningEmptySprintShowsItsColumns(t *testing.T) {
+	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Status: "open"}},
+		seedTask{ID: "t000001", Title: "b1", Status: "open"}))
+	m = press(m, "s", "p")
+	v := ansi.Strip(m.View())
+	for _, h := range []string{"Next (0)", "In Progress (0)", "Done (0)"} {
+		if !strings.Contains(v, h) {
+			t.Errorf("empty sprint view lacks %q:\n%s", h, v)
+		}
+	}
+	m, _ = newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Status: "open"}}))
+	m = press(m, "s", "p")
+	v = ansi.Strip(m.View())
+	if !strings.Contains(v, "nothing in the Backlog") || !strings.Contains(v, "Next (0)") {
+		t.Errorf("empty sprint and Backlog view:\n%s", v)
+	}
+}
+
+func TestPlanningWritesOnAGoneSprintSayGone(t *testing.T) {
+	deleteC := func(t *testing.T, path string) {
+		if _, err := openSecond(t, path).DeleteSprint(context.Background(), "s00000c"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		setup []string // before the sprint goes: pull the Backlog's task into C
+		keys  []string
+		gone  func(t *testing.T, path string)
+	}{
+		{"pull after a delete", nil, []string{"a"}, deleteC},
+		{"return after a delete", []string{"a", "tab"}, []string{"A"}, deleteC},
+		{"ready after a delete", []string{"a", "tab"}, []string{"r"}, deleteC},
+		{"pull after a close", nil, []string{"a"}, func(t *testing.T, path string) { finishAndCloseOnDisk(t, path, "s00000c") }},
+		{"ready after a close", []string{"a", "tab"}, []string{"r"}, func(t *testing.T, path string) { finishAndCloseOnDisk(t, path, "s00000c") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, path := threeSprints(t)
+			m = press(m, "s", "down", "p") // C
+			m = press(m, tc.setup...)
+			tc.gone(t, path)
+			m = press(m, tc.keys...)
+			if m.view.screen != screenSprint || m.status != msgPlanGone || m.err != nil {
+				t.Fatalf("screen %v status %q err %v, want the Sprints screen and %q", m.view.screen, m.status, m.err, msgPlanGone)
+			}
+		})
+	}
+}
+
+func TestPlanningRIgnoresTheBacklogSide(t *testing.T) {
+	m, path := threeSprints(t)
+	press(m, "s", "p", "r")
+	if got := storedStatus(t, path, "t000001"); got != todo.Open {
+		t.Fatalf("r on the Backlog side stored %v, want open", got)
+	}
+}
+
+func TestPlanningSprintChangeResetsTheSprintSelection(t *testing.T) {
+	for _, keys := range [][]string{{"k"}, {"K"}} {
+		m, _ := threeSprints(t)
+		m = press(m, "s", "p", "tab", "down") // A's Done task
+		if m.plan.rightSel != "t000003" {
+			t.Fatalf("setup: selected %q", m.plan.rightSel)
+		}
+		if keys[0] == "K" {
+			m = press(m, "K")
+			m = chooseSprint(t, m, "s00000c")
+		} else {
+			m = press(m, keys...)
+		}
+		if m.plan.sprintID != "s00000c" {
+			t.Fatalf("%v: sprint %q", keys, m.plan.sprintID)
+		}
+		if got := m.plan.selected(m.doc, true); got == nil || got.ID != "t000005" {
+			t.Fatalf("%v: sprint side selects %v, want C's first task", keys, got)
+		}
+		if m.plan.rightOff != 0 {
+			t.Errorf("%v: window offset %d, want 0", keys, m.plan.rightOff)
+		}
+	}
+}
+
+func TestPlanningReloadKeepsTheCursorOnTheNearestTask(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		keys []string
+		move func(t *testing.T, st *todo.Store)
+		want string
+	}{
+		{"deleted", []string{"p", "down", "down"}, func(t *testing.T, st *todo.Store) { // b3
+			if _, err := st.Delete(context.Background(), "t000003"); err != nil {
+				t.Fatal(err)
+			}
+		}, "t000004"},
+		{"deleted last", []string{"p", "down", "down", "down"}, func(t *testing.T, st *todo.Store) { // b4
+			if _, err := st.Delete(context.Background(), "t000004"); err != nil {
+				t.Fatal(err)
+			}
+		}, "t000003"},
+		{"moved to the sprint", []string{"p", "down"}, func(t *testing.T, st *todo.Store) { // b2
+			if _, err := st.Assign(context.Background(), "t000002", "s00000a"); err != nil {
+				t.Fatal(err)
+			}
+		}, "t000003"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, path := fourBacklog(t)
+			m = press(m, tc.keys...)
+			tc.move(t, openSecond(t, path))
+			m = pollOnce(t, m)
+			if got := m.plan.selected(m.doc, false); got == nil || got.ID != tc.want {
+				t.Fatalf("cursor on %v, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPlanningWriteOnAChangedListWithGoneSprintSaysGone(t *testing.T) {
+	m, path := threeSprints(t)
+	m = press(m, "s", "down", "p") // C
+	if _, err := openSecond(t, path).DeleteSprint(context.Background(), "s00000c"); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "right") // a write on the list another session changed
+	if m.view.screen != screenSprint || m.status != msgPlanGone {
+		t.Fatalf("screen %v status %q, want the Sprints screen and %q", m.view.screen, m.status, msgPlanGone)
+	}
+}
+
+func TestQuitFromPlanningStoresTheBrowsedSprint(t *testing.T) {
+	m, path := threeSprints(t)
+	m = press(m, "s", "down", "p") // C, browsed to but not stored
+	_, cmd := m.Update(keyMsg("q"))
+	if cmd == nil {
+		t.Fatal("q must quit")
+	}
+	if got := loadSprintDoc(t, path).View.Sprint; got != "s00000c" {
+		t.Fatalf("stored sprint %q, want C", got)
 	}
 }
 

@@ -196,6 +196,11 @@ func (m *model) openPlanning() {
 			return
 		}
 	}
+	if m.viewOnScreen() != m.doc.View {
+		// Planning is never stored, so a sprint browsed to is stored now, or a
+		// quit from Planning would forget it.
+		m.saveView()
+	}
 	m.switchScreen(screenPlan, "")
 	m.plan.plan(id)
 	m.plan.right = false
@@ -222,6 +227,16 @@ func (m *model) leaveGonePlan() {
 	}
 	m.openWorkspace(m.sprintsTarget())
 	m.status = msgPlanGone
+}
+
+// afterPlanWrite runs after a write of Planning. When it left Planning, the
+// sprint was gone or closed under the write: that, not the write's error or
+// refusal, is what the footer says.
+func (m *model) afterPlanWrite() {
+	if m.view.screen != screenPlan {
+		m.err = nil
+		m.status = msgPlanGone
+	}
 }
 
 // updatePlan handles the keys of Planning: the arrows move the focused side's
@@ -284,6 +299,7 @@ func (m *model) pullIn() {
 	if got, ok := m.doc.ByID(id); ok && got.SprintID() == sprint {
 		m.plan.rightSel = id
 	}
+	m.afterPlanWrite()
 }
 
 // sendBack returns the sprint side's task to the Backlog, where it becomes
@@ -304,6 +320,7 @@ func (m *model) sendBack() {
 	if got, ok := m.doc.ByID(id); ok && got.SprintID() == "" {
 		m.plan.leftSel = id
 	}
+	m.afterPlanWrite()
 }
 
 // toggleReady flips the sprint side's task between new and ready.
@@ -322,6 +339,7 @@ func (m *model) toggleReady() {
 		return
 	}
 	m.commit(it.ID, stateWrite(it.ID, st, todo.StateOptions{}))
+	m.afterPlanWrite()
 }
 
 // planBody renders Planning's two panes side by side, width wide and height
@@ -332,7 +350,7 @@ func (m model) planBody(width, height int, dim bool) string {
 	rw := width - lw
 	rows := m.paneRows()
 	left := titledBox(todo.ColBacklog.Title(), m.planPane(false, lw-2, rows, "nothing in the Backlog"), lw, height, !dim && !m.plan.right)
-	right := titledBox(m.planTitle(), m.planPane(true, rw-2, rows, "no tasks yet"), rw, height, !dim && m.plan.right)
+	right := titledBox(m.planTitle(), m.planPane(true, rw-2, rows, ""), rw, height, !dim && m.plan.right)
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 }
 
@@ -350,17 +368,17 @@ func (m model) planTitle() string {
 }
 
 // planPane renders the rows of one side that fit width x height, the
-// selection always among them, or the dim empty line when the side holds no
-// task.
+// selection always among them. A side without a task draws its headers, or the
+// dim empty line when it has no row at all.
 func (m model) planPane(right bool, width, height int, empty string) string {
 	p := m.plan // a copy: rendering never moves the real selection
 	rows := p.rows(m.doc, right)
 	cur := p.sync(rows, right)
-	if cur < 0 {
+	if len(rows) == 0 {
 		return "  " + helpTextStyle.Render(empty)
 	}
 	_, _, off := p.side(right)
-	start := scrollWindow(*off, cur, len(rows), height)
+	start := scrollWindow(*off, max(cur, 0), len(rows), height)
 	end := min(start+height, len(rows))
 	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
