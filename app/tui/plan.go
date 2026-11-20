@@ -426,7 +426,7 @@ func (m model) planCrumb() string {
 // planFooter is Planning's footer: the focused side's keys.
 func (m model) planFooter() []string {
 	if m.plan.right {
-		return []string{hint("←/A", "Back"), hint("r", "Ready"), hint("tab", "Backlog side"), hint("k", "Other sprint"), hint("esc", "Done"), hint("?", "Help")}
+		return []string{hint("?", "Help"), hint("←/A", "Back"), hint("r", "Ready"), hint("tab", "Backlog side"), hint("k", "Other sprint"), hint("esc", "Done"), hint("q", "Quit")}
 	}
-	return []string{hint("→/a", "Pull in"), hint("tab", "Sprint side"), hint("k", "Other sprint"), hint("esc", "Done"), hint("?", "Help")}
+	return []string{hint("?", "Help"), hint("→/a", "Pull in"), hint("tab", "Sprint side"), hint("k", "Other sprint"), hint("esc", "Done"), hint("q", "Quit")}
 }

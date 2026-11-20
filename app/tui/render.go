@@ -337,16 +337,18 @@ func (m model) footer(width int) string {
 		return ansi.Truncate(" "+helpTextStyle.Render(m.status), width, "")
 	case m.view.screen == screenPlan:
 		// Planning's own keys; the search and state filter do not apply there.
-		return ansi.Truncate(" "+strings.Join(m.planFooter(), "  "), width, "")
+		return fitHints(m.planFooter(), width)
 	case m.onList():
 		// The sidebar's own keys, ahead of the board's search filter: the
 		// selected sprint's, or the fold on the Closed group row.
-		parts := []string{hint("n", "New"), hint("e", "Edit"), hint("c", "Close/reopen"), hint("d", "Delete")}
-		if m.onClosedRow() {
-			parts = []string{hint("n", "New"), hint("←→", "Fold")}
+		parts := []string{hint("?", "Help"), hint("n", "New")}
+		switch {
+		case m.onClosedRow():
+			parts = append(parts, hint("←→", "Fold"))
+		case m.sprints.selected(m.doc) != nil:
+			parts = append(parts, hint("e", "Edit"), hint("c", "Close/reopen"), hint("d", "Delete"), hint("tab", "Board"))
 		}
-		parts = append(parts, hint("tab", "Board"), hint("?", "Help"), hint("q", "Quit"))
-		return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
+		return fitHints(append(parts, hint("q", "Quit")), width)
 	case m.focused().grabbed:
 		// Move mode: the arrows reorder/re-nest the grabbed item.
 		parts := []string{
@@ -375,11 +377,15 @@ func (m model) footer(width int) string {
 	parts := []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
 	switch {
 	case m.view.onBoard():
-		layout := "Columns"
-		if m.columnsShown() {
-			layout = "Tabs"
+		// The column keys, then L where the board is wide enough for columns.
+		parts = []string{hint("?", "Help"), hint("tab", "Sprints"), hint("[ ] 1-3", "Column"), hint("a/A", "Next/prev column")}
+		switch {
+		case m.columnsShown():
+			parts = append(parts, hint("L", "Tabs"))
+		case m.boardWidth() >= minColumnsWidth:
+			parts = append(parts, hint("L", "Columns"))
 		}
-		parts = append(parts, hint("tab", "Sprints"), hint("L", layout))
+		parts = append(parts, hint("/", "Search"), hint("q", "Quit"))
 	case m.view.screen == screenBacklog && !m.view.all:
 		parts = m.backlogHints()
 	case m.splitShown():

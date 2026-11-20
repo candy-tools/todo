@@ -529,7 +529,7 @@ func (m model) categoryLocked(it *todo.Item) bool {
 // escOrQuit clears an active search (dismissing it the same way it's
 // cancelled), else the tab's state filter. When there is nothing to dismiss it
 // focuses the sidebar from the pane beside it — the sprint list from the
-// Sprints workspace's board, the categories from the Backlog split's task
+// Sprints workspace's board, the categories from a split's task
 // list — and quits elsewhere.
 func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 	if m.view.filter != "" {
@@ -544,7 +544,7 @@ func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 	case m.view.onBoard() && !m.listFocus:
 		m.listFocus = true
 		return m, nil
-	case !m.view.all && m.splitShown() && !m.sideFocus:
+	case m.splitShown() && !m.sideFocus:
 		m.sideFocus = true
 		return m, nil
 	}

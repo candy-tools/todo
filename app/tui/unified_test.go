@@ -152,3 +152,25 @@ func TestUnifiedSelectionCarriesOver(t *testing.T) {
 		t.Errorf("r isn't on In Progress: the cursor should go to the top, got %d", m.tree.cursor)
 	}
 }
+
+// esc in the unified view's split task list focuses the Categories, like in
+// the Backlog; a second esc quits.
+func TestUnifiedEscInSplitTaskListFocusesCategories(t *testing.T) {
+	m, _ := newUnifiedFixture(t)
+	m = press(splitAll(m), "u")
+	if !m.view.all || !m.splitShown() {
+		t.Fatalf("setup: all %v split %v", m.view.all, m.splitShown())
+	}
+	m = press(m, "tab")
+	if m.sideFocus {
+		t.Fatal("setup: tab should focus the task list")
+	}
+	next, cmd := m.Update(keyMsg("esc"))
+	m = next.(model)
+	if quits(cmd) || !m.sideFocus {
+		t.Fatalf("esc in the task list: quits %v sideFocus %v, want the Categories focused", quits(cmd), m.sideFocus)
+	}
+	if _, cmd := m.Update(keyMsg("esc")); !quits(cmd) {
+		t.Error("a second esc should quit")
+	}
+}

@@ -240,7 +240,8 @@ terminal the head yields rows to the tree so the cursor stays visible.
 The board shows one column at a time. `[` / `]` step to the previous / next
 column and `1`–`3` jump to Next / In Progress / Done. `L` lays the board out as
 three side-by-side columns instead (`L` again goes back); on a pane too narrow
-for columns it says `too narrow for columns`. The layout is not saved. Each
+for columns (the board needs 72 cells, about a 105-column terminal) it says
+`too narrow for columns`, and the footer offers `L` only where it fits. The layout is not saved. Each
 sprint board remembers its own column, folds and selection.
 
 ### Planning (`p`)
@@ -279,7 +280,7 @@ says `the planned sprint is gone or closed`.
 | `k` | The next open sprint, wrapping around; from the Backlog, the last sprint you viewed while it is open, else the first open one |
 | `K` | A dialog listing every sprint, closed ones marked `✓`; `enter` opens its board (in Planning, an open sprint becomes the planned one and a closed one leaves Planning for its board) |
 | `q` | Quit, from every screen |
-| `esc` | Clear the search, then the state filter; then, on a board, back to the sprint sidebar, and in the Backlog split's task list, back to the categories; in Planning, leave it; else quit |
+| `esc` | Clear the search, then the state filter; then, on a board, back to the sprint sidebar, and in a split's task list, back to the categories; in Planning, leave it; else quit |
 | `tab` / `shift+tab` | Switch pane: the Backlog's split panes, the Sprints sidebar and board, Planning's two sides |
 | `[` / `]`, `1`–`3` | On a sprint board, switch between Next / In Progress / Done |
 
@@ -509,7 +510,7 @@ Errors go to stderr.
 | `D` | On a sprint board, remove that sprint's completed tasks (keeping any with unfinished sub-tasks) — asks to confirm |
 | `v` | Backlog split view: categories sidebar + task list / back to the single tree — see Views |
 | `?` | Show the shortcuts dialog (`↑`/`↓` scroll it on a short terminal; `?`, `esc`, `q` or `enter` closes it) |
-| `esc` | Clear an active search, then the state filter; when there is neither, on a sprint board back to the sprint sidebar, in the Backlog split's task list back to the categories, else quit |
+| `esc` | Clear an active search, then the state filter; when there is neither, on a sprint board back to the sprint sidebar, in a split's task list back to the categories, else quit |
 
 On the **Sprints sidebar**: `n` creates a sprint, `e` edits its name and goal,
 `c` closes or reopens it, `d` deletes it, and `enter` or `tab` focuses its

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -538,5 +539,78 @@ func TestReloadKeepsClosedUnfolded(t *testing.T) {
 	m = pollOnce(t, m)
 	if !m.sprints.closedOpen || !m.sprints.onGroup(m.doc) {
 		t.Errorf("after a reload closedOpen %v onGroup %v, want it unfolded with the cursor on the group row", m.sprints.closedOpen, m.sprints.onGroup(m.doc))
+	}
+}
+
+// The Closed row has no board to go to, so its footer has no tab hint; an
+// empty list offers only n.
+func TestSidebarFooterDropsDeadHints(t *testing.T) {
+	m, _ := closedPair(t)
+	m = press(m, "s", "down")
+	if f := ansi.Strip(m.footer(120)); strings.Contains(f, "tab:") {
+		t.Errorf("Closed row footer = %q, must not offer tab", f)
+	}
+	empty, _ := newTestModel(t, "# Work\n- [ ] a\n")
+	empty = press(empty, "s")
+	f := ansi.Strip(empty.footer(120))
+	for _, gone := range []string{"e:", "c:", "d:", "tab:"} {
+		if strings.Contains(f, gone) {
+			t.Errorf("empty list footer = %q, must not offer %q", f, gone)
+		}
+	}
+	for _, want := range []string{"n: New", "?: Help", "q: Quit"} {
+		if !strings.Contains(f, want) {
+			t.Errorf("empty list footer = %q, misses %q", f, want)
+		}
+	}
+}
+
+// At 60 cells the sidebar's and Planning's footers drop whole hints, Help
+// first, never cutting one.
+func TestSidebarAndPlanFootersFitWholeHints(t *testing.T) {
+	check := func(name, f string, w int) {
+		t.Helper()
+		if ansi.StringWidth(f) > w || !strings.HasPrefix(f, " ?: Help") {
+			t.Errorf("%s footer at %d = %q, want it to fit and start with Help", name, w, f)
+		}
+		for _, part := range strings.Split(strings.TrimSpace(f), "  ") {
+			if !strings.Contains(part, ": ") {
+				t.Errorf("%s footer at %d = %q holds a cut hint %q", name, w, f, part)
+			}
+		}
+	}
+	m, _ := threeSprints(t)
+	m = press(m, "s")
+	check("sidebar", ansi.Strip(m.footer(60)), 60)
+	m = press(m, "p")
+	check("planning left", ansi.Strip(m.footer(60)), 60)
+	if f := ansi.Strip(m.footer(200)); !strings.Contains(f, "q: Quit") {
+		t.Errorf("planning footer = %q, misses q: Quit", f)
+	}
+	m = press(m, "tab")
+	check("planning right", ansi.Strip(m.footer(60)), 60)
+}
+
+// The board footer leads with Help and the column keys, and offers L only
+// where the columns fit.
+func TestBoardFooterColumnHints(t *testing.T) {
+	m, _ := twoSprints(t)
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = press(m, "s", "tab")
+	f := ansi.Strip(m.footer(200))
+	for _, want := range []string{"[ ] 1-3: Column", "a/A: Next/prev column"} {
+		if !strings.Contains(f, want) {
+			t.Errorf("footer at 80 = %q, misses %q", f, want)
+		}
+	}
+	if strings.Contains(f, "L:") {
+		t.Errorf("footer at 80 = %q, L needs a wider board", f)
+	}
+	if !strings.HasPrefix(f, " ?: Help  tab: Sprints") {
+		t.Errorf("footer at 80 = %q, want Help then tab Sprints first", f)
+	}
+	wide := send(m, tea.WindowSizeMsg{Width: 140, Height: 30})
+	if f := ansi.Strip(wide.footer(200)); !strings.Contains(f, "L: Columns") {
+		t.Errorf("footer at 140 = %q, want L: Columns", f)
 	}
 }
