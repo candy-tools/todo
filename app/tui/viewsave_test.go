@@ -86,6 +86,86 @@ func TestViewSaveIsNotExternal(t *testing.T) {
 	}
 }
 
+// lookOnlyList is an older (version 6) list file with the open sprints A and B
+// whose view section is view, for the open-and-quit tests.
+func lookOnlyList(t *testing.T, view map[string]any) string {
+	t.Helper()
+	return sprintJSON(t, view,
+		[]seedSprint{
+			{ID: "s00000a", Name: "A", Status: "open"},
+			{ID: "s00000b", Name: "B", Status: "open"},
+		},
+		seedTask{ID: "t000001", Title: "inA", Status: "new", Sprint: "s00000a"},
+	)
+}
+
+// Opening a list and quitting without a key that changes the view leaves the
+// file as it was, even when the app opens on another view than the stored one
+// names: the sprint list opens on the first open sprint, and a sprint that is
+// gone opens on it too. Leaving through Planning does not store it either.
+func TestOpenAndQuitLeavesFileAlone(t *testing.T) {
+	cases := []struct {
+		name string
+		view map[string]any
+		keys []string
+	}{
+		{"sprint list", map[string]any{"screen": "sprints"}, []string{"q", "enter"}},
+		{"gone sprint", map[string]any{"screen": "sprint", "sprint": "s00000z"}, []string{"q", "enter"}},
+		{"gone sprint, split", map[string]any{"screen": "sprint", "sprint": "s00000z", "split": true}, []string{"q", "enter"}},
+		{"sprint list, via Planning", map[string]any{"screen": "sprints"}, []string{"p", "q", "enter"}},
+		{"no view", nil, []string{"q", "enter"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			seed := lookOnlyList(t, c.view)
+			m, path := newJSONModel(t, seed)
+			m = press(m, c.keys...)
+			if m.quitErr != nil || m.err != nil {
+				t.Fatalf("quit: quitErr %v err %v", m.quitErr, m.err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != seed {
+				t.Errorf("opening and quitting rewrote the list:\n%s\nwant it as it was\n%s", got, seed)
+			}
+		})
+	}
+}
+
+// A view the user changed without storing it, a sprint browsed to in the
+// Sprints workspace's sidebar, is stored on quit, also when the list's view
+// names a sprint that is gone.
+func TestQuitStoresBrowsedSprint(t *testing.T) {
+	for _, view := range []map[string]any{
+		{"screen": "sprints"},
+		{"screen": "sprint", "sprint": "s00000z"},
+	} {
+		m, path := newJSONModel(t, lookOnlyList(t, view))
+		press(m, "down", "q", "enter")
+		want := todo.View{Screen: todo.ScreenSprint, Sprint: "s00000b"}
+		if got := storedView(t, path); got != want {
+			t.Errorf("view %v: after browsing to B and quitting the file holds %+v, want %+v", view, got, want)
+		}
+	}
+}
+
+// A sprint browsed back to is stored on quit when the list's view names
+// another: the file's view would open on that one.
+func TestQuitStoresSprintBrowsedBackTo(t *testing.T) {
+	m, path := newJSONModel(t, lookOnlyList(t, map[string]any{"screen": "sprints"}))
+	m = press(m, "down", "b", "s") // B, stored by s
+	if got := storedView(t, path); got.Sprint != "s00000b" {
+		t.Fatalf("after s the file holds %+v, want sprint B", got)
+	}
+	press(m, "up", "q", "enter")
+	want := todo.View{Screen: todo.ScreenSprint, Sprint: "s00000a"}
+	if got := storedView(t, path); got != want {
+		t.Errorf("after browsing back to A and quitting the file holds %+v, want %+v", got, want)
+	}
+}
+
 // A quit-time save that fails is kept on the final model, so Run can say the
 // view was not stored.
 func TestQuitKeepsTheViewSaveError(t *testing.T) {

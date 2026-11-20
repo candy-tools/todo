@@ -490,13 +490,9 @@ func (m *model) openSplitOnSelection() {
 // view, by another session, is not applied: it would switch the view under
 // the user.
 func (m *model) applyView(v todo.View) {
-	switch v.Screen {
-	case todo.ScreenSprints, todo.ScreenSprint:
-		id := v.Sprint
-		if _, ok := m.doc.SprintByID(id); !ok || v.Screen == todo.ScreenSprints {
-			id = m.defaultSprint()
-		}
-		m.openWorkspace(id)
+	v = m.opensOn(v)
+	if v.Screen != todo.ScreenBacklog {
+		m.openWorkspace(v.Sprint)
 	}
 	m.setUnified(v.Unified)
 	if v.Split != m.split {
@@ -504,6 +500,27 @@ func (m *model) applyView(v todo.View) {
 	}
 	m.fitTrees()
 }
+
+// opensOn is the view a session opening on the stored view v shows, as
+// viewOnScreen puts it: the sprint list and a sprint that is gone open on the
+// first open sprint, and the Backlog names no sprint. quit and openPlanning
+// store the view on screen only when the file's view does not open on it, so
+// a list opened only to look at it is not rewritten.
+func (m *model) opensOn(v todo.View) todo.View {
+	switch v.Screen {
+	case todo.ScreenSprints, todo.ScreenSprint:
+		id := v.Sprint
+		if _, ok := m.doc.SprintByID(id); !ok || v.Screen == todo.ScreenSprints {
+			id = m.defaultSprint()
+		}
+		return todo.View{Unified: v.Unified, Split: v.Split, Screen: screenSprint.stored(id), Sprint: id}
+	}
+	return todo.View{Unified: v.Unified, Split: v.Split, Screen: todo.ScreenBacklog}
+}
+
+// viewStored reports whether the list file's view opens on the view on
+// screen, so storing it would change nothing the next session shows.
+func (m *model) viewStored() bool { return m.viewOnScreen() == m.opensOn(m.doc.View) }
 
 // viewOnScreen is the view on screen as the list file holds it: the screen and
 // its sprint, unified or not, split or not.
@@ -525,11 +542,11 @@ func (m *model) saveView() {
 	})
 }
 
-// quit stores the view on screen when the list file holds another — so a
-// sprint browsed to in the Sprints workspace's sidebar is the one the next
-// session opens on — and quits. Every way out of the app goes through it.
+// quit stores the view on screen when the list file's view opens on another —
+// so a sprint browsed to in the Sprints workspace's sidebar is the one the
+// next session opens on — and quits. Every way out of the app goes through it.
 func (m model) quit() (tea.Model, tea.Cmd) {
-	if m.viewOnScreen() != m.doc.View {
+	if !m.viewStored() {
 		m.err = nil
 		m.saveView()
 		m.quitErr = m.err
