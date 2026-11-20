@@ -2,10 +2,12 @@
 
 A minimalistic, keyboard-driven TODO manager for the terminal. It opens a
 per-directory JSON file (`.todo.json`) as a task list — categories hold
-tasks, and nested tasks are subtasks. Work is organized in sprints: a Backlog
-holds the tasks not yet planned, and each sprint has its own board with Next,
-In Progress and Done tabs, so you pull tasks from the Backlog into a sprint and
-move them across its columns with a key. Everything you do is saved straight away,
+tasks, and nested tasks are subtasks. Work is organized in sprints, in two
+workspaces you switch between with `b` and `s`: the Backlog holds the tasks not
+yet planned, and the Sprints workspace lists the sprints beside the selected
+one's board with Next, In Progress and Done columns. `p` opens Planning, the
+Backlog beside a sprint, to pull tasks into it, and `a` / `A` move a task across
+the columns. Everything you do is saved straight away,
 and an existing `TODO.md` is imported automatically the first time you run it.
 
 Built with the [Charm](https://charm.sh) stack: [Bubble Tea](https://github.com/charmbracelet/bubbletea),
