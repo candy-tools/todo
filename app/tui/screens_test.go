@@ -360,16 +360,16 @@ func TestSprintListRowsOrderAndCounts(t *testing.T) {
 	if want := []string{"Alpha", "Gamma", "Closed", "Delta", "Beta"}; !equalStrings(keys(m), want) {
 		t.Fatalf("unfolded rows = %v, want %v (done newest first)", keys(m), want)
 	}
-	lines := strings.Split(m.sprints.view(m.doc, 100, 20), "\n")
+	lines := strings.Split(ansi.Strip(m.sprints.view(m.doc, 100, 20)), "\n")
 	if len(lines) != 10 {
 		t.Fatalf("want 5 two-line rows, got %d lines", len(lines))
 	}
 	wants := [][]string{
-		{"Alpha", "2·1·1"}, {"first goal"},
-		{"Gamma", "0·0·0"}, {"third goal"},
+		{"● Alpha", "2·1·1"}, {"first goal"},
+		{"● Gamma", "0·0·0"}, {"third goal"},
 		{"▾", "Closed", "2"}, {},
-		{"Delta", "0·0·0"}, {},
-		{"Beta", "0·0·1"}, {},
+		{"✓ Delta", "0·0·0"}, {},
+		{"✓ Beta", "0·0·1"}, {},
 	}
 	for i, want := range wants {
 		for _, w := range want {

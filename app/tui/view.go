@@ -273,6 +273,7 @@ func (m *model) openWorkspace(id string) {
 // sprints exist, and keeps it shown.
 func (m *model) selectInList(id string) {
 	if id == "" {
+		m.sprints.closedOpen = false
 		m.sprints.selectGroup(m.doc)
 	} else {
 		m.sprints.selectID(m.doc, id)

@@ -213,7 +213,7 @@ func (l *sprintList) rowLines(d *todo.Document, r sprintListRow, width int, cur 
 	if cur {
 		marker = "❯ "
 	}
-	var glyph, name, counts, goal string
+	var glyph, name, counts, goal, indent string
 	var glyphStyle, nameStyle = progStyle, categoryStyle
 	switch {
 	case r.group:
@@ -227,20 +227,22 @@ func (l *sprintList) rowLines(d *todo.Document, r sprintListRow, width int, cur 
 		glyph, name, goal = "●", todo.Printable(s.Name), todo.Printable(s.Goal)
 		if s.Status == todo.SprintDone {
 			glyph, glyphStyle, nameStyle = "✓", doneStyle, helpTextStyle
+			indent = "  " // nested under the Closed row
 		}
 		c := d.ColumnCounts(s.ID)
 		counts = fmt.Sprintf("%d·%d·%d", c[todo.ColNext], c[todo.ColInProgress], c[todo.ColDone])
 	}
-	// marker, glyph, space, name, gap, counts
-	name = ansi.Truncate(name, max(width-4-1-ansi.StringWidth(counts), 1), "…")
-	gap := strings.Repeat(" ", max(width-4-ansi.StringWidth(name)-ansi.StringWidth(counts), 1))
-	goal = ansi.Truncate(goal, max(width-4, 1), "…")
+	// indent, marker, glyph, space, name, gap, counts
+	lead := 4 + len(indent)
+	name = ansi.Truncate(name, max(width-lead-1-ansi.StringWidth(counts), 1), "…")
+	gap := strings.Repeat(" ", max(width-lead-ansi.StringWidth(name)-ansi.StringWidth(counts), 1))
+	goal = ansi.Truncate(goal, max(width-lead, 1), "…")
 	if cur {
-		first = selectedRowStyle.Render(marker + glyph + " " + name + gap + counts)
-		second = selectedRowStyle.Render("    " + goal)
+		first = selectedRowStyle.Render(indent + marker + glyph + " " + name + gap + counts)
+		second = selectedRowStyle.Render(indent + "    " + goal)
 	} else {
-		first = marker + glyphStyle.Render(glyph) + " " + nameStyle.Render(name) + gap + helpTextStyle.Render(counts)
-		second = "    " + helpTextStyle.Render(goal)
+		first = indent + marker + glyphStyle.Render(glyph) + " " + nameStyle.Render(name) + gap + helpTextStyle.Render(counts)
+		second = indent + "    " + helpTextStyle.Render(goal)
 	}
 	return ansi.Truncate(first, width, ""), ansi.Truncate(second, width, "")
 }

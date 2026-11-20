@@ -140,6 +140,9 @@ func TestSprintListDeleteFallsBackByIndex(t *testing.T) {
 	if !m.sprints.onGroup(m.doc) {
 		t.Errorf("after deleting C: the cursor should sit on the Closed row now at C's index")
 	}
+	if m.view.sprint != "s00000a" {
+		t.Errorf("board = %q, want A kept: the Closed row keeps the last sprint shown", m.view.sprint)
+	}
 	m = press(m, "right", "down")
 	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000b" {
 		t.Errorf("after unfolding: selected %v, want B", s)
@@ -296,6 +299,9 @@ func TestSidebarRowsAreTwoLinesAndCut(t *testing.T) {
 			t.Errorf("line %q is wider than 30", l)
 		}
 	}
+	if !strings.HasSuffix(lines[0], "1·0·0") || ansi.StringWidth(lines[0]) != 30 {
+		t.Errorf("first line %q, want the counts ending at the right edge (width 30)", lines[0])
+	}
 	if !strings.Contains(lines[0], "…") || !strings.Contains(lines[0], "1·0·0") || !strings.Contains(lines[1], "…") {
 		t.Errorf("lines = %q, want the name and goal cut and the counts kept", lines)
 	}
@@ -333,5 +339,72 @@ func TestRefusedCloseKeepsClosedFolded(t *testing.T) {
 	m, _ := threeSprints(t) // A holds a task in Next
 	if m = press(m, "s", "c"); m.sprints.closedOpen {
 		t.Error("a refused close must leave Closed folded")
+	}
+	if m.status != "can't close: 1 task not done" {
+		t.Errorf("status = %q, want the refusal", m.status)
+	}
+}
+
+func TestReloadCursorStaysOnSprintClosedElsewhere(t *testing.T) {
+	m, path := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{
+			{ID: "s00000a", Name: "A", Status: "open"},
+			{ID: "s00000b", Name: "B", Status: "open"},
+			{ID: "s00000d", Name: "D", Status: "done"},
+		}))
+	m = press(m, "s") // on A
+	if _, err := openSecond(t, path).CloseSprint(context.Background(), "s00000a"); err != nil {
+		t.Fatal(err)
+	}
+	m = pollOnce(t, m)
+	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000a" || m.view.sprint != "s00000a" || !m.sprints.closedOpen {
+		t.Errorf("selected %v board %q closedOpen %v, want A kept and shown under the unfolded Closed", s, m.view.sprint, m.sprints.closedOpen)
+	}
+}
+
+func TestReloadClosedRowGoneMovesCursorToShownSprint(t *testing.T) {
+	m, path := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{
+			{ID: "s00000a", Name: "A", Status: "open"},
+			{ID: "s00000b", Name: "B", Status: "open"},
+			{ID: "s00000d", Name: "D", Status: "done"},
+		}))
+	m = press(m, "s", "down", "down") // A, B, Closed: the board keeps B
+	if !m.sprints.onGroup(m.doc) || m.view.sprint != "s00000b" {
+		t.Fatalf("setup: onGroup %v board %q", m.sprints.onGroup(m.doc), m.view.sprint)
+	}
+	if _, err := openSecond(t, path).ReopenSprint(context.Background(), "s00000d"); err != nil {
+		t.Fatal(err)
+	}
+	m = pollOnce(t, m)
+	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000b" || m.view.sprint != "s00000b" {
+		t.Errorf("selected %v board %q, want B on both", s, m.view.sprint)
+	}
+}
+
+func TestDeletingLastOpenSprintFoldsClosed(t *testing.T) {
+	m, _ := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}, {ID: "s00000d", Name: "D", Status: "done"}}))
+	m = press(m, "s", "down", "right", "up", "d", "y") // Closed unfolded, back on A
+	if !m.sprints.onGroup(m.doc) || m.sprints.closedOpen || m.view.sprint != "" {
+		t.Errorf("onGroup %v closedOpen %v board %q, want the folded Closed row and no sprint", m.sprints.onGroup(m.doc), m.sprints.closedOpen, m.view.sprint)
+	}
+	if out := m.View(); !strings.Contains(out, "no open sprints") {
+		t.Errorf("view = %q, want the board to say no open sprints", out)
+	}
+}
+
+func TestDoneSprintsAreNestedUnderClosed(t *testing.T) {
+	m, _ := threeSprints(t)
+	m = press(m, "s", "down", "down", "right") // A, C, Closed unfolded, B
+	lines := strings.Split(ansi.Strip(m.sprints.view(m.doc, 30, 20)), "\n")
+	if len(lines) != 8 {
+		t.Fatalf("want 4 rows, got %d lines", len(lines))
+	}
+	if !strings.HasPrefix(lines[4], "  ▾") && !strings.HasPrefix(lines[4], "❯ ▾") {
+		t.Errorf("group row = %q", lines[4])
+	}
+	if !strings.HasPrefix(lines[6], "    ✓ B") || ansi.StringWidth(lines[6]) > 30 {
+		t.Errorf("done row = %q, want it indented under Closed", lines[6])
 	}
 }

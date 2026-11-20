@@ -210,7 +210,11 @@ func (m *model) leaveGoneSprint() {
 	if m.view.screen != screenSprint {
 		return
 	}
-	if _, ok := m.doc.SprintByID(m.view.sprint); ok || (m.view.sprint == "" && m.view.all) {
+	if _, ok := m.doc.SprintByID(m.view.sprint); ok {
+		m.cursorOnShown()
+		return
+	}
+	if m.view.sprint == "" && m.view.all {
 		return
 	}
 	id := m.defaultSprint()
@@ -223,6 +227,17 @@ func (m *model) leaveGoneSprint() {
 		m.listFocus = true
 	}
 	m.selectInList(id)
+}
+
+// cursorOnShown keeps the sidebar and the board agreeing after a change of the
+// list: the cursor stays on the shown sprint, unfolding Closed when it was
+// closed elsewhere, unless it is on the Closed group row, which keeps the last
+// sprint shown (and which, when the group is gone, goes to the shown sprint).
+func (m *model) cursorOnShown() {
+	if m.sprints.selID == groupKey && doneSprints(m.doc) > 0 {
+		return
+	}
+	m.selectInList(m.view.sprint)
 }
 
 // noteExternal drops the undo snapshots and says so in the footer, after the
