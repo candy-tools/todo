@@ -499,3 +499,26 @@ func TestItemMetaShowsColumnAndState(t *testing.T) {
 		t.Errorf("meta with plan = %q", got)
 	}
 }
+
+// On a narrow pane the readiness takes a shorter wording instead of being cut
+// with "…"; where the full one fits it keeps it.
+func TestProgressLineShortensReadiness(t *testing.T) {
+	done := map[todo.Column]int{todo.ColDone: 2}
+	for _, tc := range []struct {
+		name   string
+		s      *todo.Sprint
+		width  int
+		want   string
+		absent string
+	}{
+		{"ready narrow", &todo.Sprint{Status: todo.SprintOpen}, 54, "ready to close — c in sidebar", "…"},
+		{"ready wide", &todo.Sprint{Status: todo.SprintOpen}, 100, "ready to close (c in the sidebar)", "…"},
+		{"closed narrow", &todo.Sprint{Status: todo.SprintDone}, 54, "closed — c in sidebar reopens", "…"},
+		{"closed wide", &todo.Sprint{Status: todo.SprintDone}, 100, "closed — c in the sidebar reopens it", "…"},
+	} {
+		got := ansi.Strip(progressLine(tc.s, done, tc.width))
+		if !strings.Contains(got, tc.want) || strings.Contains(got, tc.absent) {
+			t.Errorf("%s: %q, want %q and no %q", tc.name, got, tc.want, tc.absent)
+		}
+	}
+}

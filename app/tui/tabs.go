@@ -112,21 +112,26 @@ func progressLine(s *todo.Sprint, counts map[todo.Column]int, width int) string 
 	}
 	done := counts[todo.ColDone]
 
-	ready, readyStyle := "", headerHintSty
+	// short is a shorter wording of the readiness, for a pane where the full
+	// one would not fit beside the narrowest bar.
+	ready, short, readyStyle := "", "", headerHintSty
 	switch {
 	case s.Status == todo.SprintDone:
-		ready = "closed — c in the sidebar reopens it"
+		ready, short = "closed — c in the sidebar reopens it", "closed — c in sidebar reopens"
 	case total == 0:
 		ready = "no tasks yet"
 	case done < total:
 		ready = fmt.Sprintf("close blocked: %d not done", total-done)
 	default:
-		ready, readyStyle = "ready to close (c in the sidebar)", doneStyle
+		ready, short, readyStyle = "ready to close (c in the sidebar)", "ready to close — c in sidebar", doneStyle
 	}
 
 	const label = "  Done  "
 	count := fmt.Sprintf(" %d/%d   ", done, total)
 	fixed := ansi.StringWidth(label) + ansi.StringWidth(count)
+	if short != "" && fixed+minBarCells+ansi.StringWidth(ready) > width {
+		ready = short
+	}
 	cells := min(max(width-fixed-ansi.StringWidth(ready), minBarCells), barCells)
 	filled := 0
 	if total > 0 {

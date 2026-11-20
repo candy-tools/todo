@@ -408,3 +408,19 @@ func TestDoneSprintsAreNestedUnderClosed(t *testing.T) {
 		t.Errorf("done row = %q, want it indented under Closed", lines[6])
 	}
 }
+
+// A reload with only closed sprints keeps the Closed group as the user left it.
+func TestReloadKeepsClosedUnfolded(t *testing.T) {
+	m, path := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{{ID: "s00000b", Name: "B", Status: "done"}},
+		seedTask{ID: "t000001", Title: "bDone", Status: "done", Sprint: "s00000b"}))
+	m = press(m, "s", "right")
+	if !m.sprints.closedOpen || !m.sprints.onGroup(m.doc) {
+		t.Fatalf("setup: closedOpen %v onGroup %v", m.sprints.closedOpen, m.sprints.onGroup(m.doc))
+	}
+	externalAddTask(t, path, "outside", "c000000", "")
+	m = pollOnce(t, m)
+	if !m.sprints.closedOpen || !m.sprints.onGroup(m.doc) {
+		t.Errorf("after a reload closedOpen %v onGroup %v, want it unfolded with the cursor on the group row", m.sprints.closedOpen, m.sprints.onGroup(m.doc))
+	}
+}

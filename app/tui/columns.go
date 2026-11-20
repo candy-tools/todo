@@ -73,6 +73,10 @@ func (m model) columnsBody(sprint string, width, height int) string {
 	cells := make([]string, len(cols))
 	for i, c := range cols {
 		if c == m.view.column {
+			if len(m.tree.rows) == 0 {
+				cells[i] = helpTextStyle.Render("—")
+				continue
+			}
 			cells[i] = m.tree.view(cw, height)
 		} else {
 			cells[i] = columnPreview(m.doc, m.view, sprint, c, cw, height)

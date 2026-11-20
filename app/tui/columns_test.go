@@ -114,8 +114,23 @@ func TestColumnsKeepColumnKeysAndFooter(t *testing.T) {
 		t.Errorf("columns footer = %q, want L: Tabs", f)
 	}
 	// The active column is the real tree: its task has the cursor.
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "❯") || !strings.Contains(v, "working") {
-		t.Errorf("active column should be the tree with its cursor:\n%s", v)
+	m = press(m, "down") // past the category row, onto the task
+	v := ansi.Strip(m.View())
+	if !strings.Contains(v, "working") {
+		t.Fatalf("active column should be the tree:\n%s", v)
+	}
+	// The cursor sits in the middle (active) column's cells, under its title.
+	var start, cursor = -1, -1
+	for _, line := range strings.Split(v, "\n") {
+		if i := strings.Index(line, "In Progress 1"); i >= 0 && start < 0 {
+			start = ansi.StringWidth(line[:i])
+		}
+		if i := strings.LastIndex(line, "❯"); i >= 0 && cursor < 0 && strings.Contains(line, "working") {
+			cursor = ansi.StringWidth(line[:i])
+		}
+	}
+	if cw := columnWidth(m.boardWidth()); start < 0 || cursor < start || cursor >= start+cw {
+		t.Errorf("cursor at cell %d, want within the middle column [%d, %d):\n%s", cursor, start, start+cw, v)
 	}
 }
 
@@ -190,5 +205,72 @@ func TestColumnsTitlesStayOnAVeryShortPane(t *testing.T) {
 	}
 	if len(strings.Split(v, "\n")) > 7 {
 		t.Fatalf("view taller than the terminal:\n%s", v)
+	}
+}
+
+// The active column with nothing in it draws the same dim dash as a preview.
+func TestEmptyActiveColumnShowsDash(t *testing.T) {
+	m, _ := twoSprints(t) // Sprint 1 has nothing in Next
+	m = send(m, tea.WindowSizeMsg{Width: 140, Height: 30})
+	m = press(m, "s", "tab", "L")
+	if m.view.column != todo.ColNext {
+		t.Fatalf("board opens on %v, want Next", m.view.column)
+	}
+	v := ansi.Strip(m.View())
+	if strings.Contains(v, "nothing in") || !strings.Contains(v, "—") {
+		t.Errorf("empty active column should show a dash, not 'nothing in':\n%s", v)
+	}
+}
+
+// [ and ] move the active column in the columns layout, as on tabs.
+func TestColumnsBracketsMoveTheActiveColumn(t *testing.T) {
+	m, _ := twoSprints(t)
+	m = send(m, tea.WindowSizeMsg{Width: 140, Height: 30})
+	m = press(m, "s", "tab", "L")
+	for _, tc := range []struct {
+		key  string
+		want todo.Column
+	}{{"]", todo.ColInProgress}, {"]", todo.ColDone}, {"[", todo.ColInProgress}, {"[", todo.ColNext}} {
+		m = press(m, tc.key)
+		if m.view.column != tc.want || !m.columns {
+			t.Fatalf("after %s: column %v columns %v, want %v in columns", tc.key, m.view.column, m.columns, tc.want)
+		}
+	}
+}
+
+// a and A move a task between columns: it then shows in the neighbouring
+// column's preview with its new state.
+func TestColumnsMoveShowsInNeighbourPreview(t *testing.T) {
+	m, _ := twoSprints(t)
+	m = send(m, tea.WindowSizeMsg{Width: 140, Height: 30})
+	m = press(m, "s", "tab", "L", "2", "down") // on "working", In Progress
+	if it := m.tree.selected(); it == nil || it.Title != "working" {
+		t.Fatalf("cursor on %v, want working", it)
+	}
+	preview := func(c todo.Column) string {
+		return ansi.Strip(columnPreview(m.doc, m.view, "s000001", c, 30, 5))
+	}
+	glyph := func(it *todo.Item) string {
+		g, _ := statusGlyph(it.Status, false)
+		return g + " working"
+	}
+	m = press(m, "a")
+	it := find(m.doc, "working")
+	if it == nil || it.Column() != todo.ColDone {
+		t.Fatalf("after a: %v, want the task in Done", it)
+	}
+	if p := preview(todo.ColDone); !strings.Contains(p, glyph(it)) {
+		t.Errorf("Done preview = %q, want %q", p, glyph(it))
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Done 1") || !strings.Contains(v, glyph(it)) {
+		t.Errorf("columns view should show the task in the Done column:\n%s", v)
+	}
+	m = press(m, "]", "down", "A") // follow it to Done, then send it back
+	it = find(m.doc, "working")
+	if it == nil || it.Column() != todo.ColInProgress {
+		t.Fatalf("after A: %v, want the task back in In Progress", it)
+	}
+	if p := preview(todo.ColInProgress); !strings.Contains(p, glyph(it)) {
+		t.Errorf("In Progress preview = %q, want %q", p, glyph(it))
 	}
 }

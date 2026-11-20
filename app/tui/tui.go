@@ -7,6 +7,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -64,6 +66,9 @@ type model struct {
 	// until its message arrives (see startProbe).
 	probing bool
 	err     error // last failed save or reload ("save failed: …" / "reload failed: …"), shown in the footer
+	// quitErr is the failure of the view save quit made on the way out, for
+	// Run to report once the screen is gone (see quitWarning).
+	quitErr error
 	// pollErr is the poll failure last put in err, kept to show each distinct
 	// poll failure once and to clear it when a later poll succeeds.
 	pollErr error
@@ -159,8 +164,27 @@ func Run(st *todo.Store, notice string) error {
 	if err != nil {
 		return err
 	}
-	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
-	return err
+	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	if err != nil {
+		return err
+	}
+	// The task writes of the session succeeded: a view that could not be
+	// stored is worth a line, not a failing exit.
+	if fm, ok := final.(model); ok {
+		if w := quitWarning(fm); w != "" {
+			fmt.Fprintln(os.Stderr, w)
+		}
+	}
+	return nil
+}
+
+// quitWarning is the line Run prints to stderr when the quit-time save of the
+// view failed, or "" when it did not.
+func quitWarning(m model) string {
+	if m.quitErr == nil {
+		return ""
+	}
+	return "todo: the view was not saved: " + m.quitErr.Error()
 }
 
 // newModel loads the list from st into a fresh model (main view, empty undo

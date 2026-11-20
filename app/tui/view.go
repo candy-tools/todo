@@ -541,7 +541,9 @@ func (m *model) saveView() {
 // session opens on — and quits. Every way out of the app goes through it.
 func (m model) quit() (tea.Model, tea.Cmd) {
 	if m.viewOnScreen() != m.doc.View {
+		m.err = nil
 		m.saveView()
+		m.quitErr = m.err
 	}
 	return m, tea.Quit
 }

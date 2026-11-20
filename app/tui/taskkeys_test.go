@@ -263,6 +263,11 @@ func TestHelpListsSprintKeys(t *testing.T) {
 			t.Errorf("help should say %q:\n%s", want, all)
 		}
 	}
+	for _, d := range desc["p"] {
+		if !strings.Contains(d, "Planning") {
+			t.Errorf("p is the Planning screen: %q", d)
+		}
+	}
 	for _, k := range desc["k"] {
 		if strings.Contains(strings.ToLower(k), "all states") || strings.Contains(strings.ToLower(k), "unified") {
 			t.Errorf("k is no longer the unified view: %q", k)

@@ -222,6 +222,12 @@ func (m *model) leaveGoneSprint() {
 	id := m.defaultSprint()
 	switch {
 	case id == m.view.sprint:
+		if id == "" {
+			// Still nothing open to show: the cursor rests on the Closed
+			// group row, with the fold as the user left it.
+			m.selectRow(groupKey)
+			return
+		}
 	case m.view.all:
 		m.setShownSprint(id)
 	default:
