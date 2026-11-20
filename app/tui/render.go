@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -75,14 +74,12 @@ func (m model) treeTitle() string {
 	return todo.ColBacklog.Title()
 }
 
-// boardTitle is the title of the Sprints workspace's board pane: "Closed
-// sprints" beside the Closed group row, else the shown sprint's name, marked
-// "✓ closed" when it is done, or "Board" when it shows none.
+// boardTitle is the title of the Sprints workspace's board pane: the shown
+// sprint's name, marked "✓ closed" when it is done, or "Board" when it shows
+// none.
 func (m model) boardTitle() string {
 	s, ok := m.doc.SprintByID(m.view.sprint)
 	switch {
-	case m.onClosedRow():
-		return "Closed sprints"
 	case !ok:
 		return "Board"
 	case s.Status == todo.SprintDone:
@@ -91,13 +88,10 @@ func (m model) boardTitle() string {
 	return todo.Printable(s.Name)
 }
 
-// boardPane renders the Sprints workspace's board pane, width wide: the
-// closed sprints beside the Closed group row (see closedPane), the shown
+// boardPane renders the Sprints workspace's board pane, width wide: the shown
 // sprint's tree, or a dim line saying why there is none.
 func (m model) boardPane(width int) string {
 	switch {
-	case m.onClosedRow():
-		return m.closedPane(width, m.paneRows())
 	case m.view.sprint != "":
 		return m.boardBody(width)
 	case len(m.doc.Sprints) == 0:
@@ -106,65 +100,9 @@ func (m model) boardPane(width int) string {
 	return "  " + helpTextStyle.Render(msgNoOpenSprintsPane)
 }
 
-// msgNoOpenSprintsPane is the dim line of the board pane when every sprint is
-// closed.
+// msgNoOpenSprintsPane is the dim line of the board pane when the list holds
+// sprints but the workspace shows none.
 const msgNoOpenSprintsPane = "no open sprints"
-
-// closedPane renders the read-only pane beside the Closed group row, width x
-// height: each closed sprint, newest first, as "── ✓ name" over its goal ("—"
-// without one) and its task count, cut with "…"; when they do not all fit,
-// "… N more" ends it. With no open sprint it says so first.
-func (m model) closedPane(width, height int) string {
-	var lines []string
-	if len(m.doc.OpenSprints()) == 0 {
-		lines = append(lines, "  "+helpTextStyle.Render(msgNoOpenSprintsPane), "")
-	}
-	var done []*todo.Sprint
-	for _, s := range m.doc.Sprints {
-		if s.Status == todo.SprintDone {
-			done = append(done, s)
-		}
-	}
-	slices.Reverse(done)
-	for i, s := range done {
-		need := rowLines
-		if i < len(done)-1 {
-			need++ // room for "… N more" should the next ones not fit
-		}
-		if len(lines)+need > height {
-			if len(lines) < height {
-				lines = append(lines, "  "+helpTextStyle.Render(fmt.Sprintf("… %d more", len(done)-i)))
-			}
-			break
-		}
-		lines = append(lines, closedSprintLines(s, m.doc.ColumnCounts(s.ID), width)...)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// closedSprintLines renders closed sprint s in the Closed sprints pane, width
-// wide: its check mark and name, then its goal and how many tasks it holds.
-func closedSprintLines(s *todo.Sprint, counts map[todo.Column]int, width int) []string {
-	const lead = "  ── ✓ "
-	name := ansi.Truncate(todo.Printable(s.Name), max(width-ansi.StringWidth(lead), 1), "…")
-	first := "  " + helpTextStyle.Render("── ") + doneStyle.Render("✓") + " " + categoryStyle.Render(name)
-	n := 0
-	for _, c := range todo.SprintColumns() {
-		n += counts[c]
-	}
-	count := fmt.Sprintf(" · %d task", n)
-	if n != 1 {
-		count += "s"
-	}
-	goal := todo.Printable(s.Goal)
-	if goal == "" {
-		goal = "—"
-	}
-	const indent = "     "
-	goal = ansi.Truncate(goal, max(width-len(indent)-ansi.StringWidth(count), 1), "…")
-	second := indent + plainStyle.Render(goal) + helpTextStyle.Render(count)
-	return []string{ansi.Truncate(first, width, ""), ansi.Truncate(second, width, "")}
-}
 
 // boardBody renders the shown sprint's board, width wide: as much of its head
 // as fits (see boardHeadRows) over its tree, whose sections hold the sprint's
@@ -271,8 +209,6 @@ func (m model) crumb() string {
 			crumb += " › " + path
 		}
 		return fmt.Sprintf("%s · %d tasks waiting", crumb, m.doc.ColumnCounts("")[todo.ColBacklog])
-	case m.sprints.onGroup(m.doc):
-		return "Sprints › Closed"
 	case len(m.doc.Sprints) == 0:
 		return "Sprints › no sprints yet"
 	}
@@ -329,12 +265,9 @@ func (m model) footer(width int) string {
 		return fitHints(m.planFooter(), width)
 	case m.onList():
 		// The sidebar's own keys, ahead of the board's search filter: the
-		// selected sprint's, or the fold on the Closed group row.
+		// selected sprint's, when there is one.
 		parts := []string{hint("?", "Help"), hint("n", "New")}
-		switch {
-		case m.onClosedRow():
-			parts = append(parts, hint("←→", "Fold"))
-		case m.sprints.selected(m.doc) != nil:
+		if m.sprints.selected(m.doc) != nil {
 			parts = append(parts, hint("e", "Edit"), hint("c", "Close/reopen"), hint("d", "Delete"), hint("tab", "Board"))
 		}
 		return fitHints(append(parts, hint("q", "Quit")), width)

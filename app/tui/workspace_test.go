@@ -122,25 +122,21 @@ func TestTinyTerminalFitsTwoPanes(t *testing.T) {
 	}
 }
 
-func TestOnlyClosedSprintsShowNoOpenSprints(t *testing.T) {
+// With every sprint closed the workspace opens on the newest, the sidebar's
+// first sprint, and shows its board.
+func TestOnlyClosedSprintsShowNewestDone(t *testing.T) {
 	m, path := newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s00000b", Name: "B", Status: "done"}},
+		[]seedSprint{{ID: "s00000a", Name: "A", Status: "done"}, {ID: "s00000b", Name: "B", Status: "done"}},
 		seedTask{ID: "t000001", Title: "bDone", Status: "done", Sprint: "s00000b"}))
 	m = press(m, "s")
-	if m.view.screen != screenSprint || m.view.sprint != "" || !m.sprints.onGroup(m.doc) || m.sprints.closedOpen {
-		t.Fatalf("only closed: screen %v sprint %q onGroup %v closedOpen %v, want no sprint shown and the cursor on the folded Closed row", m.view.screen, m.view.sprint, m.sprints.onGroup(m.doc), m.sprints.closedOpen)
+	if s := m.sprints.selected(m.doc); m.view.screen != screenSprint || m.view.sprint != "s00000b" || s == nil || s.ID != "s00000b" {
+		t.Fatalf("only closed: screen %v sprint %q selected %v, want B, the newest, on both", m.view.screen, m.view.sprint, s)
 	}
-	if !inBoardPane(m, "no open sprints") || !inBoardPane(m, "── ✓ B") || !strings.Contains(ansi.Strip(m.View()), "❯ ▸ Closed") {
-		t.Errorf("the pane should say there are no open sprints and list B, with the Closed row selected:\n%s", ansi.Strip(m.View()))
+	if !inBoardPane(m, "closed — c in the sidebar reopens it") || !hasRow(press(m, "tab", "3"), "bDone") {
+		t.Errorf("want B's frozen board:\n%s", ansi.Strip(m.View()))
 	}
-	if v := storedView(t, path); v.Screen != todo.ScreenSprints || v.Sprint != "" {
-		t.Errorf("stored view %+v, want sprints", v)
-	}
-	if m = press(m, "e", "c", "d", "tab"); m.mode != modeMain || !m.listFocus {
-		t.Errorf("e/c/d/tab on the Closed row: mode %v listFocus %v, want nothing", m.mode, m.listFocus)
-	}
-	if m = press(m, "enter", "down"); m.view.sprint != "s00000b" || !hasRow(press(m, "tab", "3"), "bDone") {
-		t.Errorf("enter unfolds, down onto B shows %q, want B's board", m.view.sprint)
+	if v := storedView(t, path); v.Screen != todo.ScreenSprint || v.Sprint != "s00000b" {
+		t.Errorf("stored view %+v, want B's board", v)
 	}
 }
 
@@ -238,7 +234,7 @@ func TestSidebarIgnoresBoardKeys(t *testing.T) {
 	m = press(m, "s")
 	m = selectTitle(t, m, "aNext") // the board's cursor is on a task
 	before := storeFP(t, m)
-	for _, key := range []string{"[", "]", "2", "3", "a", "A", "m", "t"} {
+	for _, key := range []string{"3", "a", "A", "m", "t"} { // [ ] 1 2 jump the sidebar's sections
 		got := press(m, key)
 		if got.boardColumn() != todo.ColNext || got.mode != modeMain || got.tree.grabbed || got.view.sprint != "s00000a" {
 			t.Errorf("%q in the sidebar: column %v mode %v grabbed %v, want nothing", key, got.boardColumn(), got.mode, got.tree.grabbed)

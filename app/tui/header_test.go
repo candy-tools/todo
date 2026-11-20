@@ -31,11 +31,7 @@ func TestCrumbs(t *testing.T) {
 	if h := ansi.Strip(m.header(120)); !strings.Contains(h, "[b Backlog]") || !strings.Contains(h, "All states · 5 tasks") {
 		t.Errorf("unified header %q", h)
 	}
-	m = press(m, "u", "s", "down", "down") // C, then the folded Closed row
-	if h := ansi.Strip(m.header(120)); !strings.Contains(h, "Sprints › Closed") {
-		t.Errorf("Closed row header %q", h)
-	}
-	openBoard(&m, "s00000b")
+	m = press(m, "u", "s", "down", "down") // C, then the done B
 	if h := ansi.Strip(m.header(120)); !strings.Contains(h, "Sprints › B ✓") {
 		t.Errorf("done sprint header %q", h)
 	}
@@ -278,8 +274,7 @@ func TestBacklogCrumbFollowsSidebarCategory(t *testing.T) {
 	}
 }
 
-// Off the Closed row, a sprint the board cannot find makes the crumb just
-// "Sprints".
+// A sprint the board cannot find makes the crumb just "Sprints".
 func TestCrumbWithoutShownSprint(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
@@ -297,13 +292,13 @@ func TestSidebarKeepsFullHeight(t *testing.T) {
 		sprints = append(sprints, seedSprint{ID: fmt.Sprintf("s%06d", i), Name: fmt.Sprintf("S%02d", i), Goal: fmt.Sprintf("goal%02d", i), Status: "open"})
 	}
 	m, _ := newJSONModel(t, sprintJSON(t, nil, sprints))
-	m = send(m, tea.WindowSizeMsg{Width: 100, Height: 25}) // 20 pane rows: 10 sprint rows
+	m = send(m, tea.WindowSizeMsg{Width: 100, Height: 25}) // 20 pane rows: the Open rule, 9 sprint rows and a line
 	m = press(m, "s")
 	lines := strings.Split(ansi.Strip(m.View()), "\n")
 	last := lines[headerHeight+m.sprintListHeight()] // under the top border
 	side := []rune(last)[:sidebarWidth(100)]
-	if s := strings.Trim(string(side), "│ "); s != "goal09" {
-		t.Errorf("sidebar's last line %q, want the 10th sprint's goal", s)
+	if s := strings.Trim(string(side), "│ "); !strings.HasPrefix(s, "● S09") {
+		t.Errorf("sidebar's last line %q, want the 10th sprint's name", s)
 	}
 }
 

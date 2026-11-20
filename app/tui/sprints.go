@@ -10,67 +10,127 @@ import (
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
-// sprintList is the Sprints workspace's sidebar: the open sprints, then one
-// Closed group row that folds the done ones, the cursor over them and the first
-// row shown. The rows are derived from the list on every use. The cursor follows
-// the row it is on (selID) when a write or reload reorders the rows, and falls
-// back to its index, clamped, when that row is gone.
+// sprintList is the Sprints workspace's sidebar: the sprints in two sections,
+// each opened by its rule as a board's sections are (see sprintSection), the
+// cursor over the sprints and the first entry shown. The rows, the sprints,
+// are derived from the list on every use; the rules are drawn between them and
+// never hold the cursor. The cursor follows the sprint it is on (selID) when a
+// write or reload reorders the rows, and falls back to its index, clamped,
+// when that sprint is gone.
 type sprintList struct {
-	cursor int
-	selID  string // the key of the row the cursor is on, "" before the first use
-	offset int    // the index of the first row shown
-	// closedOpen is whether the Closed group shows the done sprints.
-	closedOpen bool
-}
-
-// sprintListRow is one row of the sidebar: a sprint, or the Closed group.
-type sprintListRow struct {
-	sprint *todo.Sprint // nil on the group row
-	group  bool
+	cursor int    // the index in sidebarRows of the sprint under the cursor
+	selID  string // that sprint's ID, "" before the first use
+	offset int    // the index of the first entry shown (see sidebarEntries)
 }
 
 // maxNameWidth caps a sprint's name wherever it is shown beside other text, so
 // a long one never pushes the rest off the row.
 const maxNameWidth = 30
 
-// groupKey is the selID of the Closed group row; sprint IDs never look like it.
-const groupKey = "·closed"
+// sprintSection is a section of the Sprints sidebar: the open sprints, then
+// the done ones.
+type sprintSection int
 
-// key identifies the row across reloads.
-func (r sprintListRow) key() string {
-	if r.group {
-		return groupKey
+const (
+	sectionOpen sprintSection = iota
+	sectionDone
+)
+
+// sprintSections lists the sidebar's sections in the order it shows them.
+var sprintSections = []sprintSection{sectionOpen, sectionDone}
+
+// sectionOf is the sidebar section sprint s is listed in.
+func sectionOf(s *todo.Sprint) sprintSection {
+	if s.Status == todo.SprintDone {
+		return sectionDone
 	}
-	return r.sprint.ID
+	return sectionOpen
 }
 
-// rows lists the rows of d as the screen shows them: the open sprints in
-// creation order; then, when d has done sprints, the Closed group row; then,
-// only while the group is unfolded, the done sprints, newest first.
-func (l *sprintList) rows(d *todo.Document) []sprintListRow {
-	var rows []sprintListRow
-	var done []*todo.Sprint
+// title is the section's name, on its rule and in the footer.
+func (s sprintSection) title() string {
+	if s == sectionDone {
+		return "Done"
+	}
+	return "Open"
+}
+
+// style is the colour of the section's rule: a board's Next cyan for the open
+// sprints, its Done green for the done ones.
+func (s sprintSection) style() lipgloss.Style {
+	if s == sectionDone {
+		return columnStyle(todo.ColDone)
+	}
+	return columnStyle(todo.ColNext)
+}
+
+// step returns the section delta sections away from s, wrapping around the
+// sidebar in either direction, as stepColumn does on a board.
+func (s sprintSection) step(delta int) sprintSection {
+	n := len(sprintSections)
+	return sprintSections[((int(s)+delta)%n+n)%n]
+}
+
+// sidebarRows lists the sprints of d as the sidebar shows them: the open ones
+// in creation order, then the done ones, newest first.
+func sidebarRows(d *todo.Document) []*todo.Sprint {
+	var open, done []*todo.Sprint
 	for _, s := range d.Sprints {
-		if s.Status == todo.SprintDone {
+		if sectionOf(s) == sectionDone {
 			done = append(done, s)
 		} else {
-			rows = append(rows, sprintListRow{sprint: s})
+			open = append(open, s)
 		}
 	}
-	if len(done) == 0 {
-		return rows
-	}
-	rows = append(rows, sprintListRow{group: true})
-	if l.closedOpen {
-		slices.Reverse(done)
-		for _, s := range done {
-			rows = append(rows, sprintListRow{sprint: s})
+	slices.Reverse(done)
+	return append(open, done...)
+}
+
+// sidebarEntry is one entry the sidebar draws: a section's rule, or the
+// sprint at index row of its rows.
+type sidebarEntry struct {
+	section sprintSection
+	count   int // on a rule: how many sprints its section holds
+	row     int // -1 on a rule
+}
+
+// rule reports whether the entry is a section's rule.
+func (e sidebarEntry) rule() bool { return e.row < 0 }
+
+// rowLines is how many lines a sprint's row of the sidebar takes; a rule takes
+// one.
+const rowLines = 2
+
+// linesOf is how many lines the entries es take.
+func linesOf(es []sidebarEntry) (n int) {
+	for _, e := range es {
+		n++
+		if !e.rule() {
+			n += rowLines - 1
 		}
 	}
-	return rows
+	return n
+}
+
+// sidebarEntries lays rows (see sidebarRows) out under their sections' rules:
+// each section's rule, then its sprints. An empty section shows as its rule
+// alone, as a board's does.
+func sidebarEntries(rows []*todo.Sprint) []sidebarEntry {
+	es := make([]sidebarEntry, 0, len(rows)+len(sprintSections))
+	i := 0
+	for _, sec := range sprintSections {
+		at := len(es)
+		es = append(es, sidebarEntry{section: sec, row: -1})
+		for ; i < len(rows) && sectionOf(rows[i]) == sec; i++ {
+			es = append(es, sidebarEntry{section: sec, row: i})
+		}
+		es[at].count = len(es) - at - 1
+	}
+	return es
 }
 
 // clamp keeps the cursor on one of n rows (on 0 when there are none).
@@ -78,72 +138,121 @@ func (l *sprintList) clamp(n int) {
 	l.cursor = max(min(l.cursor, n-1), 0)
 }
 
-// sync puts the cursor on the row it was on, wherever it is in rows now; when
-// that row is gone it keeps the index, clamped.
-func (l *sprintList) sync(rows []sprintListRow) {
-	if i := slices.IndexFunc(rows, func(r sprintListRow) bool { return r.key() == l.selID }); i >= 0 {
+// sync puts the cursor on the sprint it was on, wherever it is in rows now;
+// when that sprint is gone it keeps the index, clamped.
+func (l *sprintList) sync(rows []*todo.Sprint) {
+	if i := slices.IndexFunc(rows, func(s *todo.Sprint) bool { return s.ID == l.selID }); i >= 0 {
 		l.cursor = i
 		return
 	}
 	l.clamp(len(rows))
 	l.selID = ""
 	if len(rows) > 0 {
-		l.selID = rows[l.cursor].key()
+		l.selID = rows[l.cursor].ID
 	}
 }
 
-// move shifts the cursor by delta rows, clamped to the list.
+// move shifts the cursor by delta sprints, clamped to the list: the rules
+// between the sections take no step.
 func (l *sprintList) move(d *todo.Document, delta int) {
-	rows := l.rows(d)
+	rows := sidebarRows(d)
 	l.sync(rows)
 	l.cursor += delta
 	l.clamp(len(rows))
 	if len(rows) > 0 {
-		l.selID = rows[l.cursor].key()
+		l.selID = rows[l.cursor].ID
 	}
 }
 
-// selected returns the sprint under the cursor, or nil when d has none or the
-// cursor is on the group row.
+// selected returns the sprint under the cursor, or nil when d has none.
 func (l *sprintList) selected(d *todo.Document) *todo.Sprint {
-	rows := l.rows(d)
+	rows := sidebarRows(d)
 	l.sync(rows)
 	if len(rows) == 0 {
 		return nil
 	}
-	return rows[l.cursor].sprint
+	return rows[l.cursor]
 }
 
-// onGroup reports whether the cursor is on the Closed group row.
-func (l *sprintList) onGroup(d *todo.Document) bool {
-	rows := l.rows(d)
-	l.sync(rows)
-	return len(rows) > 0 && rows[l.cursor].group
+// section is the section of the sprint under the cursor, Open when there is
+// none.
+func (l *sprintList) section(d *todo.Document) sprintSection {
+	if s := l.selected(d); s != nil {
+		return sectionOf(s)
+	}
+	return sectionOpen
 }
 
-// selectID puts the cursor on the sprint with the given ID, when d has it,
-// unfolding the Closed group for a done one.
+// selectID puts the cursor on the sprint with the given ID, when d has it.
 func (l *sprintList) selectID(d *todo.Document, id string) {
-	if s, ok := d.SprintByID(id); ok && s.Status == todo.SprintDone {
-		l.closedOpen = true
-	}
-	l.selectKey(d, id)
-}
-
-// selectGroup puts the cursor on the Closed group row, when d has one.
-func (l *sprintList) selectGroup(d *todo.Document) { l.selectKey(d, groupKey) }
-
-func (l *sprintList) selectKey(d *todo.Document, key string) {
-	if i := slices.IndexFunc(l.rows(d), func(r sprintListRow) bool { return r.key() == key }); i >= 0 {
-		l.cursor, l.selID = i, key
+	if i := slices.IndexFunc(sidebarRows(d), func(s *todo.Sprint) bool { return s.ID == id }); i >= 0 {
+		l.cursor, l.selID = i, id
 	}
 }
 
-// window returns the index of the first of height rows to show out of n, the
-// current one unless the cursor is outside it: the window only moves when the
-// cursor leaves it.
-func (l *sprintList) window(n, height int) int {
-	return scrollWindow(l.offset, l.cursor, n, height)
+// showSection puts the cursor on the first sprint of section sec, with the
+// window starting at the section's rule as far as the entries below fill
+// height lines, as a board's showSectionAt does. It reports false, and moves
+// nothing, when sec holds no sprint.
+func (l *sprintList) showSection(d *todo.Document, sec sprintSection, height int) bool {
+	rows := sidebarRows(d)
+	i := slices.IndexFunc(rows, func(s *todo.Sprint) bool { return sectionOf(s) == sec })
+	if i < 0 {
+		return false
+	}
+	l.cursor, l.selID = i, rows[i].ID
+	l.offset = slices.IndexFunc(sidebarEntries(rows), func(e sidebarEntry) bool { return e.row == i }) - 1 // the rule
+	l.reconcile(d, height)
+	return true
+}
+
+// reconcile follows the cursor's sprint through a change of d and keeps its
+// row whole inside height lines, as the tree's reconcileOffset does.
+func (l *sprintList) reconcile(d *todo.Document, height int) { l.layout(d, height) }
+
+// layout syncs the cursor to d and moves the window so the cursor's row shows
+// whole in height lines (see sidebarWindow). It returns the rows, their
+// entries and the index of the cursor's entry (-1 when d has no sprint).
+func (l *sprintList) layout(d *todo.Document, height int) (rows []*todo.Sprint, es []sidebarEntry, cur int) {
+	rows = sidebarRows(d)
+	l.sync(rows)
+	es = sidebarEntries(rows)
+	cur = slices.IndexFunc(es, func(e sidebarEntry) bool { return e.row == l.cursor })
+	if cur < 0 {
+		l.offset = 0
+		return rows, es, cur
+	}
+	l.offset = sidebarWindow(es, l.offset, cur, height)
+	return rows, es, cur
+}
+
+// sidebarWindow returns the index of the first of the entries es to show in
+// height lines with the cursor's row on entry cur: offset, unless that leaves
+// the cursor's row out, whole or in part, else the nearest one holding it, so
+// the window only moves when the cursor leaves it. The window never starts so
+// far down that it ends short of the pane's last line, and the rules right
+// above it come into view while the cursor's row still fits, as the tree's
+// headings do.
+func sidebarWindow(es []sidebarEntry, offset, cur, height int) int {
+	off := min(offset, lastStart(es, height), cur)
+	for off < cur && linesOf(es[off:cur+1]) > height {
+		off++
+	}
+	for off > 0 && es[off-1].rule() && linesOf(es[off-1:cur+1]) <= height {
+		off--
+	}
+	return off
+}
+
+// lastStart is the last of the entries es a window height lines tall can
+// start at and still reach its last line, 0 when es fits whole.
+func lastStart(es []sidebarEntry, height int) int {
+	for i := len(es) - 1; i > 0; i-- {
+		if linesOf(es[i:]) >= height {
+			return i
+		}
+	}
+	return 0
 }
 
 // scrollWindow returns the index of the first of height rows to show out of n
@@ -160,94 +269,98 @@ func scrollWindow(offset, cursor, n, height int) int {
 	return max(off, 0)
 }
 
-// rowLines is how many lines every row of the sidebar takes.
-const rowLines = 2
-
-// fitRows is how many rows fit in height lines (at least one).
-func fitRows(height int) int { return max(height/rowLines, 1) }
-
-// reconcile follows the cursor's row through a change of d and keeps it inside
-// the rows that fit height lines, as the tree's reconcileOffset does.
-func (l *sprintList) reconcile(d *todo.Document, height int) {
-	rows := l.rows(d)
-	l.sync(rows)
-	l.offset = l.window(len(rows), fitRows(height))
-}
-
-// view renders the rows of d that fit width x height lines, the cursor's
-// always among them (marked and highlighted). Every row is two lines. A sprint
-// shows a status glyph, its name and its top-level task counts "Next·In
-// Progress·Done" right-aligned, then its goal; the group row shows a fold
-// glyph, "Closed" and the number of done sprints. Names and goals are cut with
-// "…" to the width: nothing wraps. A list without sprints renders a dim line
+// view renders the sidebar of d, width x height lines, from the first entry
+// shown (see layout): the sections' rules (see sectionRule) and the sprints'
+// rows (see sidebarRowLines), the cursor's marked and highlighted and always whole,
+// even in a pane too short for it. A list without sprints renders a dim line
 // saying so.
 func (l *sprintList) view(d *todo.Document, width, height int) string {
-	rows := l.rows(d)
+	rows, es, cur := l.layout(d, height)
 	if len(rows) == 0 {
 		return "  " + helpTextStyle.Render("no sprints yet")
 	}
-	l.sync(rows)
-	l.offset = l.window(len(rows), fitRows(height))
-	end := min(l.offset+fitRows(height), len(rows))
-	lines := make([]string, 0, rowLines*(end-l.offset))
-	for i := l.offset; i < end; i++ {
-		first, second := l.rowLines(d, rows[i], width, i == l.cursor)
+	keep := max(height, linesOf(es[l.offset:cur+1]))
+	lines := make([]string, 0, keep+1)
+	for _, e := range es[l.offset:] {
+		if len(lines) >= keep {
+			break
+		}
+		if e.rule() {
+			lines = append(lines, sectionRule(e.section.title(), e.count, e.section.style(), width))
+			continue
+		}
+		first, second := sidebarRowLines(d, rows[e.row], width, e.row == l.cursor)
 		lines = append(lines, first, second)
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines[:min(len(lines), keep)], "\n")
 }
 
-// doneSprints counts the done sprints of d.
-func doneSprints(d *todo.Document) (n int) {
-	for _, s := range d.Sprints {
-		if s.Status == todo.SprintDone {
-			n++
-		}
-	}
-	return n
-}
-
-// rowLines renders the two lines of row r, width cells wide.
-func (l *sprintList) rowLines(d *todo.Document, r sprintListRow, width int, cur bool) (first, second string) {
+// sidebarRowLines renders the two lines of sprint s's row in the sidebar, width
+// cells wide: a status glyph (● open, ✓ done), its name and its top-level task
+// counts "Next·In Progress·Done" right-aligned, then its goal ("—" without
+// one). Names and goals are cut with "…" to the width: nothing wraps.
+func sidebarRowLines(d *todo.Document, s *todo.Sprint, width int, cur bool) (first, second string) {
 	marker := "  "
 	if cur {
 		marker = "❯ "
 	}
-	var glyph, name, counts, goal, indent string
-	var glyphStyle, nameStyle = progStyle, categoryStyle
-	switch {
-	case r.group:
-		glyph, name, nameStyle, glyphStyle = "▸", "Closed", helpTextStyle, helpTextStyle
-		if l.closedOpen {
-			glyph = "▾"
-		}
-		counts = fmt.Sprint(doneSprints(d))
-	default:
-		s := r.sprint
-		glyph, name, goal = "●", todo.Printable(s.Name), todo.Printable(s.Goal)
-		if goal == "" {
-			goal = "—" // a sprint without a goal, as the Closed sprints pane shows it
-		}
-		if s.Status == todo.SprintDone {
-			glyph, glyphStyle, nameStyle = "✓", doneStyle, helpTextStyle
-			indent = "  " // nested under the Closed row
-		}
-		c := d.ColumnCounts(s.ID)
-		counts = fmt.Sprintf("%d·%d·%d", c[todo.ColNext], c[todo.ColInProgress], c[todo.ColDone])
+	glyph, glyphStyle, nameStyle := "●", progStyle, categoryStyle
+	if s.Status == todo.SprintDone {
+		glyph, glyphStyle, nameStyle = "✓", doneStyle, helpTextStyle
 	}
-	// indent, marker, glyph, space, name, gap, counts
-	lead := 4 + len(indent)
+	name, goal := todo.Printable(s.Name), todo.Printable(s.Goal)
+	if goal == "" {
+		goal = "—"
+	}
+	c := d.ColumnCounts(s.ID)
+	counts := fmt.Sprintf("%d·%d·%d", c[todo.ColNext], c[todo.ColInProgress], c[todo.ColDone])
+	const lead = 4 // marker, glyph, space
 	name = ansi.Truncate(name, max(width-lead-1-ansi.StringWidth(counts), 1), "…")
 	gap := strings.Repeat(" ", max(width-lead-ansi.StringWidth(name)-ansi.StringWidth(counts), 1))
 	goal = ansi.Truncate(goal, max(width-lead, 1), "…")
 	if cur {
-		first = selectedRowStyle.Render(indent + marker + glyph + " " + name + gap + counts)
-		second = selectedRowStyle.Render(indent + "    " + goal)
+		first = selectedRowStyle.Render(marker + glyph + " " + name + gap + counts)
+		second = selectedRowStyle.Render("    " + goal)
 	} else {
-		first = indent + marker + glyphStyle.Render(glyph) + " " + nameStyle.Render(name) + gap + helpTextStyle.Render(counts)
-		second = indent + "    " + helpTextStyle.Render(goal)
+		first = marker + glyphStyle.Render(glyph) + " " + nameStyle.Render(name) + gap + helpTextStyle.Render(counts)
+		second = "    " + helpTextStyle.Render(goal)
 	}
 	return ansi.Truncate(first, width, ""), ansi.Truncate(second, width, "")
+}
+
+// sidebarSectionKey maps a key of the Sprints sidebar to the section it jumps
+// to: ] and [ step from current, the section of the cursor's sprint, 1 and 2
+// name Open and Done. dir is the way ] (1) or [ (-1) steps, 0 for 1 and 2; ok
+// is false for any other key.
+func sidebarSectionKey(key string, current sprintSection) (sec sprintSection, dir int, ok bool) {
+	switch key {
+	case "]":
+		return current.step(1), 1, true
+	case "[":
+		return current.step(-1), -1, true
+	}
+	if len(key) == 1 && key[0] >= '1' && int(key[0]-'1') < len(sprintSections) {
+		return sprintSections[key[0]-'1'], 0, true
+	}
+	return 0, 0, false
+}
+
+// jumpSprintSection moves the sidebar's cursor onto the first sprint of
+// section sec (see sidebarSectionKey) and shows its board, as jumpSection does
+// on a board: a step skips an empty section, wrapping around, and 1 or 2 on
+// an empty one says so in the footer.
+func (m *model) jumpSprintSection(sec sprintSection, dir int) {
+	for range sprintSections {
+		if m.sprints.showSection(m.doc, sec, m.sprintListHeight()) {
+			m.followList()
+			return
+		}
+		if dir == 0 {
+			m.status = "nothing in " + sec.title()
+			return
+		}
+		sec = sec.step(dir)
+	}
 }
 
 // moveSprints moves the sidebar's cursor by delta rows, keeps it shown, and
@@ -326,12 +439,9 @@ func (m model) toggleSprintClosed() (tea.Model, tea.Cmd) {
 	if s == nil {
 		return m, nil
 	}
+	// The sprint changes section; the cursor follows it there (see writeSprint).
 	id, closing := s.ID, s.Status == todo.SprintOpen
-	// A sprint that is about to be closed must stay in the rows, so the Closed
-	// group unfolds first (and folds back if the store refuses).
-	was := m.sprints.closedOpen
-	m.sprints.closedOpen = m.sprints.closedOpen || closing
-	if !m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+	m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
 		if !closing {
 			return st.ReopenSprint(ctx, id)
 		}
@@ -340,10 +450,7 @@ func (m model) toggleSprintClosed() (tea.Model, tea.Cmd) {
 			err = fmt.Errorf("can't close: %w", err) // a refusal, shown as the status
 		}
 		return res, err
-	}) {
-		m.sprints.closedOpen = was
-		m.sprints.reconcile(m.doc, m.sprintListHeight())
-	}
+	})
 	return m, nil
 }
 
@@ -380,34 +487,21 @@ func (m model) doDeleteSprint() (tea.Model, tea.Cmd) {
 		return st.DeleteSprint(ctx, id)
 	})
 	if _, ok := m.doc.SprintByID(id); !ok && next != "" {
-		m.selectRow(next)
+		m.selectInList(next)
 		m.followList()
 	}
 	return m, nil
 }
 
-// rowAfterDelete is the key of the row the sidebar falls back to when sprint
-// id is deleted: the row that takes its index, clamped to the last one (the
-// Closed group row goes with the last done sprint). "" when no other row is
-// left.
+// rowAfterDelete is the ID of the sprint the sidebar falls back to when sprint
+// id is deleted: the one that takes its index, clamped to the last one. ""
+// when no other sprint is left.
 func (m *model) rowAfterDelete(id string) string {
-	var rest []string
-	at := 0
-	lastDone := false
-	if s, ok := m.doc.SprintByID(id); ok {
-		lastDone = s.Status == todo.SprintDone && doneSprints(m.doc) == 1
-	}
-	for i, r := range m.sprints.rows(m.doc) {
-		switch {
-		case r.key() == id:
-			at = i
-		case r.group && lastDone:
-		default:
-			rest = append(rest, r.key())
-		}
-	}
+	rows := sidebarRows(m.doc)
+	at := max(slices.IndexFunc(rows, func(s *todo.Sprint) bool { return s.ID == id }), 0)
+	rest := slices.DeleteFunc(rows, func(s *todo.Sprint) bool { return s.ID == id })
 	if len(rest) == 0 {
 		return ""
 	}
-	return rest[min(at, len(rest)-1)]
+	return rest[min(at, len(rest)-1)].ID
 }

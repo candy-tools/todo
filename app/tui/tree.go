@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -744,14 +745,20 @@ func (t *tree) view(width, height int) string {
 	return b.String()
 }
 
-// sectionRow renders a board section's row, width wide: a heavy rule in the
-// column's colour carrying its title and how many top-level tasks it shows,
-// e.g. "━━ In Progress 3 ━━━━━━━━".
+// sectionRow renders a board section's row, width wide: its section rule in
+// the column's colour with how many top-level tasks it shows, e.g.
+// "━━ In Progress 3 ━━━━━━━━".
 func sectionRow(r treeRow, width int) string {
-	st := columnStyle(r.col)
-	lead, label, count := "━━ ", r.col.Title(), fmt.Sprintf(" %d ", r.count)
-	used := ansi.StringWidth(lead) + ansi.StringWidth(label) + ansi.StringWidth(count)
-	line := st.Render(lead) + st.Bold(true).Render(label) + helpTextStyle.Render(count) +
+	return sectionRule(r.col.Title(), r.count, columnStyle(r.col), width)
+}
+
+// sectionRule renders the rule that opens a section, a board's or the Sprints
+// sidebar's, width wide: a heavy rule in st carrying the section's title and
+// how many it holds, e.g. "━━ Open 2 ━━━━━━━━".
+func sectionRule(title string, count int, st lipgloss.Style, width int) string {
+	lead, n := "━━ ", fmt.Sprintf(" %d ", count)
+	used := ansi.StringWidth(lead) + ansi.StringWidth(title) + ansi.StringWidth(n)
+	line := st.Render(lead) + st.Bold(true).Render(title) + helpTextStyle.Render(n) +
 		st.Render(strings.Repeat("━", max(width-used, 0)))
 	return ansi.Truncate(line, width, "")
 }

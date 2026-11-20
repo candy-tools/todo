@@ -62,7 +62,8 @@ var helpSections = []helpSection{
 		{"c", "Close / reopen the sprint"},
 		{"d", "Delete the sprint"},
 		{"enter  tab", "Focus the board (tab on the board: back to the list)"},
-		{"→  ←  enter", "On the Closed row: unfold / fold the closed sprints"},
+		{"[  ]", "Previous / next section of sprints"},
+		{"1 2", "Jump to the Open / Done sprints"},
 	}},
 	{"Planning", []helpBinding{
 		{"p", "Open Planning / leave it for the sprint's board (also esc)"},

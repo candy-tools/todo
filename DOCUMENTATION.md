@@ -200,7 +200,7 @@ breadcrumb that says where you are:
 
 The breadcrumb reads `Backlog › Work › Reviews · N tasks waiting` (the category
 under the cursor), `Sprints › Sprint 14 › Next` (a closed sprint is marked `✓`),
-`Sprints › Closed`, `All states · N tasks` in the unified view, or, in Planning,
+`All states · N tasks` in the unified view, or, in Planning,
 `Sprint 14 · N in Next · N in the Backlog`. The footer shows a few keys of
 where you are, most important first, and drops the last ones whole on a narrow
 terminal; everything else is in the `?` dialog:
@@ -209,9 +209,8 @@ terminal; everything else is in the `?` dialog:
   `v` single tree in the split), `s` sprints, `p` plan, `/` search, `q` quit;
 - a sprint board: `?` help, `tab` sprints, `[ ] 1-3` section, `a/A` move task
   (not on a closed sprint), `/` search, `q` quit;
-- the Sprints sidebar: `n` new, `e` edit, `c` close/reopen, `d` delete (on the
-  Closed row `←→` fold instead of those three), `tab` board, `?` help, `q`
-  quit;
+- the Sprints sidebar: `?` help, `n` new, `e` edit, `c` close/reopen, `d`
+  delete, `tab` board, `q` quit;
 - Planning: the focused side's keys (`→/a` pull in on the Backlog side, `←/A`
   back and `r` ready on the sprint side; `tab` the other side, `k` other
   sprint, `esc` done) and `?` help;
@@ -230,19 +229,34 @@ opens Planning to pull several in.
 
 A sidebar of sprints on the left, the selected sprint's board on the right.
 Each sidebar row shows the sprint's name, its task counts (Next · In Progress ·
-Done) and its goal; names and goals are cut with `…`, never wrapped. Open
-sprints come first in creation order, then a folded **Closed** group holding
-the done sprints. `→` / `enter` unfold the group on its row and `←` folds it
-(`←` on a done sprint jumps to the group row). The arrows move the selection
-and show that sprint's board at once.
+Done) and its goal (`—` without one); names and goals are cut with `…`, never
+wrapped. The sidebar has two sections, each opened by a coloured rule with its
+title and how many sprints it holds, like the board's: `━━ Open 2 ━━━━` (cyan,
+the board's Next colour) over the open sprints in creation order, then
+`━━ Done 2 ━━━━` (green) over the closed ones, newest first. An empty section
+shows as its rule alone.
 
-On the **Closed** row the right pane is **Closed sprints** instead of a board:
-each closed sprint, newest first, as `── ✓ Sprint 12` over its goal and its
-task count (`… N more` when they do not all fit; `no open sprints` above them
-when every sprint is closed). It is read only: the board keys (`[` `]`,
-`1`–`3`, `a`/`A`, `/`, `f`, …) do nothing there, `tab` does nothing, and
-`enter`, `→` and `←` fold or unfold the group. todo still reopens on the last
-sprint whose board you saw.
+```text
+━━ Open 2 ━━━━━━━━━━
+❯ ● Sprint 15   3·1·0
+    Ship the importer
+  ● Sprint 16   0·0·0
+    —
+━━ Done 2 ━━━━━━━━━━
+  ✓ Sprint 14   0·0·7
+    Refs and prefixes
+  ✓ Sprint 13   0·0·5
+    Board sections
+```
+
+The rules are never selected: the arrows move the selection from sprint to
+sprint, across both sections, and show that sprint's board at once — a closed
+sprint's too, frozen (see Sprint rules). `[` / `]` jump to the first sprint of
+the previous / next section that holds sprints, and `1` / `2` to the first
+open / closed one (`nothing in Done` when it is empty), scrolling the section
+as close to the top as the sidebar allows. With every sprint closed the
+workspace opens on the newest. todo reopens on the last sprint whose board you
+saw.
 
 The keys start on the sidebar: `n` creates a sprint (a form with Name and
 Goal), `e` edits its name and goal, `c` closes an open sprint or reopens a
@@ -608,8 +622,8 @@ Errors go to stderr.
 | `K` | Pick a sprint to go to |
 | `q` | Quit, from every screen — a dialog asks first, on Yes: `enter` quits, `esc` stays (`ctrl+c` quits at once) |
 | `tab` / `shift+tab` | Switch pane: Backlog split panes, Sprints sidebar / board, Planning sides |
-| `[` / `]` | Previous / next section (sprint board) |
-| `1`–`3` | Jump to Next / In Progress / Done (sprint board) |
+| `[` / `]` | Previous / next section (sprint board); on the Sprints sidebar, the first sprint of the previous / next section |
+| `1`–`3` | Jump to Next / In Progress / Done (sprint board); on the Sprints sidebar, `1` / `2` jump to the first Open / Done sprint |
 | `u` | Unified view: every task, any sprint / back — see Views |
 | `a` / `A` | Move the task to the next / previous column (it takes that column's first state) |
 | `a` | On a backlog task: assign it to a sprint (picker of open sprints); on a Backlog category it says to select a task |
@@ -630,8 +644,9 @@ Errors go to stderr.
 | `esc` | Clear an active search, then the state filter; when there is neither, on a sprint board back to the sprint sidebar, in a split's task list back to the categories, else ask to quit, like `q` |
 
 On the **Sprints sidebar**: `n` creates a sprint, `e` edits its name,
-reference prefix and goal, `c` closes or reopens it, `d` deletes it, and
-`enter` or `tab` focuses its board. A sprint's reference prefix is the one its
+reference prefix and goal, `c` closes or reopens it, `d` deletes it, `[` / `]`
+and `1` / `2` jump between the Open and Done sections, and `enter` or `tab`
+focuses its board. A sprint's reference prefix is the one its
 new tasks get their references from, ahead of any category's.
 
 Tasks always live under a category — there are no root-level tasks. In the
