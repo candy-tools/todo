@@ -381,6 +381,20 @@ func TestListFlatBoardSelectionTasksOnly(t *testing.T) {
 	}
 }
 
+// --sprint alone is a board selection too: its task under a category comes
+// back with its subtask, without the category.
+func TestListFlatSprintTasksOnly(t *testing.T) {
+	path := boardFixture(t)
+	addSprint(t, path, "S1")
+	if _, err := runCmd(t, "assign", "--file", path, "--sprint", "S1", "--title", "busy"); err != nil {
+		t.Fatal(err)
+	}
+	recs := flatRecords(t, "--file", path, "--flat", "--sprint", "S1")
+	if got := strings.Join(titlesOf(recs), " "); got != "busy sub" {
+		t.Errorf("got %q, want %q", got, "busy sub")
+	}
+}
+
 func TestListKindStatusNeedFlat(t *testing.T) {
 	path := boardFixture(t)
 	for _, args := range [][]string{{"--kind", "task"}, {"--status", "open"}} {
