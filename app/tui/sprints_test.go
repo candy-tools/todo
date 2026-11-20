@@ -131,6 +131,20 @@ func TestSprintListDeleteConfirm(t *testing.T) {
 	}
 }
 
+func TestSprintListDeleteFallsBackByIndex(t *testing.T) {
+	m, path := threeSprints(t) // rows: A, C (open), B (done)
+	m = press(m, "s", "down", "d", "y")
+	if len(loadSprintDoc(t, path).Sprints) != 2 {
+		t.Fatalf("C was not deleted")
+	}
+	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000b" || m.view.sprint != "s00000b" {
+		t.Errorf("after deleting C: selected %v shown %q, want B (the row now at C's index)", s, m.view.sprint)
+	}
+	if !m.listFocus {
+		t.Error("the sidebar should keep the focus")
+	}
+}
+
 func TestSprintListDeleteCancelKeepsSprint(t *testing.T) {
 	m, path := threeSprints(t)
 	m = press(m, "s", "d", "esc")

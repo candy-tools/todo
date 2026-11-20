@@ -408,8 +408,7 @@ func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveSprints(navStep)
 	case "enter", "tab", "shift+tab":
 		if m.view.sprint == "" {
-			m.status = msgNoOpenSprints
-			return m, nil
+			return m, nil // no sprint selected: no board to move to
 		}
 		m.listFocus = false
 		m.saveView()

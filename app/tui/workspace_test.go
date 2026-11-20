@@ -29,7 +29,11 @@ func openBoard(m *model, id string) {
 // inBoardPane reports whether a line of m's screen holds want to the right of
 // the Sprints sidebar, i.e. in the board pane.
 func inBoardPane(m model, want string) bool {
-	sw := sidebarWidth(m.width)
+	w := m.width
+	if w == 0 {
+		w = 80 // mainView's fallback when the terminal size is unknown
+	}
+	sw := sidebarWidth(w)
 	for _, l := range strings.Split(ansi.Strip(m.View()), "\n") {
 		if i := strings.Index(l, want); i >= 0 && ansi.StringWidth(l[:i]) >= sw {
 			return true
@@ -152,6 +156,23 @@ func TestShownSprintDeletedElsewhereFallsBack(t *testing.T) {
 	}
 }
 
+func TestShownSprintDeletedElsewhereKeepsUnifiedView(t *testing.T) {
+	m, path := threeSprints(t)
+	m = press(m, "s", "down", "u") // C, then the unified view over it
+	if !m.view.all {
+		t.Fatal("u should turn the unified view on")
+	}
+	stored := storedView(t, path)
+	deleteSprintOnDisk(t, path, "s00000c")
+	m = pollOnce(t, m)
+	if !m.view.all {
+		t.Error("the unified view was turned off when the hidden sprint was deleted")
+	}
+	if v := storedView(t, path); v != stored {
+		t.Errorf("stored view %+v, want %+v unchanged", v, stored)
+	}
+}
+
 func TestOldSavedSprintsScreenOpensWorkspace(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, map[string]any{"screen": "sprints", "split": true},
 		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}},
@@ -193,12 +214,17 @@ func TestQuitStoresSprintOnScreen(t *testing.T) {
 }
 
 func TestSidebarIgnoresBoardKeys(t *testing.T) {
-	m, _ := threeSprints(t)
+	m, path := threeSprints(t)
 	m = press(m, "s")
+	m = selectTitle(t, m, "aNext") // the board's cursor is on a task
+	before := storeFP(t, m)
 	for _, key := range []string{"[", "]", "2", "3", "a", "A", "m", "t"} {
 		got := press(m, key)
 		if got.view.column != todo.ColNext || got.mode != modeMain || got.tree.grabbed || got.view.sprint != "s00000a" {
 			t.Errorf("%q in the sidebar: column %v mode %v grabbed %v, want nothing", key, got.view.column, got.mode, got.tree.grabbed)
+		}
+		if it := find(loadSprintDoc(t, path), "aNext"); it == nil || it.Status != todo.New || it.SprintID() != "s00000a" || storeFP(t, got) != before {
+			t.Errorf("%q in the sidebar changed the task on disk: %+v", key, it)
 		}
 	}
 	if got := press(m, "f"); got.mode != modeStateFilter {

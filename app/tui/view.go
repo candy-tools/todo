@@ -217,18 +217,24 @@ func (m *model) switchScreen(sc screen, sprint string) {
 	m.view.all = false
 	m.view.screen, m.view.sprint = sc, ""
 	if sc == screenSprint {
-		m.view.sprint = sprint
-		if sprint != "" {
-			m.lastSprint = sprint
-		}
-		m.view.column = todo.ColNext
-		if c, ok := m.boardTabs[sprint]; ok {
-			m.view.column = c
-		}
+		m.setShownSprint(sprint)
 	}
 	m.tree.pane = m.mainPane()
 	m.refreshSide()
 	m.tree.switchView(from)
+}
+
+// setShownSprint makes sprint ("" for none) the board's sprint, on the tab it
+// last showed (Next the first time), and the last viewed one.
+func (m *model) setShownSprint(sprint string) {
+	m.view.sprint = sprint
+	if sprint != "" {
+		m.lastSprint = sprint
+	}
+	m.view.column = todo.ColNext
+	if c, ok := m.boardTabs[sprint]; ok {
+		m.view.column = c
+	}
 }
 
 // showBacklog shows the Backlog ("b") and stores the view.
@@ -306,8 +312,8 @@ func (m *model) mainPane() paneKind {
 	return paneMixed
 }
 
-// msgNoOpenSprints is the footer hint for "k" with no open sprint to go to,
-// and "enter" in a Sprints workspace that shows no sprint.
+// msgNoOpenSprints is the footer hint for "k", "K" and "a" with no open sprint
+// to go to or assign to.
 const msgNoOpenSprints = "no open sprints — press s, then n to create one"
 
 // msgSplitsBacklog is the footer hint for "v" in the Sprints workspace, whose

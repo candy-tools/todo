@@ -203,7 +203,8 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 // leaveGoneSprint moves the Sprints workspace from a board whose sprint the
 // list no longer holds (it was deleted) to the first open sprint, or to none,
 // with the sidebar focused on it. A workspace that shows no sprint takes the
-// first open one when one appears (unless the unified view is over it). The
+// first open one when one appears (unless the unified view is over it). Under
+// the unified view only the hidden sprint falls back: the view stays on. The
 // view is not stored: the list that changed is no write of this session.
 func (m *model) leaveGoneSprint() {
 	if m.view.screen != screenSprint {
@@ -213,7 +214,11 @@ func (m *model) leaveGoneSprint() {
 		return
 	}
 	id := m.defaultSprint()
-	if id != m.view.sprint {
+	switch {
+	case id == m.view.sprint:
+	case m.view.all:
+		m.setShownSprint(id)
+	default:
 		m.switchScreen(screenSprint, id)
 		m.listFocus = true
 	}

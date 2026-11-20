@@ -311,8 +311,32 @@ func (m model) doDeleteSprint() (tea.Model, tea.Cmd) {
 	// accidental-complete undo window.
 	m.snapshots = map[string]todo.DoneStates{}
 	id := s.ID
+	next := m.rowAfterDelete(id)
 	m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
 		return st.DeleteSprint(ctx, id)
 	})
+	if _, ok := m.doc.SprintByID(id); !ok && next != "" {
+		m.selectInList(next)
+		m.followList()
+	}
 	return m, nil
+}
+
+// rowAfterDelete is the sprint the sidebar falls back to when sprint id is
+// deleted: the row that takes its index, clamped to the last one. "" when no
+// other row is left.
+func (m *model) rowAfterDelete(id string) string {
+	var rest []*todo.Sprint
+	at := 0
+	for i, s := range m.sprints.rows(m.doc) {
+		if s.ID == id {
+			at = i
+			continue
+		}
+		rest = append(rest, s)
+	}
+	if len(rest) == 0 {
+		return ""
+	}
+	return rest[min(at, len(rest)-1)].ID
 }

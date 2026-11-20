@@ -203,14 +203,17 @@ func TestKFromBacklogSkipsClosedLastViewed(t *testing.T) {
 	}
 }
 
-func TestEnterOnEmptySprintListHints(t *testing.T) {
+func TestEnterOnEmptySprintListDoesNothing(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, nil, nil))
 	m = press(m, "s", "enter")
 	if m.mode != modeMain || !m.onList() {
 		t.Errorf("enter on an empty sprint sidebar: mode %v listFocus %v, want to stay", m.mode, m.listFocus)
 	}
-	if want := "no open sprints — press s, then n to create one"; m.status != want {
-		t.Errorf("footer = %q, want %q", m.status, want)
+	if m.status != "" {
+		t.Errorf("footer = %q, want no message", m.status)
+	}
+	if m = press(m, "tab"); m.status != "" || !m.onList() {
+		t.Errorf("tab on an empty sprint sidebar: status %q listFocus %v, want nothing", m.status, m.listFocus)
 	}
 }
 
