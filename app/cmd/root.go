@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,7 +36,7 @@ func execute(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	exit, name := errorCode(err)
-	if wantsJSONErrors(c, args) {
+	if wantsJSONErrors(c, args, err) {
 		var je jsonError
 		je.Error.Code, je.Error.Exit, je.Error.Message = name, exit, strings.TrimRight(err.Error(), "\n")
 		b, _ := json.Marshal(je)
@@ -46,20 +47,36 @@ func execute(args []string, stdout, stderr io.Writer) int {
 	return exit
 }
 
-// wantsJSONErrors reports whether c ran in JSON mode: its json or flat flag is
-// true (so --json=false gives plain errors), or args holds --json/--flat, bare
-// or as =true (a flag-parse error can stop cobra before the flag is set).
-func wantsJSONErrors(c *cobra.Command, args []string) bool {
-	if c != nil {
-		for _, name := range []string{"json", "flat"} {
-			if v, err := c.Flags().GetBool(name); err == nil && v {
-				return true
-			}
-		}
+// wantsJSONErrors reports whether err is printed as a jsonError: c ran in JSON
+// mode (see jsonMode), or err is a flag-parse error and args holds --json or
+// --flat, bare or as =true (cobra stops at the bad flag, so a later one is never
+// set). Any other error trusts the parsed flags alone, so a --json taken as
+// another flag's value gives a plain error.
+func wantsJSONErrors(c *cobra.Command, args []string, err error) bool {
+	if jsonMode(c) {
+		return true
+	}
+	var fe *flagError
+	if !errors.As(err, &fe) {
+		return false
 	}
 	for _, a := range args {
 		switch a {
 		case "--json", "--json=true", "--flat", "--flat=true":
+			return true
+		}
+	}
+	return false
+}
+
+// jsonMode reports whether c's json or flat flag is true (so --json=false is
+// off): its output, and any error, is meant for an agent.
+func jsonMode(c *cobra.Command) bool {
+	if c == nil {
+		return false
+	}
+	for _, name := range []string{"json", "flat"} {
+		if v, err := c.Flags().GetBool(name); err == nil && v {
 			return true
 		}
 	}
@@ -94,7 +111,7 @@ func newRootCommand() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringP("file", "f", defaultFile, "the todo list file to operate on")
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
-		return &cliError{exitUsage, e.Error()}
+		return &flagError{usageErr(e.Error())}
 	})
 	cmd.AddCommand(versionCmd(), listCmd(), statusCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd(), moveCmd(), importCmd(), sprintCmd(), assignCmd(), unassignCmd(), settingsCmd(), showCmd(), nextCmd())
 	return cmd

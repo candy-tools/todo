@@ -135,6 +135,17 @@ func TestExecuteJSONTrueOnFlagError(t *testing.T) {
 	}
 }
 
+// --json taken as --set-title's value does not turn JSON errors on: the
+// error comes after flag parsing, so only the parsed flags count.
+func TestExecuteJSONAsFlagValueGivesPlainError(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	code, _, stderr := runExecute("edit", "--file", p, "--set-title", "--json")
+	want := "specify one of --number, --id or --title\n"
+	if code != exitUsage || stderr != want {
+		t.Errorf("code=%d stderr=%q, want %q", code, stderr, want)
+	}
+}
+
 func TestExecutePlainErrorWithoutJSON(t *testing.T) {
 	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
 	code, _, stderr := runExecute("show", "--file", p, "--id", "zzzzzzz")

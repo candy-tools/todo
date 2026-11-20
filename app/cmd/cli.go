@@ -37,6 +37,12 @@ type cliError struct {
 
 func (e *cliError) Error() string { return e.msg }
 
+// flagError marks an error from flag parsing (see the root command's
+// SetFlagErrorFunc). It wraps the usage cliError, so errorCode still sees it.
+type flagError struct{ error }
+
+func (e *flagError) Unwrap() error { return e.error }
+
 func usageErr(msg string) error { return &cliError{exitUsage, msg} }
 func notFound(msg string) error { return &cliError{exitNotFound, msg} }
 
