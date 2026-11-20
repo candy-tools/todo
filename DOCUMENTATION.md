@@ -142,7 +142,8 @@ Other rules, as before:
   compared ignoring case, so `app-001` and `APP-001` clash. Subtasks have no
   reference, so indenting a task under another task drops its reference (its
   number is not reused, and lifting the subtask back out does not restore it);
-  `todo move --json` reports it as `droppedRef`. Search matches the reference too.
+  `todo move --json` reports it as `droppedRef`. Search matches the
+  reference too.
 - **Reference prefix.** A task created without a reference gets one generated
   from a prefix, `<PREFIX>-<n>` with `n` counted per prefix and padded to three
   digits (`WORK-001`, `WORK-002`, ..., `WORK-999`, `WORK-1000`). The prefix is the
@@ -535,8 +536,8 @@ otherwise). Subcategories always stay ahead of tasks. The move rules match the
 TUI's: a task never goes to the top level and a category never under a task
 (exit code `5`); a task with subtasks cannot become a subtask, and one with a
 reference loses it (`move` prints `dropped reference <ref>`, or under `--json`
-reports it as `droppedRef`); a moved subtask
-becomes a task and takes its state from its old parent.
+reports it as `droppedRef`); a moved subtask becomes a task and takes its state
+from its old parent.
 `reopen` takes a done task back to `working` (a subtask to `open`); a task that
 is not done keeps its state and nothing is written (with `--cascade` its
 subtasks are reopened). `--cascade` on `done` / `reopen` applies the change to
