@@ -64,6 +64,24 @@ func TestNextJSON(t *testing.T) {
 	}
 }
 
+func TestNextJSONSprintPrefix(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] seed\n")
+	addSprint(t, path, "S1", "--prefix", "S13")
+	out, err := runCmd(t, "next", "--file", path, "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Sprints []map[string]any `json:"sprints"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("bad JSON: %v\n%s", err, out)
+	}
+	if len(got.Sprints) != 1 || got.Sprints[0]["prefix"] != "S13" {
+		t.Errorf("next --json sprint lacks prefix S13:\n%s", out)
+	}
+}
+
 func TestNextAllOpenSprints(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] seed\n")
 	s1 := addSprint(t, path, "S1")

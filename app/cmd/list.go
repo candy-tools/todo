@@ -188,25 +188,11 @@ func writeListTable(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool
 	return nil
 }
 
-// jsonItem is the nested shape emitted by `list --json`. The commands that
-// print single items as JSON use record instead.
+// jsonItem is one node of the tree `list --json` emits: a record plus its
+// children.
 type jsonItem struct {
-	Number      int        `json:"number"`
-	ID          string     `json:"id"`
-	Kind        string     `json:"kind"`
-	Ref         string     `json:"ref,omitempty"`
-	Prefix      string     `json:"prefix,omitempty"` // a category's reference prefix
-	Title       string     `json:"title"`
-	Status      string     `json:"status,omitempty"`
-	Column      string     `json:"column,omitempty"`
-	Sprint      string     `json:"sprint,omitempty"` // the sprint's id; a subtask shows its parent's
-	Level       int        `json:"level,omitempty"`
-	Path        []string   `json:"path"`
-	Description string     `json:"description,omitempty"`
-	Plan        string     `json:"plan,omitempty"`
-	DoneCount   int        `json:"doneCount"`
-	TotalCount  int        `json:"totalCount"`
-	Children    []jsonItem `json:"children"`
+	record
+	Children []jsonItem `json:"children"`
 }
 
 // pathOf returns the titles of an item's ancestors, root-first (excluding the
@@ -221,31 +207,13 @@ func pathOf(it *todo.Item) []string {
 
 // toJSONItem builds the JSON node for it. nums supplies numbers; visible (nil =>
 // all) prunes to filtered items.
-func toJSONItem(it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]bool) jsonItem {
-	ji := jsonItem{
-		Number: nums[it], ID: it.ID, Title: it.Title, Path: pathOf(it),
-		Children: []jsonItem{},
-	}
-	done, total := it.TaskCounts()
-	ji.DoneCount, ji.TotalCount = done, total
-	if it.IsTask() {
-		ji.Kind = "task"
-		ji.Status = it.Status.String()
-		ji.Column = it.Column().String() // a subtask sits in its parent's column
-		ji.Description = it.Description
-		ji.Plan = it.Plan
-		ji.Sprint = it.SprintID()
-		ji.Ref = it.Ref
-	} else {
-		ji.Kind = "category"
-		ji.Level = it.Level
-		ji.Prefix = it.Prefix
-	}
+func toJSONItem(doc *todo.Document, it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]bool) jsonItem {
+	ji := jsonItem{record: toRecord(doc, it, nums), Children: []jsonItem{}}
 	for _, c := range it.Children {
 		if visible != nil && !visible[c] {
 			continue
 		}
-		ji.Children = append(ji.Children, toJSONItem(c, nums, visible))
+		ji.Children = append(ji.Children, toJSONItem(doc, c, nums, visible))
 	}
 	return ji
 }
@@ -257,7 +225,7 @@ func writeListJSON(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool)
 		if visible != nil && !visible[r] {
 			continue
 		}
-		roots = append(roots, toJSONItem(r, nums, visible))
+		roots = append(roots, toJSONItem(doc, r, nums, visible))
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")

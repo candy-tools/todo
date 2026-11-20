@@ -79,6 +79,44 @@ func TestListJSON(t *testing.T) {
 	}
 }
 
+// findNode returns the decoded `list --json` node titled title, or nil.
+func findNode(nodes []any, title string) map[string]any {
+	for _, n := range nodes {
+		m, _ := n.(map[string]any)
+		if m["title"] == title {
+			return m
+		}
+		kids, _ := m["children"].([]any)
+		if found := findNode(kids, title); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// Every node of `list --json` is a record: it carries sprintName and the parent.
+func TestListJSONNodesAreRecords(t *testing.T) {
+	path := todotest.Seed(t, "# Work\n\n- [ ] seed\n  - [ ] sub\n")
+	id := addSprint(t, path, "S1")
+	sprintTask(t, path, "planned", id, todo.Ready)
+	out, err := runCmd(t, "list", "--file", path, "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roots []any
+	if err := json.Unmarshal([]byte(out), &roots); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if planned := findNode(roots, "planned"); planned == nil || planned["sprintName"] != "S1" {
+		t.Errorf("sprint task node lacks sprintName S1: %v", planned)
+	}
+	seed := findNode(roots, "seed")
+	sub := findNode(roots, "sub")
+	if seed == nil || sub == nil || sub["parentId"] != seed["id"] || sub["parentTitle"] != "seed" {
+		t.Errorf("child node lacks its parent: seed=%v sub=%v", seed, sub)
+	}
+}
+
 func TestListFilter(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] alpha\n- [ ] beta\n")
 	out, err := runCmd(t, "list", "--file", path, "--filter", "alpha")

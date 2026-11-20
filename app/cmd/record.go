@@ -8,7 +8,8 @@ import (
 )
 
 // record is the one JSON shape for a single item, shared by every command that
-// prints items as JSON for agents (show, list --flat, next, mutations).
+// prints items as JSON (show, list --flat, every list --json node, next,
+// mutations).
 type record struct {
 	Number      int      `json:"number"`
 	ID          string   `json:"id"`

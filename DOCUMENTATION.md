@@ -385,8 +385,9 @@ todo list --flat [--kind task] [--status working,review] [--sprint "…"] [--col
 ```
 
 `todo next [--sprint <id|name>] [--json]` prints
-`{"sprints":[{id, name, goal, status, counts, inProgress, next}]}`: for each open
-sprint (or the one named, open or closed) its `status` (`open` or `done`; the
+`{"sprints":[{id, name, goal, prefix, status, counts, inProgress, next}]}`: for
+each open sprint (or the one named, open or closed) its reference `prefix` (left
+out when it has none), its `status` (`open` or `done`; the
 text header adds `(closed)` for a done sprint), its `counts` (`next`,
 `progress`, `done`), the tasks `inProgress`, and the tasks `next` (`ready`
 before `new`), each a record. `inProgress` and `next` hold top-level tasks only;
@@ -397,8 +398,9 @@ also returns the categories on the path to each match. `--kind task|category`
 and `--status <states, comma-separated>` need `--flat` (a usage error without
 it); `--status` takes state names (`progress` is accepted for `working`).
 
-**The record.** Every item printed as JSON here has this shape (camelCase;
-fields marked optional are left out when empty):
+**The record.** Every item printed as JSON here has this shape, and so does
+every node of `todo list --json`, which adds its `children` (camelCase; fields
+marked optional are left out when empty):
 
 - `number`: the `#` of `todo list`; `id`: the 7-character id; `kind`: `task` or `category`.
 - `ref` (optional, tasks): the reference, e.g. `APP-001`; `title` never includes it.
@@ -441,7 +443,7 @@ Read the list — with numbers, ids, and JSON for the read-then-act loop:
 
 ```sh
 todo list                 # aligned table: # · id · state · item
-todo list --json          # the nested view: a tree with number/id/ref/title/status/column/plan/path
+todo list --json          # the nested view: a tree of records, each with children
 todo list --filter build  # only matching items and their path
 todo list --column next   # only tasks in one column: backlog|next|progress|done
 todo list --sprint "Sprint 13"  # only that sprint's tasks (by id or name)
@@ -450,7 +452,8 @@ todo sprint list [--all] [--json]  # open sprints with their task counts
 ```
 
 The `state` column of `todo list` shows the task's state name (`open`, `ready`,
-`working`, …), and `--` for a category. In JSON, `status` is the state name,
+`working`, …), and `--` for a category. `todo list --json` is a tree of records
+(see **The record** above), each with its `children`. In JSON, `status` is the state name,
 `column` is the task's column (`backlog`, `next`, `progress` or `done`; a
 subtask reports its parent's column), `plan` is the plan link and `ref` the
 task's reference (left out when it has none; `title` never includes it).

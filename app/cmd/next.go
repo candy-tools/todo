@@ -8,15 +8,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// nextSprint is one sprint's work queue: what is in progress and what is next.
+// nextSprint is one sprint's work queue: the sprint plus what is in progress
+// and what is next.
 type nextSprint struct {
-	ID         string         `json:"id"`
-	Name       string         `json:"name"`
-	Goal       string         `json:"goal"`
-	Status     string         `json:"status"` // open | done
-	Counts     map[string]int `json:"counts"`
-	InProgress []record       `json:"inProgress"`
-	Next       []record       `json:"next"`
+	jsonSprint
+	InProgress []record `json:"inProgress"`
+	Next       []record `json:"next"`
 }
 
 // nextReport is the output of `todo next`.
@@ -31,11 +28,7 @@ func buildNext(doc *todo.Document, sprints []*todo.Sprint) nextReport {
 	nums := numberMap(doc)
 	rep := nextReport{Sprints: []nextSprint{}}
 	for _, sp := range sprints {
-		ns := nextSprint{
-			ID: sp.ID, Name: sp.Name, Goal: sp.Goal, Status: sp.Status.String(),
-			Counts:     sprintCounts(doc, sp.ID),
-			InProgress: []record{}, Next: []record{},
-		}
+		ns := nextSprint{jsonSprint: sprintOf(doc, sp), InProgress: []record{}, Next: []record{}}
 		var ready, fresh []record
 		for _, it := range doc.SprintTasks(sp.ID) {
 			switch it.Status.Column() {
