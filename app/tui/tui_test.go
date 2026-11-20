@@ -392,7 +392,7 @@ func TestDeleteDefaultsToCancel(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	m = press(m, "down") // task a
 	m = press(m, "d")
-	if m.confirmOnDelete {
+	if m.confirmOnYes {
 		t.Errorf("focus should default to Cancel")
 	}
 	if !strings.Contains(m.View(), "Confirm delete") {
@@ -440,7 +440,7 @@ func TestDeleteNoOpWhenEmpty(t *testing.T) {
 }
 
 func TestClearDoneConfirmed(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [x] a\n- [ ] b\n- [x] c\n")
+	m, path := newTestModelOn(t, "# Work\n\n- [x] a\n- [ ] b\n- [x] c\n", todo.ColDone)
 	m = press(m, "D")
 	if m.mode != modeConfirm {
 		t.Fatal("D should open the confirm dialog")
@@ -466,9 +466,9 @@ func TestClearDoneConfirmed(t *testing.T) {
 }
 
 func TestClearDoneDefaultsToCancel(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [x] a\n- [x] c\n- [ ] b\n")
+	m, _ := newTestModelOn(t, "# Work\n\n- [x] a\n- [x] c\n- [ ] b\n", todo.ColDone)
 	m = press(m, "D")
-	if m.confirmOnDelete {
+	if m.confirmOnYes {
 		t.Errorf("focus should default to Cancel")
 	}
 	if out := m.View(); !strings.Contains(out, "Remove 2 completed task") {
@@ -484,7 +484,7 @@ func TestClearDoneDefaultsToCancel(t *testing.T) {
 }
 
 func TestClearDoneCancelledByEsc(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [x] a\n- [ ] b\n")
+	m, _ := newTestModelOn(t, "# Work\n\n- [x] a\n- [ ] b\n", todo.ColDone)
 	m = press(m, "D", "esc")
 	if m.mode != modeMain {
 		t.Errorf("esc should close the dialog")
@@ -495,13 +495,13 @@ func TestClearDoneCancelledByEsc(t *testing.T) {
 }
 
 func TestClearDoneNoOpWhenNothingDone(t *testing.T) {
-	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] a\n- [ ] b\n", todo.ColDone)
 	m = press(m, "D")
 	if m.mode == modeConfirm {
 		t.Errorf("D with no completed tasks should not open a confirm")
 	}
-	if m.status == "" {
-		t.Errorf("expected a status message explaining there is nothing to remove")
+	if m.status != "No completed tasks to remove." {
+		t.Errorf("status = %q, want a message explaining there is nothing to remove", m.status)
 	}
 }
 
@@ -521,7 +521,7 @@ func TestDeleteAfterCancelledClear(t *testing.T) {
 }
 
 func TestHelpShowsClearDoneKey(t *testing.T) {
-	if got := ansi.Strip(helpModal(200, 60, 0)); !strings.Contains(got, "Remove every completed task") {
+	if got := ansi.Strip(helpModal(200, 60, 0)); !strings.Contains(got, "Remove the sprint's completed tasks") {
 		t.Errorf("help dialog should list the clear-done shortcut:\n%s", got)
 	}
 }
@@ -536,7 +536,7 @@ func TestHeaderShowsVersion(t *testing.T) {
 func TestViewSmoke(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] alpha\n")
 	out := m.View()
-	for _, want := range []string{"todo", "Tasks", "Work", "alpha"} {
+	for _, want := range []string{"todo", "╭─ Backlog", "Work", "alpha"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("main view missing %q", want)
 		}

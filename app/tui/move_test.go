@@ -209,7 +209,7 @@ func TestGrabMoveStepsOverHiddenTasks(t *testing.T) {
 }
 
 func TestIndentUnderHiddenTaskRefused(t *testing.T) {
-	m, path := newTestModelOn(t, "# C\n- [ ] h\n- [/] w\n", todo.ColInProgress)
+	m, path := newTestModelOn(t, "# C\n- [x] h\n- [/] w\n", todo.ColInProgress)
 	m = selectTitle(t, m, "w")
 	before := storeFP(t, m)
 	m = press(m, "m", "right")
@@ -358,7 +358,7 @@ func TestGrabIgnoresModeKeys(t *testing.T) {
 	if !m.sideFocus || !m.side.grabbed {
 		t.Fatalf("precondition: m should grab Home in the sidebar: sideFocus %v, grabbed %v", m.sideFocus, m.side.grabbed)
 	}
-	m = press(m, "/", "?", "t", "e", "x")
+	m = press(m, "/", "?", "t", "e", "tab")
 	if !m.side.grabbed {
 		t.Error("keys outside the move set must leave the item grabbed")
 	}
@@ -366,6 +366,36 @@ func TestGrabIgnoresModeKeys(t *testing.T) {
 		t.Errorf("keys must not open a mode while grabbed: mode %v, want modeMain", m.mode)
 	}
 	if !m.sideFocus {
-		t.Error("x must not switch panes while grabbed")
+		t.Error("tab must not switch panes while grabbed")
+	}
+}
+
+// A step-in under a task of another sprint, or of the backlog, is refused
+// whether or not the tab shows that task, and the footer says why.
+func TestIndentAcrossSprintsRefused(t *testing.T) {
+	m, path := newTestModelOn(t, "# C\n- [ ] h\n- [/] w\n", todo.ColInProgress)
+	m = selectTitle(t, m, "w")
+	before := storeFP(t, m)
+	m = press(m, "m", "right")
+	if m.status != todo.ErrSprintMembership.Error() {
+		t.Errorf("status = %q, want %q", m.status, todo.ErrSprintMembership.Error())
+	}
+	if storeFP(t, m) != before || storedItem(t, path, "w").IsSubtask() {
+		t.Error("a refused indent wrote to the store")
+	}
+}
+
+// In a closed sprint tasks can be reordered but not nested or lifted.
+func TestNestInClosedSprintShowsHint(t *testing.T) {
+	m, path := closedBoard(t)
+	before := storeFP(t, m)
+	m = press(m, "right") // unfold shipped
+	m = selectTitle(t, m, "part")
+	m = press(m, "m", "left")
+	if m.status != todo.ErrSprintClosed.Error() || m.err != nil {
+		t.Errorf("status %q err %v, want the reopen hint", m.status, m.err)
+	}
+	if storeFP(t, m) != before || !storedItem(t, path, "part").IsSubtask() {
+		t.Error("a refused lift wrote to the store")
 	}
 }

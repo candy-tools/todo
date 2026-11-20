@@ -12,7 +12,7 @@ func TestValidate(t *testing.T) {
 	const a, b, c, d = "aaaaaaa", "bbbbbbb", "ccccccc", "ddddddd"
 	good := func() todo.DiskList {
 		return todo.DiskList{
-			Version:    5,
+			Version:    6,
 			Categories: []todo.DiskCategory{{ID: a, Title: "A"}},
 			Tasks: []todo.DiskTask{{ID: b, Category: a, Title: "T", Status: "open",
 				Subtasks: []todo.DiskSubtask{{ID: c, Title: "S"}}}},
@@ -58,6 +58,42 @@ func TestValidate(t *testing.T) {
 		{"task untrimmed title", func(l *todo.DiskList) { l.Tasks[0].Title = " T" }, "invalid list file: task " + b + ": title has leading or trailing whitespace"},
 		{"category untrimmed title", func(l *todo.DiskList) { l.Categories[0].Title = "A " }, "invalid list file: category " + a + ": title has leading or trailing whitespace"},
 		{"subtask untrimmed title", func(l *todo.DiskList) { l.Tasks[0].Subtasks[0].Title = "S " }, "invalid list file: subtask " + c + ": title has leading or trailing whitespace"},
+		{"unknown view screen", func(l *todo.DiskList) { l.View = &todo.DiskView{Screen: "x"} },
+			`invalid list file: view: unknown screen "x"`},
+		{"valid sprint", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
+			l.Tasks[0].Sprint, l.Tasks[0].Status, l.Tasks[0].Subtasks[0].Done = d, "done", true
+		}, ""},
+		{"sprint state without a sprint", func(l *todo.DiskList) { l.Tasks[0].Status = "working" },
+			"invalid list file: task " + b + `: status "working" needs a sprint`},
+		{"backlog state in a sprint", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "open"}}
+			l.Tasks[0].Sprint, l.Tasks[0].Status = d, "deferred"
+		}, "invalid list file: task " + b + `: backlog status "deferred" in sprint ` + d},
+		{"done sprint holding a task not done", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
+			l.Tasks[0].Sprint, l.Tasks[0].Status = d, "review"
+		}, "invalid list file: sprint " + d + " is done but task " + b + " is not"},
+		{"done sprint holding an open subtask", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
+			l.Tasks[0].Sprint, l.Tasks[0].Status = d, "done"
+		}, "invalid list file: sprint " + d + " is done but subtask " + c + " of task " + b + " is not"},
+		{"malformed sprint id", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: "BAD", Name: "S1", Status: "open"}} },
+			`invalid list file: sprint "S1": malformed id "BAD": an id is 7 characters from 0-9 and a-z except i, l, o and u`},
+		{"duplicate sprint id", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "open"}, {ID: d, Name: "S2", Status: "open"}}
+		}, "invalid list file: duplicate sprint id " + d},
+		{"empty sprint name", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: d, Status: "open"}} },
+			"invalid list file: sprint " + d + ": invalid title: it must not be empty"},
+		{"untrimmed sprint name", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: d, Name: " S1", Status: "open"}} },
+			"invalid list file: sprint " + d + ": name has leading or trailing whitespace"},
+		{"sprint names equal ignoring case", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "Sprint", Status: "open"}, {ID: "eeeeeee", Name: "sPRINT", Status: "open"}}
+		}, "invalid list file: sprint eeeeeee: name \"sPRINT\" is already used by sprint " + d},
+		{"unknown sprint status", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "bogus"}} },
+			"invalid list file: sprint " + d + ": unknown status \"bogus\""},
+		{"task in a missing sprint", func(l *todo.DiskList) { l.Tasks[0].Sprint = d },
+			"invalid list file: task " + b + ": sprint \"" + d + "\" does not exist"},
 		{"task with a reference", func(l *todo.DiskList) { l.Tasks[0].Ref = "APP-001" }, ""},
 		{"untrimmed reference", func(l *todo.DiskList) { l.Tasks[0].Ref = "APP-001 " }, "invalid list file: task " + b + ": reference has leading or trailing whitespace"},
 		{"reference with a newline", func(l *todo.DiskList) { l.Tasks[0].Ref = "A\nB" },

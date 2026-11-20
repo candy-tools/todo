@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
@@ -39,24 +41,24 @@ func TestOpensOnStoredView(t *testing.T) {
 	}
 }
 
-// Without a view section the TUI opens on the board, without the split.
+// Without a view section the TUI opens on the Backlog, without the split.
 func TestOpensOnDefaultView(t *testing.T) {
 	m, _ := newJSONModel(t, viewSaveList(""))
-	if m.view.all || m.split {
-		t.Errorf("opened with unified=%v split=%v, want both off", m.view.all, m.split)
+	if m.view.all || m.split || m.view.screen != screenBacklog {
+		t.Errorf("opened with unified=%v split=%v screen=%v, want the Backlog", m.view.all, m.split, m.view.screen)
 	}
 }
 
-// k stores the unified view in the list file, and k again the board.
+// a stores the unified view in the list file, and a again the screen under it.
 func TestUnifiedToggleIsStored(t *testing.T) {
 	m, path := newJSONModel(t, viewSaveList(""))
-	m = press(m, "k")
+	m = press(m, "u")
 	if got := storedView(t, path); !got.Unified {
-		t.Errorf("after k the file holds %+v, want unified", got)
+		t.Errorf("after a the file holds %+v, want unified", got)
 	}
-	press(m, "k")
+	press(m, "u")
 	if got := storedView(t, path); got.Unified {
-		t.Errorf("after k again the file holds %+v, want the board", got)
+		t.Errorf("after a again the file holds %+v, want the Backlog", got)
 	}
 }
 
@@ -77,9 +79,35 @@ func TestSplitToggleIsStored(t *testing.T) {
 // for an external change.
 func TestViewSaveIsNotExternal(t *testing.T) {
 	m, _ := newJSONModel(t, viewSaveList(""))
-	m = press(m, "k")
+	m = press(m, "u")
 	m = pollCmdOnce(m)
 	if m.status != "" || m.err != nil {
 		t.Errorf("after storing the view: status=%q err=%v, want neither", m.status, m.err)
+	}
+}
+
+// A quit-time save that fails is kept on the final model, so Run can say the
+// view was not stored.
+func TestQuitKeepsTheViewSaveError(t *testing.T) {
+	m, path := twoSprints(t)
+	m = press(m, "s", "down") // browsing to another sprint is not stored until quit
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "q", "enter")
+	if m.quitErr == nil {
+		t.Fatalf("quit with the file removed: quitErr nil, err %v", m.err)
+	}
+	if got := quitWarning(m); !strings.HasPrefix(got, "todo: the view was not saved: ") {
+		t.Errorf("warning = %q", got)
+	}
+}
+
+// A quit that stores the view without trouble has nothing to say.
+func TestQuitWithoutSaveErrorIsSilent(t *testing.T) {
+	m, _ := twoSprints(t)
+	m = press(m, "s", "down", "q", "enter")
+	if m.quitErr != nil || quitWarning(m) != "" {
+		t.Errorf("quitErr %v warning %q, want none", m.quitErr, quitWarning(m))
 	}
 }

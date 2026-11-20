@@ -114,3 +114,27 @@ func TestCloneKeepsView(t *testing.T) {
 		t.Errorf("clone View = %+v, want %+v", got, d.View)
 	}
 }
+
+// A view that names a sprint the list no longer has still loads: the TUI
+// falls back to the list.
+func TestViewMissingSprintAccepted(t *testing.T) {
+	path := todotest.SeedJSON(t, `{"version": 6, "view": {"screen": "sprint", "sprint": "zzzzzzz"}, "sprints": [],
+		"categories": [], "tasks": []}`)
+	got := loadList(t, path).View
+	if want := (todo.View{Screen: todo.ScreenSprint, Sprint: "zzzzzzz"}); got != want {
+		t.Errorf("View = %+v, want %+v", got, want)
+	}
+}
+
+// An unknown field in a sprint is refused, naming the sprint.
+func TestUnknownFieldInSprint(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	content := `{"version": 6, "sprints": [{"id": "sssssss", "name": "S", "status": "open", "x": 1}], "categories": [], "tasks": []}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := todo.NewStore(path).Load(context.Background())
+	if err == nil || !strings.Contains(err.Error(), `sprint sssssss: unknown field "x"`) {
+		t.Errorf("err = %v, want the unknown sprint field named", err)
+	}
+}

@@ -21,39 +21,66 @@ type helpSection struct {
 // in DOCUMENTATION.md.
 var helpSections = []helpSection{
 	{"Navigate", []helpBinding{
-		{"↑ ↓  w s", "Move the selection"},
+		{"↑ ↓", "Move the selection"},
 		{"PgUp PgDn", "Move by a page"},
 		{"← →", "Collapse / expand"},
 		{"space", "Fold / unfold a category"},
 		{"z", "Fold / unfold every category at this level"},
-		{"tab  shift+tab", "Next / previous tab"},
-		{"1–4", "Jump to Backlog / Next / In Progress / Done"},
 		{"/", "Search / filter (esc clears)"},
 		{"f", "Filter the tab by state (esc clears)"},
 	}},
+	{"Screens", []helpBinding{
+		{"b", "The Backlog"},
+		{"s", "The Sprints workspace (sprint list + board)"},
+		{"p", "Planning: Backlog beside a sprint"},
+		{"k", "Last viewed open sprint; on a board, the next open one"},
+		{"K", "Pick a sprint to go to"},
+		{"[  ]", "Previous / next column (sprint board)"},
+		{"1–3", "Jump to Next / In Progress / Done (sprint board)"},
+		{"L", "Board as tabs / three columns"},
+		{"u", "Unified view: every task, any sprint / back"},
+	}},
 	{"Tasks", []helpBinding{
-		{"p P", "Move the task to the next / previous column"},
+		{"a A", "Move the task to the next / previous column"},
+		{"a", "On a backlog task: assign it to a sprint"},
+		{"A", "On a Next task: send it back to the Backlog"},
+		{"o", "Send the task to another sprint or the Backlog"},
 		{"t", "Set the task's state (also completes / reopens)"},
 		{"m", "Grab to reorder (arrows move, m/enter/esc drop)"},
 		{"y", "Copy the item to the clipboard"},
 	}},
 	{"Edit", []helpBinding{
 		{"enter  e", "Open / edit the selected item"},
-		{"n", "New task as a sibling"},
+		{"n", "New task as a sibling (on a board, in its sprint)"},
 		{"N", "New task as a child (subtask)"},
-		{"c", "Add a category (Backlog only)"},
+		{"c", "Add a category (Backlog and unified view)"},
 		{"d", "Delete the selected item"},
-		{"D", "Remove every completed task"},
+		{"D", "Remove the sprint's completed tasks (sprint board)"},
+	}},
+	{"Sprints sidebar", []helpBinding{
+		{"n", "New sprint"},
+		{"e", "Edit the sprint's name and goal"},
+		{"c", "Close / reopen the sprint"},
+		{"d", "Delete the sprint"},
+		{"enter  tab", "Focus the board (tab on the board: back to the list)"},
+		{"→  ←  enter", "On the Closed row: unfold / fold the closed sprints"},
+	}},
+	{"Planning", []helpBinding{
+		{"p", "Open Planning / leave it for the sprint's board (also esc)"},
+		{"→ a", "Pull the Backlog task into the sprint (as new)"},
+		{"← A", "Send a Next task back to the Backlog"},
+		{"r", "Toggle a sprint task between new and ready"},
+		{"k K", "Plan the next open sprint / pick a sprint"},
+		{"tab", "Switch between the Backlog and the sprint side"},
 	}},
 	{"Views", []helpBinding{
-		{"k", "All states in one list / back to the board"},
-		{"v", "Split: categories sidebar + task list"},
-		{"x", "Switch pane (split view)"},
+		{"v", "Split: categories sidebar + task list (opens on the selection)"},
+		{"tab", "Switch pane (split view)"},
 	}},
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},
-		{"q", "Quit"},
-		{"esc", "Clear search / state filter, or quit"},
+		{"q", "Quit (asks first: enter yes, esc no)"},
+		{"esc", "Clear search / state filter; else focus the sidebar; else ask to quit"},
 	}},
 }
 
@@ -146,9 +173,9 @@ func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "?", "esc", "q", "enter":
 		m.mode = modeMain
-	case "up", "w":
+	case "up":
 		m.helpOffset--
-	case "down", "s":
+	case "down":
 		m.helpOffset++
 	case "pgup":
 		m.helpOffset -= 10

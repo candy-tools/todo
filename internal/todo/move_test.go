@@ -482,7 +482,7 @@ func TestIndentTaskWithChildrenRefused(t *testing.T) {
 }
 
 func TestIndentNormalizesStatus(t *testing.T) {
-	d := todotest.Parse(t, "# C\n- [ ] P\n- [ ] T\n- [x] D\n")
+	d := todotest.Parse(t, "# C\n- [/] P\n- [/] T\n- [x] D\n")
 	tk, dn := find(d, "T"), find(d, "D")
 	tk.Status = todo.Review
 	if !step(t, d, tk, todo.StepIn) {
@@ -500,7 +500,7 @@ func TestIndentNormalizesStatus(t *testing.T) {
 }
 
 func TestOutdentTakesParentState(t *testing.T) {
-	d := todotest.Parse(t, "# C\n- [ ] P\n  - [ ] a\n- [x] Q\n  - [ ] b\n")
+	d := todotest.Parse(t, "# C\n- [/] P\n  - [ ] a\n- [x] Q\n  - [ ] b\n")
 	find(d, "P").Status = todo.Ready
 	a, b := find(d, "a"), find(d, "b")
 	if !step(t, d, a, todo.StepOut) {

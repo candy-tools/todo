@@ -78,7 +78,7 @@ func writeList(t *testing.T, path string, data []byte) {
 // standing in for a file a newer todo wrote.
 func withVersion(t *testing.T, data []byte, v int) []byte {
 	t.Helper()
-	out := bytes.Replace(data, []byte(`"version": 5`), fmt.Appendf(nil, `"version": %d`, v), 1)
+	out := bytes.Replace(data, []byte(`"version": 6`), fmt.Appendf(nil, `"version": %d`, v), 1)
 	if bytes.Equal(out, data) {
 		t.Fatalf("no version in the list file:\n%s", data)
 	}
@@ -294,7 +294,7 @@ func TestRemovedFileKeepsView(t *testing.T) {
 
 	// A save needs the file the model read: it fails as removed, and the view
 	// keeps the list rather than show the empty one a missing file reads as.
-	m = pickState(t, selectTitle(t, m, "a"), todo.Done)
+	m = pickState(t, selectTitle(t, m, "a"), todo.Deferred)
 	if !errors.Is(m.err, errListRemoved) {
 		t.Errorf("m.err = %v, want the save to fail as removed", m.err)
 	}
@@ -370,7 +370,7 @@ func TestFirstWriteCreatesMissingList(t *testing.T) {
 // nothing. It must not adopt that empty list or clear the removed-file error:
 // it fails as removed, and the view keeps the list.
 func TestNoOpWriteWhileFileRemovedKeepsView(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [x] a\n- [ ] b\n")
+	m, path := newTestModelOn(t, "# Work\n\n- [x] a\n- [ ] b\n", todo.ColDone)
 	rows, fp := rowTitles(m.tree), m.lastFP
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
@@ -400,13 +400,13 @@ func TestNoOpWriteWhileFileRemovedKeepsView(t *testing.T) {
 	}
 }
 
-// TestSaveFailsOnInvalidFile breaks the file and completes a task: the write
+// TestSaveFailsOnInvalidFile breaks the file and defers a task: the write
 // is refused, the file is left alone, and the view shows the last good list.
 func TestSaveFailsOnInvalidFile(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	writeList(t, path, []byte(halfWritten))
 
-	m = pickState(t, selectTitle(t, m, "a"), todo.Done)
+	m = pickState(t, selectTitle(t, m, "a"), todo.Deferred)
 	got := m.footer(200)
 	if !strings.Contains(got, "save failed:") || !strings.Contains(got, todo.ErrInvalidList.Error()) {
 		t.Errorf("footer = %q, want the refused save naming the invalid list file", got)
@@ -419,7 +419,7 @@ func TestSaveFailsOnInvalidFile(t *testing.T) {
 	}
 }
 
-// TestSaveBusy completes a task while another process holds the write lock:
+// TestSaveBusy defers a task while another process holds the write lock:
 // the save fails fast with the busy message, instead of freezing the UI for
 // the CLI's busy timeout, and the task stays as it was.
 func TestSaveBusy(t *testing.T) {
@@ -428,7 +428,7 @@ func TestSaveBusy(t *testing.T) {
 	todotest.HoldWriteLock(t, path)
 
 	start := time.Now()
-	m = pickState(t, m, todo.Done)
+	m = pickState(t, m, todo.Deferred)
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Errorf("the save blocked the UI for %v", elapsed)
 	}
@@ -459,7 +459,7 @@ func failPolls(t *testing.T, m model, path string, good []byte, v, n int) model 
 func TestReloadFailureShownAndCleared(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
-	m = failPolls(t, m, path, good, 6, 3)
+	m = failPolls(t, m, path, good, 7, 3)
 	if !errors.Is(m.err, todo.ErrNewerFormat) {
 		t.Fatalf("m.err = %v, want the failed reload (ErrNewerFormat)", m.err)
 	}
@@ -481,7 +481,7 @@ func TestReloadFailureShownAndCleared(t *testing.T) {
 func TestReloadFailureShownOnce(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
-	m = failPolls(t, m, path, good, 6, 3)
+	m = failPolls(t, m, path, good, 7, 3)
 	if !errors.Is(m.err, todo.ErrNewerFormat) {
 		t.Fatalf("m.err = %v, want the failed reload", m.err)
 	}
@@ -504,10 +504,10 @@ func TestReloadFailureShownOnce(t *testing.T) {
 func TestReloadFailureDistinctShown(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
-	m = failPolls(t, m, path, good, 6, 3)
+	m = failPolls(t, m, path, good, 7, 3)
 	m.err = errors.New("save failed: boom")
-	m = failPolls(t, m, path, good, 7, 1)
-	if got := m.footer(200); !strings.Contains(got, "format version 7") {
+	m = failPolls(t, m, path, good, 8, 1)
+	if got := m.footer(200); !strings.Contains(got, "format version 8") {
 		t.Errorf("a distinct reload failure must be shown, got %q", got)
 	}
 }
@@ -1013,9 +1013,9 @@ func TestFailedUndoKeepsSnapshot(t *testing.T) {
 // change made since the last poll reports both how many tasks it removed and
 // that the list changed externally.
 func TestClearDoneKeepsExternalNotice(t *testing.T) {
-	m, path := newTestModel(t, "# Work\n\n- [x] a\n- [ ] b\n")
+	m, path := newTestModelOn(t, "# Work\n\n- [x] a\n- [ ] b\n", todo.ColDone)
 	b := find(m.doc, "b").ID
-	if _, err := openSecond(t, path).SetState(context.Background(), b, todo.Review, todo.StateOptions{}); err != nil {
+	if _, err := openSecond(t, path).SetState(context.Background(), b, todo.Deferred, todo.StateOptions{}); err != nil {
 		t.Fatalf("other writer: %v", err)
 	}
 	m = press(m, "D", "y")
@@ -1274,7 +1274,7 @@ func statusIn(t *testing.T, path, title string) todo.Status {
 // external change, and the writes that follow go to the file at the path.
 func TestReplacedFileIsReloaded(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(selectTitle(t, m, "a"), "p")
+	m = press(selectTitle(t, m, "a"), "a")
 	if err := os.Rename(todotest.Seed(t, "# Other\n\n- [ ] b\n"), path); err != nil {
 		t.Fatal(err)
 	}
@@ -1290,7 +1290,7 @@ func TestReplacedFileIsReloaded(t *testing.T) {
 		t.Errorf("status = %q, want the external-change notice", m.status)
 	}
 
-	m = press(selectTitle(t, m, "b"), "p")
+	m = pickState(t, selectTitle(t, m, "b"), todo.Deferred)
 	if m.err != nil {
 		t.Fatalf("a write after the replacement failed: %v", m.err)
 	}
@@ -1341,7 +1341,7 @@ func TestSavedWriteResetsPollFails(t *testing.T) {
 	}
 	writeList(t, path, good)
 
-	m = press(selectTitle(t, m, "a"), "p")
+	m = pickState(t, selectTitle(t, m, "a"), todo.Deferred)
 	if m.err != nil {
 		t.Fatalf("the save failed: %v", m.err)
 	}

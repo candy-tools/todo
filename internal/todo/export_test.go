@@ -9,6 +9,8 @@ var ParseMarkdown = parseMarkdown
 type (
 	DiskList     = diskList
 	DiskCategory = diskCategory
+	DiskView     = diskView
+	DiskSprint   = diskSprint
 	DiskTask     = diskTask
 	DiskSubtask  = diskSubtask
 )

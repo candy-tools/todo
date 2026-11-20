@@ -187,7 +187,7 @@ func TestAutoImportWritesJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := bytesOf(t, ".todo.json")
-	if !contains(string(raw), `"version": 5`) || !contains(string(raw), `"title": "alpha"`) {
+	if !contains(string(raw), `"version": 6`) || !contains(string(raw), `"title": "alpha"`) {
 		t.Errorf(".todo.json is not the JSON list:\n%s", raw)
 	}
 	if _, err := os.Stat(".todo.db"); !os.IsNotExist(err) {
@@ -224,7 +224,7 @@ func TestInvalidFileExitsOne(t *testing.T) {
 
 // --id takes the 7-character ID shown by list --json.
 func TestIDSelectorString(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	path := todotest.Seed(t, "# Work\n\n- [ ] a\n- [/] b\n")
 	out, err := runCmd(t, "list", "--file", path, "--json")
 	if err != nil {
 		t.Fatal(err)

@@ -31,7 +31,7 @@ func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "todo [list-file]",
 		Short:         "A minimalistic terminal TODO manager",
-		Long:          "todo opens a JSON list file as a keyboard-driven task list of categories,\ntasks and subtasks, shown as a kanban board with Backlog, Next, In Progress and\nDone tabs. Each task has a state; set one from the command line with\n`todo status --to <state>`.\n\nWith no argument it uses .todo.json in the current directory. When that file\ndoes not exist yet and a TODO.md is present, TODO.md is imported on first run.\nUse `todo import <file.md>` to import a markdown file explicitly.",
+		Long:          "todo opens a JSON list file as a keyboard-driven task list of categories,\ntasks and subtasks, organized into a Backlog and sprints. A task joins a sprint with\n`todo assign` and has a state; set one from the command line with\n`todo status --to <state>`.\n\nWith no argument it uses .todo.json in the current directory. When that file\ndoes not exist yet and a TODO.md is present, TODO.md is imported on first run.\nUse `todo import <file.md>` to import a markdown file explicitly.",
 		Version:       metainfo.Version,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
@@ -56,6 +56,6 @@ func newRootCommand() *cobra.Command {
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
 		return &cliError{exitUsage, e.Error()}
 	})
-	cmd.AddCommand(versionCmd(), listCmd(), statusCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd(), moveCmd(), importCmd())
+	cmd.AddCommand(versionCmd(), listCmd(), statusCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd(), moveCmd(), importCmd(), sprintCmd(), assignCmd(), unassignCmd())
 	return cmd
 }

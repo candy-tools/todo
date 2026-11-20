@@ -7,6 +7,7 @@ import (
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // board has one task in Backlog, In Progress (with a subtask) and Done, an
@@ -14,14 +15,29 @@ import (
 const board = "# A\n## Empty\n# B\n- [ ] backlogTask\n- [/] working\n  - [ ] sub\n- [x] doneTask\n"
 
 // setStatusExternally sets the task titled title to st through a second store
-// handle and polls the change into m.
+// handle and polls the change into m. A backlog task set to a sprint state
+// first joins the Imported sprint (made when the list has none), so it shows
+// on the board toTab opens.
 func setStatusExternally(t *testing.T, m model, path, title string, st todo.Status) model {
 	t.Helper()
 	it := find(m.doc, title)
 	if it == nil {
 		t.Fatalf("no item %q", title)
 	}
-	if _, err := openSecond(t, path).SetState(context.Background(), it.ID, st, todo.StateOptions{}); err != nil {
+	ctx, st2 := context.Background(), openSecond(t, path)
+	if st.InSprint() && !it.IsSubtask() && it.Sprint == "" {
+		id := importedID(m)
+		if _, ok := m.doc.SprintByID(id); !ok {
+			var err error
+			if id, _, err = st2.AddSprint(ctx, todo.ImportedSprintName, ""); err != nil {
+				t.Fatalf("external add sprint: %v", err)
+			}
+		}
+		if _, err := st2.Assign(ctx, it.ID, id); err != nil {
+			t.Fatalf("external assign: %v", err)
+		}
+	}
+	if _, err := st2.SetState(ctx, it.ID, st, todo.StateOptions{}); err != nil {
 		t.Fatalf("external set status: %v", err)
 	}
 	return pollOnce(t, m)
@@ -70,8 +86,8 @@ func rowOf(t *testing.T, tr tree, title string) string {
 
 func TestStartsOnBacklog(t *testing.T) {
 	m, _ := newTestModel(t, board)
-	if m.view.column != todo.ColBacklog {
-		t.Fatalf("start column = %v, want backlog", m.view.column)
+	if m.view.screen != screenBacklog {
+		t.Fatalf("start screen = %v, want the Backlog", m.view.screen)
 	}
 	got := rowTitles(m.tree)
 	for _, want := range []string{"A", "Empty", "B", "backlogTask"} {
@@ -82,28 +98,6 @@ func TestStartsOnBacklog(t *testing.T) {
 	for _, hidden := range []string{"working", "sub", "doneTask"} {
 		if contains(got, hidden) {
 			t.Errorf("Backlog rows %v must not show %q", got, hidden)
-		}
-	}
-}
-
-func TestTabKeysSwitchColumns(t *testing.T) {
-	m, _ := newTestModel(t, board)
-	steps := []struct {
-		key  string
-		want todo.Column
-	}{
-		{"tab", todo.ColNext},
-		{"3", todo.ColInProgress},
-		{"shift+tab", todo.ColNext},
-		{"4", todo.ColDone},
-		{"tab", todo.ColBacklog},
-		{"shift+tab", todo.ColDone},
-		{"1", todo.ColBacklog},
-	}
-	for _, s := range steps {
-		m = press(m, s.key)
-		if m.view.column != s.want {
-			t.Fatalf("after %q column = %v, want %v", s.key, m.view.column, s.want)
 		}
 	}
 }
@@ -140,7 +134,7 @@ func TestEmptyTabAddHint(t *testing.T) {
 		if got.mode != modeMain {
 			t.Errorf("%q on an empty tab must not open the form, mode = %v", key, got.mode)
 		}
-		if want := "add tasks from a tab that shows their category (Backlog shows all)"; got.status != want {
+		if want := "add it in the Backlog (b, n), then assign it with a"; got.status != want {
 			t.Errorf("%q footer = %q, want %q", key, got.status, want)
 		}
 	}
@@ -166,7 +160,7 @@ func TestTabKeepsOwnSelectionAndFolds(t *testing.T) {
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"B"}) {
 		t.Fatalf("B should be folded on In Progress, rows = %v", got)
 	}
-	m = press(m, "1")
+	m = press(m, "b")
 	if !contains(rowTitles(m.tree), "backlogTask") {
 		t.Fatalf("B must stay expanded on Backlog, rows = %v", rowTitles(m.tree))
 	}
@@ -174,14 +168,17 @@ func TestTabKeepsOwnSelectionAndFolds(t *testing.T) {
 	if got := m.tree.selected().Title; got != "backlogTask" {
 		t.Fatalf("Backlog selection = %q, want backlogTask", got)
 	}
-	m = press(m, "3")
+	m = press(m, "k") // back to the board, on the tab it showed
+	if m.view.column != todo.ColInProgress {
+		t.Fatalf("the board should reopen on In Progress, got %v", m.view.column)
+	}
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"B"}) {
 		t.Errorf("back on In Progress B must still be folded, rows = %v", got)
 	}
 	if got := m.tree.selected().Title; got != "B" {
 		t.Errorf("In Progress selection = %q, want B", got)
 	}
-	m = press(m, "1")
+	m = press(m, "b")
 	if got := m.tree.selected().Title; got != "backlogTask" {
 		t.Errorf("back on Backlog selection = %q, want backlogTask", got)
 	}
@@ -189,14 +186,21 @@ func TestTabKeepsOwnSelectionAndFolds(t *testing.T) {
 
 func TestTabBarCounts(t *testing.T) {
 	m, _ := newTestModel(t, board)
-	out := m.View()
-	for _, want := range []string{"[Backlog 1]", "Next 0", "In Progress 1", "Done 1"} {
+	if h := m.header(100); !strings.Contains(h, "tasks waiting") || strings.Contains(h, "[In Progress") || strings.Contains(h, "[Next") {
+		t.Errorf("the Backlog has no tab bar: %q", h)
+	}
+	toTab(&m, todo.ColNext)
+	out := ansi.Strip(m.View())
+	for _, want := range []string{"[Next 0]   In Progress 1   Done 1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("tab bar misses %q:\n%s", want, out)
 		}
 	}
-	out = press(m, "3").View()
-	if !strings.Contains(out, "[In Progress 1]") || strings.Contains(out, "[Backlog 1]") {
+	if strings.Contains(m.header(100), "[b Backlog]") {
+		t.Errorf("a board's header must not mark the Backlog: %q", m.header(100))
+	}
+	out = press(m, "2").View()
+	if !strings.Contains(out, "[In Progress 1]") || strings.Contains(out, "[Next 0]") {
 		t.Errorf("the active tab must be bracketed:\n%s", out)
 	}
 }
@@ -204,15 +208,15 @@ func TestTabBarCounts(t *testing.T) {
 func TestNewTaskTakesTabFirstState(t *testing.T) {
 	m, path := newTestModel(t, board)
 	m = setStatusExternally(t, m, path, "backlogTask", todo.New)
-	m.setColumn(todo.ColNext)
+	toTab(&m, todo.ColNext)
 	if got := m.tree.selected().Title; got != "B" {
 		t.Fatalf("Next selection = %q, want B", got)
 	}
 	m = press(m, "n")
 	m = typeText(m, "idea")
 	m = press(m, "enter")
-	if st := storedItem(t, path, "idea").Status; st != todo.New {
-		t.Errorf("a task added on Next = %v, want new", st)
+	if it := storedItem(t, path, "idea"); it.Status != todo.New || it.Sprint != m.view.sprint {
+		t.Errorf("a task added on Next = %v in sprint %q, want new in %q", it.Status, it.Sprint, m.view.sprint)
 	}
 	if got := m.tree.selected().Title; got != "idea" {
 		t.Errorf("the new task should be selected, got %q", got)
@@ -225,8 +229,8 @@ func TestNewTaskOnTaskTakesTabFirstState(t *testing.T) {
 	m = press(m, "n")
 	m = typeText(m, "sibling")
 	m = press(m, "enter")
-	if st := storedItem(t, path, "sibling").Status; st != todo.Working {
-		t.Errorf("a task added on In Progress = %v, want working", st)
+	if it := storedItem(t, path, "sibling"); it.Status != todo.Working || it.Sprint != m.view.sprint {
+		t.Errorf("a task added on In Progress = %v in sprint %q, want working in %q", it.Status, it.Sprint, m.view.sprint)
 	}
 	if got := m.tree.selected(); got == nil || got.Title != "sibling" {
 		t.Errorf("the new task should be selected in the tab, got %v", got)
@@ -278,7 +282,7 @@ func TestCategoryKeysBacklogOnly(t *testing.T) {
 	}
 
 	// On In Progress the category B is selected: rename, delete and move are refused.
-	m.setColumn(todo.ColInProgress)
+	toTab(&m, todo.ColInProgress)
 	for _, key := range []string{"e", "enter", "d", "m", "c"} {
 		got := press(m, key)
 		if got.mode != modeMain || got.tree.grabbed {
@@ -295,7 +299,7 @@ func TestCategoryKeysBacklogOnly(t *testing.T) {
 	}
 
 	// Back on Backlog the category keys work.
-	m.setColumn(todo.ColBacklog)
+	toTab(&m, todo.ColBacklog)
 	if got := press(m, "c"); got.mode != modeForm {
 		t.Errorf("c on Backlog must open the form, mode = %v", got.mode)
 	}
@@ -305,7 +309,7 @@ func TestReadyWithoutPlanFlagged(t *testing.T) {
 	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "B"}], "tasks": [
 		{"id": "t000001", "category": "c000000", "title": "r", "status": "ready"},
 		{"id": "t000002", "category": "c000000", "title": "planned", "status": "ready", "plan": "docs/plan.md"}]}`)
-	m.setColumn(todo.ColNext)
+	toTab(&m, todo.ColNext)
 	if row := rowOf(t, m.tree, "r"); !strings.Contains(row, "ready") || !strings.Contains(row, "⚠ no plan") {
 		t.Errorf("a ready task without a plan must be flagged: %q", row)
 	}
@@ -317,7 +321,7 @@ func TestReadyWithoutPlanFlagged(t *testing.T) {
 func TestTaskRowGlyphsAndStateNames(t *testing.T) {
 	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "B"}], "tasks": [
 		{"id": "t000001", "category": "c000000", "title": "t", "status": "review", "subtasks": [{"id": "s000001", "title": "s"}]}]}`)
-	m.setColumn(todo.ColInProgress)
+	toTab(&m, todo.ColInProgress)
 	if row := rowOf(t, m.tree, "t"); !strings.Contains(row, "◑ t") || !strings.Contains(row, "review") {
 		t.Errorf("review row = %q", row)
 	}
@@ -339,7 +343,7 @@ func TestCategoryWithNothingShownHasNoFold(t *testing.T) {
 	if m.tree.collapsed[find(m.doc, "A").ID] {
 		t.Errorf("a category with no shown children must not fold")
 	}
-	m.setColumn(todo.ColInProgress)
+	toTab(&m, todo.ColInProgress)
 	if row := rowOf(t, m.tree, "A"); !strings.Contains(row, "▾") {
 		t.Errorf("on In Progress A shows its task and can fold: %q", row)
 	}
@@ -350,7 +354,7 @@ func TestCategoryCountsPerTab(t *testing.T) {
 	if row := rowOf(t, m.tree, "B"); !strings.Contains(row, "(1/4)") {
 		t.Errorf("Backlog category note keeps done/total: %q", row)
 	}
-	m.setColumn(todo.ColInProgress)
+	toTab(&m, todo.ColInProgress)
 	if row := rowOf(t, m.tree, "B"); !strings.Contains(row, "B (1)") {
 		t.Errorf("In Progress category note counts its tasks in the tab: %q", row)
 	}
@@ -397,7 +401,7 @@ func TestSearchCarriesAcrossTabs(t *testing.T) {
 	if got := rowTitles(m.tree); len(got) != 0 {
 		t.Errorf("Backlog has no match for \"work\", rows = %v", got)
 	}
-	m = press(m, "3")
+	m = press(m, "k", "tab", "2") // the Imported sprint's board, In Progress
 	if m.view.filter != "work" {
 		t.Fatalf("the filter must carry over, got %q", m.view.filter)
 	}
@@ -452,7 +456,7 @@ func TestEditSavesPlan(t *testing.T) {
 	m, path := newTestModelOn(t, "# B\n- [ ] a\n", todo.ColBacklog)
 	a := find(m.doc, "a")
 	m = setStatusExternally(t, m, path, "a", todo.Ready)
-	m.setColumn(todo.ColNext)
+	toTab(&m, todo.ColNext)
 	m.tree.selectID(a.ID)
 	if row := rowOf(t, m.tree, "a"); !strings.Contains(row, "⚠ no plan") {
 		t.Fatalf("precondition: ready task without plan is flagged: %q", row)
@@ -464,7 +468,7 @@ func TestEditSavesPlan(t *testing.T) {
 	if it := storedItem(t, path, "a"); it.Plan != "docs/p.md" {
 		t.Errorf("plan = %q, want docs/p.md", it.Plan)
 	}
-	m.setColumn(todo.ColNext)
+	toTab(&m, todo.ColNext)
 	if row := rowOf(t, m.tree, "a"); strings.Contains(row, "no plan") {
 		t.Errorf("flag should disappear once a plan is set: %q", row)
 	}
@@ -493,5 +497,28 @@ func TestItemMetaShowsColumnAndState(t *testing.T) {
 	it.Plan = "docs/p.md"
 	if got := itemMeta(it); strings.Contains(got, "no plan") {
 		t.Errorf("meta with plan = %q", got)
+	}
+}
+
+// On a narrow pane the readiness takes a shorter wording instead of being cut
+// with "…"; where the full one fits it keeps it.
+func TestProgressLineShortensReadiness(t *testing.T) {
+	done := map[todo.Column]int{todo.ColDone: 2}
+	for _, tc := range []struct {
+		name   string
+		s      *todo.Sprint
+		width  int
+		want   string
+		absent string
+	}{
+		{"ready narrow", &todo.Sprint{Status: todo.SprintOpen}, 54, "ready to close — c in sidebar", "…"},
+		{"ready wide", &todo.Sprint{Status: todo.SprintOpen}, 100, "ready to close (c in the sidebar)", "…"},
+		{"closed narrow", &todo.Sprint{Status: todo.SprintDone}, 54, "closed — c in sidebar reopens", "…"},
+		{"closed wide", &todo.Sprint{Status: todo.SprintDone}, 100, "closed — c in the sidebar reopens it", "…"},
+	} {
+		got := ansi.Strip(progressLine(tc.s, done, tc.width))
+		if !strings.Contains(got, tc.want) || strings.Contains(got, tc.absent) {
+			t.Errorf("%s: %q, want %q and no %q", tc.name, got, tc.want, tc.absent)
+		}
 	}
 }

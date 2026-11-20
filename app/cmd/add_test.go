@@ -45,12 +45,12 @@ func TestAddSubtaskUnderTask(t *testing.T) {
 
 func TestAddWithStatusAndDesc(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-	if _, err := runCmd(t, "add", "--file", path, "--title", "b", "--parent-title", "Work", "--status", "progress", "--desc", "note"); err != nil {
+	if _, err := runCmd(t, "add", "--file", path, "--title", "b", "--parent-title", "Work", "--status", "deferred", "--desc", "note"); err != nil {
 		t.Fatal(err)
 	}
 	got := todotest.Dump(t, path)
-	if !strings.Contains(got, "- [/] b") || !strings.Contains(got, "note") {
-		t.Errorf("want in-progress b with a description:\n%s", got)
+	if !strings.Contains(got, "- [>] b") || !strings.Contains(got, "note") {
+		t.Errorf("want deferred b with a description:\n%s", got)
 	}
 }
 
@@ -112,13 +112,18 @@ func TestAddBoardStateUnderTaskIsUsageError(t *testing.T) {
 	}
 }
 
-func TestAddWithBoardState(t *testing.T) {
+// A task in a sprint state needs a sprint, which add cannot give it.
+func TestAddBoardStateNeedsSprint(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] a\n")
-	if _, err := runCmd(t, "add", "--file", path, "--title", "b", "--parent-title", "Work", "--status", "ready"); err != nil {
-		t.Fatal(err)
+	_, err := runCmd(t, "add", "--file", path, "--title", "b", "--parent-title", "Work", "--status", "ready")
+	if codeOf(t, err) != exitUsage {
+		t.Fatalf("a ready task outside a sprint should be a usage error, got %v", err)
 	}
-	if !strings.Contains(todotest.Dump(t, path), "- [ready] b") {
-		t.Errorf("want ready b:\n%s", todotest.Dump(t, path))
+	if err.Error() != "--status ready needs --sprint <id|name>" {
+		t.Errorf("unclear message %q", err)
+	}
+	if strings.Contains(todotest.Dump(t, path), "b") {
+		t.Error("nothing should have been added")
 	}
 }
 

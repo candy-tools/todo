@@ -246,3 +246,17 @@ func TestImportFileReplaceEmptyStoreTakesNoBackup(t *testing.T) {
 		t.Fatalf("backup files for an empty store: %v", left)
 	}
 }
+
+func TestImportMarkdownWorkingGoesToImported(t *testing.T) {
+	path := todotest.Seed(t, "# A\n\n- [/] a\n- [x] b\n- [ ] c\n")
+	doc := loadList(t, path)
+	if len(doc.Sprints) != 1 || doc.Sprints[0].Name != todo.ImportedSprintName {
+		t.Fatalf("Sprints = %+v, want the Imported sprint", doc.Sprints)
+	}
+	id := doc.Sprints[0].ID
+	for title, want := range map[string]string{"a": id, "b": id, "c": ""} {
+		if got := find(doc, title).Sprint; got != want {
+			t.Errorf("task %q Sprint = %q, want %q", title, got, want)
+		}
+	}
+}

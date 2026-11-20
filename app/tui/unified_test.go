@@ -34,19 +34,19 @@ func filterTick(t *testing.T, m model, sts ...todo.Status) model {
 
 func TestUnifiedShowsEveryState(t *testing.T) {
 	m, _ := newUnifiedFixture(t)
-	m = press(m, "k")
+	m = press(m, "u")
 	if !m.view.all {
-		t.Fatal("k should turn the unified view on")
+		t.Fatal("a should turn the unified view on")
 	}
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "o", "r", "w", "d"}) {
 		t.Errorf("rows = %v, want every task", got)
 	}
-	if h := m.header(100); !strings.Contains(h, "All states · 4 tasks") || strings.Contains(h, "Backlog") {
-		t.Errorf("header = %q, want the all-states label instead of the tabs", h)
+	if h := m.header(100); !strings.Contains(h, "All states · 4 tasks") || strings.Contains(h, "tasks waiting") {
+		t.Errorf("header = %q, want the all-states label instead of the screen's", h)
 	}
-	m = press(m, "k")
-	if m.view.all || m.view.column != todo.ColBacklog {
-		t.Errorf("k again should return to Backlog, all=%v column=%v", m.view.all, m.view.column)
+	m = press(m, "u")
+	if m.view.all || m.view.screen != screenBacklog {
+		t.Errorf("u again should return to Backlog, all=%v screen=%v", m.view.all, m.view.screen)
 	}
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "o"}) {
 		t.Errorf("back on Backlog rows = %v", got)
@@ -55,28 +55,29 @@ func TestUnifiedShowsEveryState(t *testing.T) {
 
 func TestUnifiedReturnsToLastTab(t *testing.T) {
 	m, _ := newUnifiedFixture(t)
-	m.setColumn(todo.ColNext)
-	m = press(m, "k", "k")
-	if m.view.column != todo.ColNext {
-		t.Errorf("k twice should return to Next, got %v", m.view.column)
+	toTab(&m, todo.ColNext)
+	m = press(m, "u", "u")
+	if m.view.screen != screenSprint || m.view.column != todo.ColNext {
+		t.Errorf("u twice should return to the board's Next, got screen %v tab %v", m.view.screen, m.view.column)
 	}
 }
 
 func TestUnifiedTabKeysHint(t *testing.T) {
 	m, _ := newUnifiedFixture(t)
-	m = press(m, "k", "2")
+	toTab(&m, todo.ColNext)
+	m = press(m, "u", "2")
 	if !m.view.all {
 		t.Error("a tab key must not leave the unified view")
 	}
-	if got := m.footer(200); !strings.Contains(got, "press k to show the board") {
+	if got := m.footer(200); !strings.Contains(got, "press u to show the board") {
 		t.Errorf("footer = %q, want the hint", got)
 	}
 }
 
 func TestUnifiedEditsCategories(t *testing.T) {
 	m, _ := newUnifiedFixture(t)
-	m.setColumn(todo.ColNext)
-	m = press(m, "k")
+	toTab(&m, todo.ColNext)
+	m = press(m, "u")
 	m = selectTitle(t, m, "C")
 	if last := m.tree.rows[len(m.tree.rows)-1]; last.kind != rowNewCategory {
 		t.Error("the unified view should end with the + new category row")
@@ -89,7 +90,7 @@ func TestUnifiedEditsCategories(t *testing.T) {
 
 func TestUnifiedNewTaskIsOpen(t *testing.T) {
 	m, path := newUnifiedFixture(t)
-	m = press(m, "k")
+	m = press(m, "u")
 	m = selectTitle(t, m, "w")
 	m = press(m, "n")
 	m = typeText(m, "z")
@@ -108,7 +109,7 @@ func TestUnifiedNewTaskIsOpen(t *testing.T) {
 func TestUnifiedOwnStateFilter(t *testing.T) {
 	m, _ := newUnifiedFixture(t)
 	m = filterTick(t, m, todo.Deferred) // Backlog: only deferred (none)
-	m = press(m, "k")
+	m = press(m, "u")
 	if len(m.view.activeStates()) != 0 || len(rowTitles(m.tree)) != 5 {
 		t.Fatalf("a tab's filter must not apply in the unified view: states %v rows %v", m.view.activeStates(), rowTitles(m.tree))
 	}
@@ -131,7 +132,7 @@ func TestUnifiedOwnStateFilter(t *testing.T) {
 	if len(m.view.activeStates()) != 0 {
 		t.Errorf("esc should clear the unified filter, got %v", m.view.activeStates())
 	}
-	m = press(m, "k")
+	m = press(m, "u")
 	if got := m.view.activeStates(); len(got) != 1 || got[0] != todo.Deferred {
 		t.Errorf("Backlog's filter should be back, got %v", got)
 	}
@@ -139,15 +140,37 @@ func TestUnifiedOwnStateFilter(t *testing.T) {
 
 func TestUnifiedSelectionCarriesOver(t *testing.T) {
 	m, _ := newUnifiedFixture(t)
-	m.setColumn(todo.ColInProgress)
+	toTab(&m, todo.ColInProgress)
 	m = selectTitle(t, m, "w")
-	m = press(m, "k")
+	m = press(m, "u")
 	if got := m.tree.selected(); got == nil || got.Title != "w" {
-		t.Fatalf("k should keep w selected, got %v", got)
+		t.Fatalf("a should keep w selected, got %v", got)
 	}
 	m = selectTitle(t, m, "r")
-	m = press(m, "k")
+	m = press(m, "u")
 	if m.tree.cursor != 0 {
 		t.Errorf("r isn't on In Progress: the cursor should go to the top, got %d", m.tree.cursor)
+	}
+}
+
+// esc in the unified view's split task list focuses the Categories, like in
+// the Backlog; a second esc quits.
+func TestUnifiedEscInSplitTaskListFocusesCategories(t *testing.T) {
+	m, _ := newUnifiedFixture(t)
+	m = press(splitAll(m), "u")
+	if !m.view.all || !m.splitShown() {
+		t.Fatalf("setup: all %v split %v", m.view.all, m.splitShown())
+	}
+	m = press(m, "tab")
+	if m.sideFocus {
+		t.Fatal("setup: tab should focus the task list")
+	}
+	next, cmd := m.Update(keyMsg("esc"))
+	m = next.(model)
+	if quits(cmd) || !m.sideFocus {
+		t.Fatalf("esc in the task list: quits %v sideFocus %v, want the Categories focused", quits(cmd), m.sideFocus)
+	}
+	if !quitsConfirmed(t, m, "esc") {
+		t.Error("a second esc should quit once confirmed")
 	}
 }

@@ -91,7 +91,7 @@ func count(it *Item, rep *ImportReport) {
 func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bool) (WriteResult, string, error) {
 	backup := ""
 	res, err := s.update(ctx, func(d *Document, cur jsonfile.Snapshot) (bool, error) {
-		holdsItems := len(d.Roots) > 0
+		holdsItems := len(d.Roots) > 0 || len(d.Sprints) > 0
 		if holdsItems && !replace {
 			return false, ErrNotEmpty
 		}
@@ -106,6 +106,7 @@ func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bo
 			backup = p
 		}
 		d.Roots = doc.Roots
+		d.Sprints = doc.Sprints
 		return true, nil
 	})
 	if err == nil {
@@ -120,10 +121,12 @@ func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bo
 }
 
 // prepareImport readies doc to become the list: it flattens the subtasks,
-// cleans every title (failing on one CleanTitle refuses) and gives every item
+// cleans every title (failing on one CleanTitle refuses), moves the tasks in a
+// sprint state to the Imported sprint (see adoptStrays) and gives every item
 // without an ID a fresh one.
 func prepareImport(doc *Document) error {
 	doc.FlattenSubtasks()
+	doc.adoptStrays()
 	for _, it := range doc.Enumerate() {
 		title, err := CleanTitle(it.Title)
 		if err != nil {
@@ -133,6 +136,22 @@ func prepareImport(doc *Document) error {
 	}
 	doc.AssignIDs()
 	return nil
+}
+
+// adoptStrays gives every top-level task in a sprint state and without a sprint
+// the Imported sprint, which it creates, open, when it is needed and missing.
+// Markdown has no sprints, so its [/] and [x] tasks would otherwise sit in no
+// sprint, which the list file does not allow.
+func (d *Document) adoptStrays() {
+	for _, it := range d.Enumerate() {
+		if it.Kind != Task || it.IsSubtask() || it.Sprint != "" || !it.Status.InSprint() {
+			continue
+		}
+		if _, ok := d.SprintByID(importedSprintID); !ok {
+			d.Sprints = append(d.Sprints, &Sprint{ID: importedSprintID, Name: ImportedSprintName})
+		}
+		it.Sprint = importedSprintID
+	}
 }
 
 // ImportFile imports the markdown file mdPath into the list at path, creating

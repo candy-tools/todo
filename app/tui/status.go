@@ -12,9 +12,9 @@ import (
 // states, enter sets the highlighted one, esc or q cancels.
 func (m model) updateStatePick(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "up", "w":
+	case "up":
 		m.pick.move(-1)
-	case "down", "s":
+	case "down":
 		m.pick.move(1)
 	case "esc", "q":
 		m.mode, m.pickItem = modeMain, nil
@@ -65,30 +65,57 @@ func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// shiftColumn is p/P: it moves the selected top-level task delta columns along
-// the board (no wrap), into the target column's first state. Into Done it
-// completes the task (cascade and undo snapshot); out of Done it reopens it,
-// restoring its subtasks from the snapshot when there is one. A subtask (it
-// follows its task) and a task at the board's edge only get a footer hint.
+// sprintClosed reports whether id names a closed sprint. Its tasks keep their
+// sprint and state, and it takes no new task, until it is reopened, so the keys
+// that would change them only say so in the footer (todo.ErrSprintClosed).
+func (m model) sprintClosed(id string) bool {
+	s, ok := m.doc.SprintByID(id)
+	return ok && s.Status == todo.SprintDone
+}
+
+// shiftColumn is a/A: it moves the selected top-level task delta columns along
+// its sprint's board (no wrap), into the target column's first state. Into
+// Done it completes the task (cascade and undo snapshot); out of Done it
+// reopens it, restoring its subtasks from the snapshot when there is one. A
+// from Next sends the task back to the Backlog (it becomes open). On a backlog
+// task a opens the dialog that assigns it to a sprint, and A only hints. A
+// category (on the Backlog, a says to select a task to assign), a subtask (it
+// follows its task), a task of a closed sprint and a task at Done's edge only
+// get a footer hint.
 func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {
 	case it == nil:
 		return m, nil
+	case !it.IsTask() && delta > 0 && m.view.screen == screenBacklog && !m.view.all:
+		m.status = "select a task to assign it to a sprint"
+		return m, nil
 	case !it.IsTask():
 		m.status = "only tasks move between columns"
+		return m, nil
+	case m.sprintClosed(it.SprintID()):
+		m.status = todo.ErrSprintClosed.Error()
 		return m, nil
 	case it.IsSubtask():
 		m.status = "subtasks move with their task"
 		return m, nil
+	case it.SprintID() == "" && delta > 0:
+		return m.openAssignPicker(it)
+	case it.SprintID() == "":
+		m.status = "already in the " + todo.ColBacklog.Title()
+		return m, nil
 	}
-	cols := todo.Columns()
-	cur := slices.Index(cols, it.Column())
-	if cur < 0 {
-		cur = 0 // a column off the board (an unknown status) counts as Backlog
-	}
+	cols := todo.SprintColumns()
+	cur := max(slices.Index(cols, it.Column()), 0) // a state off the sprint board counts as Next
 	i := cur + delta
-	if i < 0 || i >= len(cols) {
+	switch {
+	case i < 0:
+		id := it.ID
+		m.commitMoved(id, func(ctx context.Context, s *todo.Store) (todo.WriteResult, error) {
+			return s.Unassign(ctx, id)
+		})
+		return m, nil
+	case i >= len(cols):
 		m.status = "no column beyond " + cols[cur].Title()
 		return m, nil
 	}
@@ -104,10 +131,11 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 }
 
 // openStatePicker is t: it opens the dialog that sets the selected task's state
-// (any state for a top-level task, open or done for a subtask), the cursor on
-// its current state. On a task completed in this session the cursor starts on
-// the state it had before, so t then enter undoes an accidental complete.
-// Categories have no state, so they get a footer hint instead.
+// (a top-level task's Backlog or sprint states, by its membership; open or
+// done for a subtask), the cursor on its current state. On a task completed in
+// this session the cursor starts on the state it had before, so t then enter
+// undoes an accidental complete. Categories have no state, and the tasks of a
+// closed sprint keep theirs, so they get a footer hint instead.
 func (m model) openStatePicker() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {
@@ -115,6 +143,9 @@ func (m model) openStatePicker() (tea.Model, tea.Cmd) {
 		return m, nil
 	case !it.IsTask():
 		m.status = "only tasks have a state"
+		return m, nil
+	case m.sprintClosed(it.SprintID()):
+		m.status = todo.ErrSprintClosed.Error()
 		return m, nil
 	}
 	m.pick, m.pickItem = newStatePicker(it), it

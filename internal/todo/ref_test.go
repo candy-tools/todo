@@ -155,8 +155,8 @@ func TestDiskVersion3Loads(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := readFile(t, path)
-	if !strings.Contains(file, `"version": 5`) || !strings.Contains(file, `"ref": "APP-001"`) {
-		t.Errorf("file =\n%s\nwant version 5 with the ref", file)
+	if !strings.Contains(file, `"version": 6`) || !strings.Contains(file, `"ref": "APP-001"`) {
+		t.Errorf("file =\n%s\nwant version 6 with the ref", file)
 	}
 }
 

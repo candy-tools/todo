@@ -173,7 +173,7 @@ func TestStorePruneSeesFreshFile(t *testing.T) {
 	ctx := context.Background()
 	a := newStore(t)
 	cat := mustID(t)(a.AppendCategory(ctx, "C", ""))
-	done := mustID(t)(a.AppendTask(ctx, Fields{Title: "done"}, Done, cat))
+	done := mustID(t)(a.AppendTask(ctx, Fields{Title: "done", Sprint: testSprint(t, a)}, Done, cat))
 	if got := item(t, load(t, a), done); got.Status != Done {
 		t.Fatalf("done = %v", got.Status)
 	}
@@ -333,7 +333,7 @@ func everyWrite(s *Store, cat, task string) map[string]func() error {
 func TestStoreNewerVersion(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	content := `{"version": 6, "categories": [], "tasks": [], "tags": []}`
+	content := `{"version": 7, "categories": [], "tasks": [], "tags": []}`
 	if err := os.WriteFile(s.Path(), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

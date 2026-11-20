@@ -27,6 +27,10 @@ const (
 	// (or a task inside one) is selected.
 	targetAddCategory
 	targetEdit // rename/re-describe the selected item
+	// targetAddSprint adds a sprint, from the Sprints workspace's sidebar.
+	targetAddSprint
+	// targetEditSprint renames or re-words the goal of the sprint in m.editingSprint.
+	targetEditSprint
 )
 
 // msgPickCategory is the footer hint for adding a task in the split view with
@@ -46,7 +50,7 @@ func (m *model) taskAnchor() *todo.Item {
 	if sel := t.selected(); sel != nil {
 		return sel
 	}
-	if m.split && !m.sideFocus {
+	if m.splitShown() && !m.sideFocus {
 		return m.tree.scopeItem()
 	}
 	return nil
@@ -54,36 +58,15 @@ func (m *model) taskAnchor() *todo.Item {
 
 // openForm prepares and opens the add/edit modal for the given target. Outside
 // Backlog it refuses to add, rename or delete a category, and it refuses a
-// subtask under a subtask.
+// subtask under a subtask and a task that would join a closed sprint.
 func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	sel := m.focused().selected()
 	switch t {
 	case targetAddSibling, targetAddChild:
-		sel = m.taskAnchor()
-		if sel == nil && m.split {
-			m.status = msgPickCategory
+		var ok bool
+		if m, ok = m.prepareAddForm(t); !ok {
 			return m, nil
 		}
-		if sel == nil {
-			// Outside Backlog a tab shows only categories holding its tasks, and c
-			// is refused there, so point at a tab that shows the category instead.
-			m.status = "Add a category first (press c) — tasks live under a category."
-			if !m.view.editsCategories() {
-				m.status = "add tasks from a tab that shows their category (Backlog shows all)"
-			}
-			return m, nil
-		}
-		if t == targetAddChild && sel.IsSubtask() {
-			m.status = "subtasks can't have subtasks"
-			return m, nil
-		}
-		// A new subtask has no reference, so its form shows none.
-		kind := formTask
-		m.target = t
-		if p := m.addParent(sel); p != nil && p.IsTask() {
-			kind = formSubtask
-		}
-		m.form = newForm(todo.Fields{}, kind, false)
 	case targetEdit:
 		if sel == nil || m.focused().onPlaceholder() {
 			return m, nil
@@ -102,7 +85,7 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 		}, formKindOf(sel), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
-		if m.split && !m.sideFocus {
+		if m.splitShown() && !m.sideFocus {
 			m.status = "categories are managed in the sidebar"
 			return m, nil
 		}
@@ -116,6 +99,46 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	m.form.setWidth(m.width)
 	m.mode = modeForm
 	return m, textinput.Blink
+}
+
+// prepareAddForm builds the add-task / add-subtask form for openForm. When the
+// add is refused it sets the footer message and reports false.
+func (m model) prepareAddForm(t formTarget) (model, bool) {
+	if m.view.onBoard() && m.sprintClosed(m.view.sprint) {
+		m.status = todo.ErrSprintClosed.Error()
+		return m, false
+	}
+	sel := m.taskAnchor()
+	if sel == nil && m.splitShown() {
+		m.status = msgPickCategory
+		return m, false
+	}
+	if sel == nil {
+		// A sprint board shows only categories holding its tasks, and c is
+		// refused there, so point at the Backlog, where a task is added and then
+		// assigned.
+		m.status = "Add a category first (press c) — tasks live under a category."
+		if !m.view.editsCategories() {
+			m.status = "add it in the Backlog (b, n), then assign it with a"
+		}
+		return m, false
+	}
+	if t == targetAddChild && sel.IsSubtask() {
+		m.status = "subtasks can't have subtasks"
+		return m, false
+	}
+	// A new subtask has no reference, so its form shows none.
+	kind := formTask
+	m.target = t
+	if p := m.addParent(sel); p != nil && p.IsTask() {
+		if m.sprintClosed(p.SprintID()) { // under a closed sprint's task, from the unified view
+			m.status = todo.ErrSprintClosed.Error()
+			return m, false
+		}
+		kind = formSubtask
+	}
+	m.form = newForm(todo.Fields{}, kind, false)
+	return m, true
 }
 
 func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -138,9 +161,10 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.form.applyFocus()
 		}
 	case "enter":
-		// Enter in the description inserts a newline; on the title or Save it
-		// submits, on Cancel it closes.
-		if m.form.focus == focusDesc {
+		// Enter in the description inserts a newline (not in a sprint's goal,
+		// which is one line); on the title or Save it submits, on Cancel it
+		// closes.
+		if m.form.focus == focusDesc && m.form.kind != formSprint {
 			break
 		}
 		if m.form.focus == focusCancel {
@@ -171,8 +195,12 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeMain
-	if m.target == targetEdit {
+	switch m.target {
+	case targetEdit:
 		m.submitEdit()
+		return m, nil
+	case targetAddSprint, targetEditSprint:
+		m.submitSprint()
 		return m, nil
 	}
 
@@ -193,12 +221,14 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		parentID = parent.ID
 		delete(m.focused().collapsed, parentID) // the new item shows under its parent
 	}
-	// A new task enters the current tab in its column's first state, so it shows
-	// where it was added; a new subtask starts open (subtasks are open or done).
-	st := m.view.newTaskState()
+	// A new task enters the current tab in its column's first state (on a
+	// sprint board, in the board's sprint), so it shows where it was added; a
+	// new subtask starts open (subtasks are open or done) and follows its task.
+	st, sprint := m.view.newTaskPlacement()
 	if parent != nil && parent.IsTask() {
-		st = todo.Open
+		st, sprint = todo.Open, ""
 	}
+	v.Sprint = sprint
 
 	// A task goes after its parent's last task, a category after its parent's
 	// last child, as the store finds them when it writes, so a sibling another
@@ -220,7 +250,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	}
 	// The ID is only known once the write ran. A task added from the sidebar
 	// shows in the task list, so look there too.
-	if !m.focused().selectID(newID) && m.split {
+	if !m.focused().selectID(newID) && m.splitShown() {
 		m.tree.selectID(newID)
 	}
 	return m, nil

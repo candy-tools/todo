@@ -32,13 +32,31 @@ func rmCmd() *cobra.Command {
 }
 
 func pruneCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "prune",
-		Short: "remove every fully-completed task",
+	c := &cobra.Command{
+		Use:   "prune (--sprint <id|name> | --all)",
+		Short: "remove fully-completed tasks, from one sprint or from everywhere",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withStore(cmd, func(ctx context.Context, s *todo.Store, _ *todo.Document) error {
-				n, _, err := s.Prune(ctx)
+			all, _ := cmd.Flags().GetBool("all")
+			inSprint := cmd.Flags().Changed("sprint")
+			switch {
+			case all && inSprint:
+				return usageErr("--sprint and --all are mutually exclusive")
+			case !all && !inSprint:
+				return usageErr("specify --sprint <id|name> or --all")
+			}
+			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
+				var n int
+				var err error
+				if all {
+					n, _, err = s.Prune(ctx)
+				} else {
+					var sp *todo.Sprint
+					if sp, err = resolveSprint(cmd, doc); err != nil {
+						return err
+					}
+					n, _, err = s.PruneSprint(ctx, sp.ID)
+				}
 				if err != nil {
 					return err
 				}
@@ -47,6 +65,9 @@ func pruneCmd() *cobra.Command {
 			})
 		},
 	}
+	c.Flags().String("sprint", "", "prune only this sprint's done tasks, by id or name")
+	c.Flags().Bool("all", false, "prune every done task in the list, in all sprints and the backlog")
+	return c
 }
 
 func editCmd() *cobra.Command {

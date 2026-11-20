@@ -133,6 +133,10 @@ func (s Status) SubtaskAllowed() bool { return s == Open || s == Done }
 // Columns returns the four columns in board order.
 func Columns() []Column { return []Column{ColBacklog, ColNext, ColInProgress, ColDone} }
 
+// SprintColumns returns the columns of a sprint board, in board order: every
+// column but the Backlog.
+func SprintColumns() []Column { return []Column{ColNext, ColInProgress, ColDone} }
+
 // String returns the column's short name: backlog, next, progress or done.
 func (c Column) String() string {
 	switch c {
@@ -220,7 +224,10 @@ type Item struct {
 	// Ref is a top-level task's free-form reference, such as "APP-001", shown
 	// before its title (see DisplayTitle); "" when it has none. No two tasks
 	// of a list hold the same one, ignoring case; a subtask holds none.
-	Ref      string
+	Ref string
+	// Sprint is a top-level task's sprint ID, "" for the backlog. A subtask
+	// follows its task (see SprintID) and holds none.
+	Sprint   string
 	Children []*Item
 	Parent   *Item // nil for a root item
 }
@@ -229,6 +236,8 @@ type Item struct {
 // is shown in.
 type Document struct {
 	Roots []*Item
+	// Sprints are the list's sprints, in creation order.
+	Sprints []*Sprint
 	// View is how the list is shown, kept in the list file so every TUI
 	// session opens on it.
 	View View
@@ -243,6 +252,45 @@ type View struct {
 	// Split shows the categories in a sidebar beside a task list (the TUI's
 	// "v").
 	Split bool
+	// Screen is the screen the TUI opens on.
+	Screen Screen
+	// Sprint is the ID of the sprint the sprint screen shows; it may name a
+	// sprint that no longer exists, which the TUI treats as no sprint.
+	Sprint string
+}
+
+// Screen is a screen of the TUI. The list file stores it by name (see
+// String), so the names are pinned.
+type Screen int
+
+const (
+	// ScreenBacklog is the backlog, the screen todo opens on.
+	ScreenBacklog Screen = 0
+	// ScreenSprints is the list of sprints.
+	ScreenSprints Screen = 1
+	// ScreenSprint is one sprint's board.
+	ScreenSprint Screen = 2
+)
+
+var screenNames = map[Screen]string{ScreenBacklog: "backlog", ScreenSprints: "sprints", ScreenSprint: "sprint"}
+
+// String returns the screen's name, or "screen(N)" for an unknown value so it
+// stays visible.
+func (s Screen) String() string {
+	if n, ok := screenNames[s]; ok {
+		return n
+	}
+	return fmt.Sprintf("screen(%d)", int(s))
+}
+
+// screenFromName parses a screen name; ok is false for an unknown name.
+func screenFromName(name string) (Screen, bool) {
+	for s, n := range screenNames {
+		if n == name {
+			return s, true
+		}
+	}
+	return ScreenBacklog, false
 }
 
 // IsTask reports whether the item is a task (rather than a category).
@@ -302,6 +350,10 @@ func (d *Document) Clone() *Document {
 	c := &Document{Roots: make([]*Item, len(d.Roots)), View: d.View}
 	for i, it := range d.Roots {
 		c.Roots[i] = it.clone(nil)
+	}
+	for _, s := range d.Sprints {
+		sc := *s
+		c.Sprints = append(c.Sprints, &sc)
 	}
 	return c
 }

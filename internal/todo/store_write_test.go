@@ -35,6 +35,16 @@ func mustOK(t *testing.T) func(WriteResult, error) WriteResult {
 	}
 }
 
+// testSprint returns the ID of the list's sprint "Sprint", adding it, open, on
+// first use: a top-level task in a sprint state needs a sprint.
+func testSprint(t *testing.T, s *Store) string {
+	t.Helper()
+	if sp, ok := load(t, s).SprintByName("Sprint"); ok {
+		return sp.ID
+	}
+	return mustID(t)(s.AddSprint(context.Background(), "Sprint", ""))
+}
+
 // importInto runs importDoc without a backup, as the CLI's import does
 // without --force.
 func importInto(ctx context.Context, s *Store, doc *Document, replace bool) (WriteResult, error) {
@@ -86,7 +96,7 @@ func addSample(t *testing.T, s *Store) sampleIDs {
 	var ids sampleIDs
 	ids.A = mustID(t)(s.AddCategory(ctx, "A", "", ""))
 	ids.t1 = mustID(t)(s.AddTask(ctx, Fields{Title: "t1", Description: "d1"}, Open, ids.A, ""))
-	ids.t2 = mustID(t)(s.AddTask(ctx, Fields{Title: "t2"}, Working, ids.A, ids.t1))
+	ids.t2 = mustID(t)(s.AddTask(ctx, Fields{Title: "t2", Sprint: testSprint(t, s)}, Working, ids.A, ids.t1))
 	ids.B = mustID(t)(s.AddCategory(ctx, "B", ids.A, ""))
 	return ids
 }
@@ -150,17 +160,17 @@ func TestEditKeepsKind(t *testing.T) {
 	}
 }
 
-func TestSetStateBackToOpen(t *testing.T) {
+func TestSetStateOutOfDone(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
-	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "desc"}, Done, c, ""))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "desc", Sprint: testSprint(t, s)}, Done, c, ""))
 
-	mustOK(t)(s.SetState(ctx, id, Open, StateOptions{}))
+	mustOK(t)(s.SetState(ctx, id, New, StateOptions{}))
 
 	got := item(t, load(t, s), id)
-	if got.Status != Open || got.Title != "t" || got.Description != "desc" {
-		t.Fatalf("task = %+v; want open task t described desc", got)
+	if got.Status != New || got.Title != "t" || got.Description != "desc" {
+		t.Fatalf("task = %+v; want new task t described desc", got)
 	}
 }
 
@@ -171,7 +181,7 @@ func TestStateWritesRejectMissingID(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
-	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Done, c, ""))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Sprint: testSprint(t, s)}, Done, c, ""))
 	gone := mustID(t)(s.AddTask(ctx, Fields{Title: "gone"}, Open, c, id))
 	mustOK(t)(s.Delete(ctx, gone))
 
@@ -188,7 +198,7 @@ func TestCascadeDoneAndReopen(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
-	p := mustID(t)(s.AddTask(ctx, Fields{Title: "p"}, Review, c, ""))
+	p := mustID(t)(s.AddTask(ctx, Fields{Title: "p", Sprint: testSprint(t, s)}, Review, c, ""))
 	c1 := mustID(t)(s.AddTask(ctx, Fields{Title: "c1"}, Open, p, ""))
 	c2 := mustID(t)(s.AddTask(ctx, Fields{Title: "c2"}, Done, p, c1))
 
@@ -269,7 +279,7 @@ func TestPruneUsesFreshData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".todo.json")
 	s1 := NewStore(path)
 	a := mustID(t)(s1.AddCategory(ctx, "A", "", ""))
-	done := mustID(t)(s1.AddTask(ctx, Fields{Title: "done"}, Done, a, ""))
+	done := mustID(t)(s1.AddTask(ctx, Fields{Title: "done", Sprint: testSprint(t, s1)}, Done, a, ""))
 	d1 := mustID(t)(s1.AddTask(ctx, Fields{Title: "d1"}, Done, done, ""))
 
 	// A second process adds an open subtask under done after s1 last looked.
@@ -309,7 +319,7 @@ func TestNewStoreKeepsData(t *testing.T) {
 func TestEveryWriteChangesFile(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	var c, task, u string
+	var c, task, u, sprint string
 	writes := []struct {
 		name string
 		fn   func() (WriteResult, error)
@@ -327,6 +337,8 @@ func TestEveryWriteChangesFile(t *testing.T) {
 		{"Edit", func() (WriteResult, error) {
 			return s.Edit(ctx, task, Changes{Title: new("t2"), Description: new("d")})
 		}},
+		{"AddSprint", func() (res WriteResult, err error) { sprint, res, err = s.AddSprint(ctx, "S", ""); return res, err }},
+		{"Assign", func() (WriteResult, error) { return s.Assign(ctx, task, sprint) }},
 		{"SetState done", func() (WriteResult, error) { return s.SetState(ctx, task, Done, StateOptions{}) }},
 		{"SetState cascade", func() (WriteResult, error) { return s.SetState(ctx, task, Working, StateOptions{Cascade: true}) }},
 		{"SetState done again", func() (WriteResult, error) { return s.SetState(ctx, task, Done, StateOptions{}) }},
@@ -431,7 +443,11 @@ func addTaskTree(t *testing.T, s *Store, st Status) taskTree {
 	ctx := context.Background()
 	var ids taskTree
 	ids.C = mustID(t)(s.AddCategory(ctx, "C", "", ""))
-	ids.task = mustID(t)(s.AddTask(ctx, Fields{Title: "task"}, st, ids.C, ""))
+	f := Fields{Title: "task"}
+	if st.InSprint() {
+		f.Sprint = testSprint(t, s)
+	}
+	ids.task = mustID(t)(s.AddTask(ctx, f, st, ids.C, ""))
 	ids.sub = mustID(t)(s.AddTask(ctx, Fields{Title: "sub"}, Open, ids.task, ""))
 	return ids
 }
@@ -440,7 +456,7 @@ func TestPlanRoundTrip(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
-	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "d", Plan: "docs/p.md"}, Ready, c, ""))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "d", Plan: "docs/p.md", Sprint: testSprint(t, s)}, Ready, c, ""))
 
 	if got := item(t, load(t, s), id); got.Plan != "docs/p.md" || got.Description != "d" {
 		t.Fatalf("task after AddTask = %+v; want plan docs/p.md, description d", got)
@@ -458,7 +474,7 @@ func TestEditKeepsFieldsItDoesNotName(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
-	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "d", Plan: "docs/old.md"}, Ready, c, ""))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Description: "d", Plan: "docs/old.md", Sprint: testSprint(t, s)}, Ready, c, ""))
 	mustOK(t)(s.Edit(ctx, id, Changes{Description: new("d2"), Plan: new("docs/new.md")}))
 
 	mustOK(t)(s.Edit(ctx, id, Changes{Title: new("t2")}))
@@ -530,7 +546,7 @@ func TestAddSubtaskWithBoardStateRejected(t *testing.T) {
 	})
 	// The classic states stay allowed for a subtask, and any state for a task.
 	mustID(t)(s.AddTask(ctx, Fields{Title: "d"}, Done, ids.task, ids.sub))
-	mustID(t)(s.AddTask(ctx, Fields{Title: "r"}, Review, ids.C, ids.task))
+	mustID(t)(s.AddTask(ctx, Fields{Title: "r", Sprint: testSprint(t, s)}, Review, ids.C, ids.task))
 }
 
 func TestMoveTaskWithChildrenUnderTaskIsTooDeep(t *testing.T) {
@@ -548,9 +564,10 @@ func TestMoveIntoSubtaskNormalizesStatus(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 	c := mustID(t)(s.AddCategory(ctx, "C", "", ""))
-	parent := mustID(t)(s.AddTask(ctx, Fields{Title: "parent"}, Working, c, ""))
-	rev := mustID(t)(s.AddTask(ctx, Fields{Title: "rev"}, Review, c, parent))
-	done := mustID(t)(s.AddTask(ctx, Fields{Title: "done"}, Done, c, rev))
+	sp := testSprint(t, s)
+	parent := mustID(t)(s.AddTask(ctx, Fields{Title: "parent", Sprint: sp}, Working, c, ""))
+	rev := mustID(t)(s.AddTask(ctx, Fields{Title: "rev", Sprint: sp}, Review, c, parent))
+	done := mustID(t)(s.AddTask(ctx, Fields{Title: "done", Sprint: sp}, Done, c, rev))
 
 	mustOK(t)(s.Move(ctx, rev, parent, ""))
 	mustOK(t)(s.Move(ctx, done, parent, rev))
@@ -585,7 +602,7 @@ func TestMoveTaskBetweenCategoriesKeepsStatus(t *testing.T) {
 	ctx := context.Background()
 	a := mustID(t)(s.AddCategory(ctx, "A", "", ""))
 	b := mustID(t)(s.AddCategory(ctx, "B", "", a))
-	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t"}, Review, a, ""))
+	id := mustID(t)(s.AddTask(ctx, Fields{Title: "t", Sprint: testSprint(t, s)}, Review, a, ""))
 
 	mustOK(t)(s.Move(ctx, id, b, ""))
 
@@ -712,7 +729,7 @@ func TestAppendTaskPlacesAfterLastTask(t *testing.T) {
 	ids := addSample(t, s)
 	mustOK(t)(s.Move(ctx, ids.t2, ids.B, "")) // another process moves t2 away
 
-	t3 := mustID(t)(s.AppendTask(ctx, Fields{Title: "t3", Description: "d3", Plan: "p3"}, Working, ids.A))
+	t3 := mustID(t)(s.AppendTask(ctx, Fields{Title: "t3", Description: "d3", Plan: "p3", Sprint: testSprint(t, s)}, Working, ids.A))
 	doc := load(t, s)
 	if got, want := titles(item(t, doc, ids.A).Children), []string{"B", "t1", "t3"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("A's children = %v, want %v", got, want)

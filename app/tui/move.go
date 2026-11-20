@@ -35,9 +35,9 @@ func (m model) startMove() (tea.Model, tea.Cmd) {
 func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	switch msg.String() {
-	case "up", "w":
+	case "up":
 		return m.applyMove(todo.StepUp)
-	case "down", "s":
+	case "down":
 		return m.applyMove(todo.StepDown)
 	case "left":
 		return m.applyMove(todo.StepOut)
@@ -54,8 +54,9 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // subtasks, whether or not anything sits above it: tasks nest one level only),
 // as a task with a reference (a subtask has none), or the new parent is hidden
 // in the tab (the item would vanish into it), nothing moves and the footer
-// says why. Any other refusal (a task or category with nothing above to nest
-// under) stays silent.
+// says why; so it does for the list's other refusals (see noteRefusedStep),
+// such as a task of another sprint above. A task or category with nothing
+// above to nest under stays silent.
 func (m model) applyIndent() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	if it == nil {
@@ -70,6 +71,7 @@ func (m model) applyIndent() (tea.Model, tea.Cmd) {
 		m.status = "a task with a reference can't become a subtask; clear the reference first"
 		return m, nil
 	case err != nil:
+		m.noteRefusedStep(err)
 		return m, nil
 	}
 	if p, ok := m.doc.ByID(parentID); ok && !m.focused().shown[p] {
@@ -83,8 +85,9 @@ func (m model) applyIndent() (tea.Model, tea.Cmd) {
 // the step goes (todo.Document.StepPlacement) without changing anything; an
 // up or down step skips the items the tab hides (Backlog hides the other
 // columns' tasks, other tabs hide Backlog's, a search hides non-matches), so
-// the item passes one shown row per key press. A step with nowhere to go
-// changes nothing and keeps the item grabbed. Otherwise the store moves the
+// the item passes one shown row per key press. A step with nowhere to go, or
+// one the list refuses (the footer says why, see noteRefusedStep), changes
+// nothing and keeps the item grabbed. Otherwise the store moves the
 // item there, and the view shows the list the write left: the cursor stays on
 // the moved item (still grabbed) and its new parent is expanded so it stays
 // visible; the structural change also ends the accidental-complete undo
@@ -98,9 +101,21 @@ func (m model) applyMove(s todo.MoveStep) (tea.Model, tea.Cmd) {
 	}
 	parentID, afterID, err := m.doc.StepPlacement(it.ID, s, m.focused().shownID())
 	if err != nil {
+		m.noteRefusedStep(err)
 		return m, nil
 	}
 	return m.moveTo(it.ID, parentID, afterID)
+}
+
+// noteRefusedStep shows, as the footer status, why the list refuses a step of
+// the grabbed item (see refusal): a lift or nesting in a closed sprint, a
+// nesting across sprints, a lifted task whose state needs a sprint. A step
+// with nowhere to go (todo.ErrNowhere), or one that fails otherwise, changes
+// nothing and stays silent.
+func (m *model) noteRefusedStep(err error) {
+	if reason, ok := refusal(err); ok && !errors.Is(err, todo.ErrNowhere) {
+		m.status = reason
+	}
 }
 
 // moveTo moves the grabbed item id under parentID after afterID, as

@@ -25,7 +25,7 @@ func TestDeletionQuestion(t *testing.T) {
 }
 
 func TestConfirmModalRenders(t *testing.T) {
-	out := confirmModal(`Delete task "x"?`, false, 80)
+	out := confirmModal(`Delete task "x"?`, deleteLabels, false, 80)
 	for _, want := range []string{"Confirm delete", "Delete", "Cancel", `Delete task "x"?`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("confirm modal missing %q", want)

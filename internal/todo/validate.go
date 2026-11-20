@@ -8,14 +8,24 @@ func invalidf(format string, args ...any) error {
 }
 
 // validate checks l against the format's rules and returns the first failure,
-// in this order: version, malformed IDs, duplicate IDs, missing category
-// parents, parent cycles, missing task categories, unknown statuses, titles,
-// references.
+// in this order: version, malformed IDs, duplicate IDs, sprints, missing
+// category parents, parent cycles, missing task categories, unknown statuses,
+// missing task sprints, sprint membership, titles, references. A file older
+// than version 6 is upgraded before (see upgradeSprints), so its tasks in a
+// sprint state pass the membership checks.
 func (l *diskList) validate() error {
 	if l.Version != fileVersion {
 		return invalidf("unsupported format version %d", l.Version)
 	}
 	if err := l.validateIDs(); err != nil {
+		return err
+	}
+	if l.View != nil {
+		if _, ok := screenFromName(l.View.Screen); !ok && l.View.Screen != "" {
+			return invalidf("view: unknown screen %q", l.View.Screen)
+		}
+	}
+	if err := l.validateSprints(); err != nil {
 		return err
 	}
 	parents, err := l.validateCategories()
@@ -32,10 +42,98 @@ func (l *diskList) validate() error {
 			return invalidf("task %s: unknown status %q", t.ID, t.Status)
 		}
 	}
+	if err := l.validateTaskSprints(); err != nil {
+		return err
+	}
+	if err := l.validateMembership(); err != nil {
+		return err
+	}
 	if err := l.validateTitles(); err != nil {
 		return err
 	}
 	return l.validateRefs()
+}
+
+// validateSprints checks every sprint: a well formed ID that no other sprint
+// has, a name CleanTitle accepts unchanged that no other sprint has ignoring
+// case, and a known status, in that order over all sprints.
+func (l *diskList) validateSprints() error {
+	ids := make(map[string]bool, len(l.Sprints))
+	for i, s := range l.Sprints {
+		if !validID(s.ID) {
+			return invalidf("%s: malformed id %q: %s", titled("sprint", s.Name, fmt.Sprintf("sprints[%d]", i)), s.ID, idRule)
+		}
+		if ids[s.ID] {
+			return invalidf("duplicate sprint id %s", s.ID)
+		}
+		ids[s.ID] = true
+	}
+	names := make(map[string]string, len(l.Sprints)) // folded name to the ID of the sprint holding it
+	for _, s := range l.Sprints {
+		clean, err := CleanTitle(s.Name)
+		if err != nil {
+			return invalidf("sprint %s: %v", s.ID, err)
+		}
+		if clean != s.Name {
+			return invalidf("sprint %s: name has leading or trailing whitespace", s.ID)
+		}
+		key := sprintNameKey(s.Name)
+		if other, ok := names[key]; ok {
+			return invalidf("sprint %s: name %q is already used by sprint %s", s.ID, s.Name, other)
+		}
+		names[key] = s.ID
+	}
+	for _, s := range l.Sprints {
+		if _, ok := SprintStatusFromName(s.Status); !ok {
+			return invalidf("sprint %s: unknown status %q", s.ID, s.Status)
+		}
+	}
+	return nil
+}
+
+// validateTaskSprints checks every task that names a sprint names one the list
+// has.
+func (l *diskList) validateTaskSprints() error {
+	have := make(map[string]bool, len(l.Sprints))
+	for _, s := range l.Sprints {
+		have[s.ID] = true
+	}
+	for _, t := range l.Tasks {
+		if t.Sprint != "" && !have[t.Sprint] {
+			return invalidf("task %s: sprint %q does not exist", t.ID, t.Sprint)
+		}
+	}
+	return nil
+}
+
+// validateMembership checks the membership rule on every task, in file order:
+// a task in a sprint state has a sprint and one in a backlog state has none,
+// and a done sprint holds only done tasks with done subtasks. The statuses
+// and sprints must already be valid.
+func (l *diskList) validateMembership() error {
+	done := make(map[string]bool, len(l.Sprints))
+	for _, s := range l.Sprints {
+		done[s.ID] = s.Status == SprintDone.String()
+	}
+	for _, t := range l.Tasks {
+		st, _ := statusFromDisk(t.Status)
+		switch {
+		case st.InSprint() && t.Sprint == "":
+			return invalidf("task %s: status %q needs a sprint", t.ID, t.Status)
+		case !st.InSprint() && t.Sprint != "":
+			return invalidf("task %s: backlog status %q in sprint %s", t.ID, t.Status, t.Sprint)
+		case !done[t.Sprint]:
+			continue
+		case st != Done:
+			return invalidf("sprint %s is done but task %s is not", t.Sprint, t.ID)
+		}
+		for _, s := range t.Subtasks {
+			if !s.Done {
+				return invalidf("sprint %s is done but subtask %s of task %s is not", t.Sprint, s.ID, t.ID)
+			}
+		}
+	}
+	return nil
 }
 
 // validateRefs checks every task reference is one CleanRef accepts unchanged

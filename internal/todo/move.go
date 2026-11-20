@@ -34,7 +34,9 @@ const (
 // StepPlacement returns where step s takes item id, as the parentID and
 // afterID Move takes, without changing d. The step is made with Move on a copy
 // of d, so the op stays the one judge of what is valid: a step Move refuses
-// fails with Move's error (ErrTooDeep for a nesting too deep, say), a step
+// fails with Move's error (ErrTooDeep for a nesting too deep, say, or
+// ErrSprintMembership for a StepIn under a task of another sprint, whether
+// or not a view shows that task), a step
 // with nowhere to go with ErrNowhere, and a missing id with ErrNotFound. A
 // StepIn of a subtask, or of a task with subtasks, fails with ErrTooDeep even
 // with no sibling to nest under, as no sibling could take it.

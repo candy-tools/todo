@@ -28,6 +28,7 @@ const (
 	formCategory formKind = iota // the title only
 	formSubtask                  // title, description and plan
 	formTask                     // a top-level task: also its reference
+	formSprint                   // a sprint: its name (the title) and goal (the description)
 )
 
 // formKindOf returns the formKind for editing it.
@@ -51,7 +52,7 @@ type form struct {
 	plan    textinput.Model // a task's plan link: a single line
 	focus   formFocus
 	kind    formKind
-	isTask  bool // false → category form (title only)
+	isTask  bool // a task or subtask form (false: a category or sprint form)
 	editing bool // false → adding (only affects the window title)
 	width   int  // terminal width, for sizing
 	// meta is the read-only header shown above the fields when editing an existing
@@ -88,7 +89,7 @@ func newForm(v todo.Fields, kind formKind, editing bool) form {
 	pi.Prompt = ""
 	pi.SetValue(v.Plan)
 
-	f := form{title: ti, ref: ri, desc: ta, plan: pi, kind: kind, isTask: kind != formCategory, editing: editing, focus: focusTitle}
+	f := form{title: ti, ref: ri, desc: ta, plan: pi, kind: kind, isTask: kind == formTask || kind == formSubtask, editing: editing, focus: focusTitle}
 	f.start = f.values()
 	f.title.Focus()
 	return f
@@ -103,6 +104,8 @@ func (f form) ring() []formFocus {
 		return []formFocus{focusTitle, focusRef, focusDesc, focusPlan, focusSave, focusCancel}
 	case formSubtask:
 		return []formFocus{focusTitle, focusDesc, focusPlan, focusSave, focusCancel}
+	case formSprint:
+		return []formFocus{focusTitle, focusDesc, focusSave, focusCancel}
 	}
 	return []formFocus{focusTitle, focusSave, focusCancel}
 }
@@ -192,8 +195,10 @@ func (f form) update(msg tea.Msg) (form, tea.Cmd) {
 // and the description. A field the form does not show is "".
 func (f form) values() todo.Fields {
 	v := todo.Fields{Title: strings.TrimSpace(f.title.Value())}
-	if f.isTask {
+	if f.isTask || f.kind == formSprint {
 		v.Description = strings.Trim(f.desc.Value(), "\n")
+	}
+	if f.isTask {
 		v.Plan = strings.TrimSpace(f.plan.Value())
 	}
 	if f.kind == formTask {
@@ -223,9 +228,27 @@ func (f form) changes() todo.Changes {
 	return c
 }
 
+// sprintChanges names the sprint fields (the title is the name, the description
+// the goal) whose values differ from the ones the form opened with.
+func (f form) sprintChanges() todo.SprintChanges {
+	v := f.values()
+	var c todo.SprintChanges
+	if v.Title != f.start.Title {
+		c.Name = &v.Title
+	}
+	if v.Description != f.start.Description {
+		c.Goal = &v.Description
+	}
+	return c
+}
+
 func (f form) view() string {
 	title := "Add task"
 	switch {
+	case f.kind == formSprint && f.editing:
+		title = "Edit sprint"
+	case f.kind == formSprint:
+		title = "Add sprint"
 	case !f.isTask && f.editing:
 		title = "Rename category"
 	case !f.isTask:
@@ -239,7 +262,11 @@ func (f form) view() string {
 		b.WriteString(f.meta)
 		b.WriteString("\n\n")
 	}
-	b.WriteString(fieldLabel("Title", f.focus == focusTitle))
+	titleLabel := "Title"
+	if f.kind == formSprint {
+		titleLabel = "Name"
+	}
+	b.WriteString(fieldLabel(titleLabel, f.focus == focusTitle))
 	b.WriteString("\n")
 	b.WriteString(f.underline(f.title.View(), f.focus == focusTitle))
 	if f.kind == formTask {
@@ -248,11 +275,17 @@ func (f form) view() string {
 		b.WriteString("\n")
 		b.WriteString(f.underline(f.ref.View(), f.focus == focusRef))
 	}
-	if f.isTask {
+	if f.isTask || f.kind == formSprint {
+		descLabel := "Description"
+		if f.kind == formSprint {
+			descLabel = "Goal"
+		}
 		b.WriteString("\n\n")
-		b.WriteString(fieldLabel("Description", f.focus == focusDesc))
+		b.WriteString(fieldLabel(descLabel, f.focus == focusDesc))
 		b.WriteString("\n")
 		b.WriteString(f.descBox())
+	}
+	if f.isTask {
 		b.WriteString("\n\n")
 		b.WriteString(fieldLabel("Plan", f.focus == focusPlan))
 		b.WriteString("\n")

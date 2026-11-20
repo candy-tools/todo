@@ -25,7 +25,7 @@ func TestRmRemovesSubtree(t *testing.T) {
 
 func TestPruneRemovesCompleted(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [x] done1\n- [ ] open1\n- [x] done2\n")
-	out, err := runCmd(t, "prune", "--file", path)
+	out, err := runCmd(t, "prune", "--all", "--file", path)
 	if err != nil {
 		t.Fatalf("prune: %v", err)
 	}

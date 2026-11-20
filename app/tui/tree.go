@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/candy-tools/todo/internal/todo"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // rowKind tells a tree row backed by an item from the synthetic ones.
@@ -128,19 +129,20 @@ func (t *tree) shownID() func(id string) bool {
 	return func(id string) bool { return ids[id] }
 }
 
-// visibleItems returns the items the current tab shows: the column's items
-// and, while searching, only those on a path to a match that is itself in the
-// tab (see todo.Document.ColumnMatches), narrowed to the state filter when it
-// is on for the tab (see todo.Document.KeepStates).
+// visibleItems returns the items the current view shows: the column's items
+// (on a sprint board, the board's sprint's only) and, while searching, only
+// those on a path to a match that is itself in the view (see
+// todo.Document.ColumnMatches), narrowed to the state filter when it is on for
+// the view (see todo.Document.KeepStates).
 func (t *tree) visibleItems() map[*todo.Item]bool {
-	cols := t.vs.columns()
-	vis := t.doc.ColumnMatches(t.vs.filter, cols...)
+	cols, sprint := t.vs.columns(), t.vs.scopeSprint()
+	vis := t.doc.ColumnMatches(t.vs.filter, sprint, cols...)
 	if active := t.vs.activeStates(); len(active) > 0 {
 		keep := map[todo.Status]bool{}
 		for _, st := range active {
 			keep[st] = true
 		}
-		vis = t.doc.KeepStates(vis, keep, cols...)
+		vis = t.doc.KeepStates(vis, keep, sprint, cols...)
 	}
 	return vis
 }
@@ -690,9 +692,9 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 
 	if r.item.Kind == todo.Category {
 		title := todo.Printable(r.item.Title)
-		// Backlog shows the category's overall progress; the other tabs count
-		// the category's tasks in that tab.
-		counts := fmt.Sprintf(" (%d)", r.item.CountInColumn(t.vs.column))
+		// Backlog and the unified view show the category's overall progress;
+		// a sprint board counts the category's tasks of the sprint in the tab.
+		counts := fmt.Sprintf(" (%d)", r.item.CountInColumn(t.vs.scopeSprint(), t.vs.column))
 		if t.vs.editsCategories() {
 			counts = ""
 			if done, total := r.item.TaskCounts(); total > 0 {
@@ -717,7 +719,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	if r.item.IsDone() {
 		titleStyle = doneTitleStyle
 	}
-	state, warn, note := taskTrailer(r.item)
+	state, warn, note := taskTrailer(r.item, t.sprintTag(r.item))
 	if selected {
 		return selStyle.Render(gutter+indent+fold+glyph+" ") + highlight(todo.Printable(r.item.DisplayTitle()), t.vs.filter, selStyle) + selStyle.Render(state+warn+note)
 	}
@@ -725,12 +727,31 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 		helpTextStyle.Render(state) + deferStyle.Render(warn) + helpTextStyle.Render(note)
 }
 
+// sprintTag is the sprint name a row of top-level task it shows next to its
+// state: only in the unified view, which mixes every sprint's tasks, and only
+// for a task in a sprint. The name is made safe to draw and cut to
+// maxNameWidth, as in the Sprints workspace's sidebar. It is "" otherwise.
+func (t *tree) sprintTag(it *todo.Item) string {
+	if !t.vs.all || it.IsSubtask() || it.Sprint == "" {
+		return ""
+	}
+	s, ok := t.doc.SprintByID(it.Sprint)
+	if !ok {
+		return ""
+	}
+	return ansi.Truncate(todo.Printable(s.Name), maxNameWidth, "…")
+}
+
 // taskTrailer returns the unstyled pieces drawn after a task's title: the
-// state label and subtask progress (top-level tasks only), the no-plan warning,
-// and the ≡ marker. Each piece is empty or starts with a space.
-func taskTrailer(it *todo.Item) (state, warn, note string) {
+// state label, then sprint (the task's sprint name, when the row shows one;
+// see sprintTag) and subtask progress (top-level tasks only), the no-plan
+// warning, and the ≡ marker. Each piece is empty or starts with a space.
+func taskTrailer(it *todo.Item, sprint string) (state, warn, note string) {
 	if !it.IsSubtask() {
 		state = " " + it.Status.Label()
+		if sprint != "" {
+			state += " · " + sprint
+		}
 		if done, total := it.TaskCounts(); total > 0 {
 			state += fmt.Sprintf(" (%d/%d)", done, total)
 		}

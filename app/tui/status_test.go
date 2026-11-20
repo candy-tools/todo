@@ -21,25 +21,25 @@ func storeFP(t *testing.T, m model) todo.Fingerprint {
 	return fp
 }
 
-// selectTitle moves the cursor onto the row titled title in the current tab.
+// selectTitle moves the cursor onto the row titled title in the current view.
 func selectTitle(t *testing.T, m model, title string) model {
 	t.Helper()
 	it := find(m.doc, title)
 	if it == nil || !m.tree.selectID(it.ID) {
-		t.Fatalf("%q is not shown on %s (rows %v)", title, m.view.column.Title(), rowTitles(m.tree))
+		t.Fatalf("%q is not shown on %s (rows %v)", title, m.view.title(), rowTitles(m.tree))
 	}
 	return m
 }
 
 func TestBracketMovesToNextColumn(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n- [ ] b\n")
+	m, path := newTestModelOn(t, "# C\n- [/] a\n- [/] b\n", todo.ColInProgress)
 	m = press(m, "down") // a, row 1
-	m = press(m, "p")
-	if st := storedItem(t, path, "a").Status; st != todo.New {
-		t.Fatalf("] on a Backlog task stored %v, want new", st)
+	m = press(m, "a")
+	if st := storedItem(t, path, "a").Status; st != todo.Done {
+		t.Fatalf("a on an In Progress task stored %v, want done", st)
 	}
 	if contains(rowTitles(m.tree), "a") {
-		t.Errorf("a must leave Backlog, rows = %v", rowTitles(m.tree))
+		t.Errorf("a must leave In Progress, rows = %v", rowTitles(m.tree))
 	}
 	if m.tree.cursor != 1 {
 		t.Errorf("the cursor must stay at row 1, got %d", m.tree.cursor)
@@ -47,21 +47,15 @@ func TestBracketMovesToNextColumn(t *testing.T) {
 	if got := m.tree.selected(); got == nil || got.Title != "b" {
 		t.Errorf("the row that took a's place must be selected, got %v", got)
 	}
-	if got := m.footer(200); !strings.Contains(got, "moved to Next — new") {
+	if got := m.footer(200); !strings.Contains(got, "moved to Done — done") {
 		t.Errorf("footer = %q, want the move notice", got)
-	}
-	// From Next, ] lands in In Progress's first state.
-	m = showOn(t, m, todo.ColNext, "a")
-	m = press(m, "p")
-	if st := storedItem(t, path, "a").Status; st != todo.Working {
-		t.Errorf("] on a Next task stored %v, want working", st)
 	}
 }
 
 func TestBracketBackFromDoneIsWorking(t *testing.T) {
 	m, path := newTestModelOn(t, "# C\n- [x] d\n  - [ ] s\n", todo.ColDone)
 	m = selectTitle(t, m, "d")
-	m = press(m, "P")
+	m = press(m, "A")
 	if st := storedItem(t, path, "d").Status; st != todo.Working {
 		t.Errorf("[ on a done task stored %v, want working", st)
 	}
@@ -78,7 +72,7 @@ func TestBracketIntoDoneCascadesWithUndo(t *testing.T) {
 		{"id": "t000001", "category": "c000000", "title": "r", "status": "review", "subtasks": [
 			{"id": "s000001", "title": "s1"}, {"id": "s000002", "title": "s2"}]}]}`)
 	m = showOn(t, m, todo.ColInProgress, "r")
-	m = press(m, "p")
+	m = press(m, "a")
 	for _, title := range []string{"r", "s1", "s2"} {
 		if st := storedItem(t, path, title).Status; st != todo.Done {
 			t.Fatalf("%s = %v after ] into Done, want done", title, st)
@@ -101,9 +95,9 @@ func TestBracketOutOfDoneRestoresSubtasks(t *testing.T) {
 		{"id": "t000001", "category": "c000000", "title": "r", "status": "review", "subtasks": [
 			{"id": "s000001", "title": "s1"}, {"id": "s000002", "title": "s2", "done": true}]}]}`)
 	m = showOn(t, m, todo.ColInProgress, "r")
-	m = press(m, "p") // into Done: snapshot, cascade
+	m = press(m, "a") // into Done: snapshot, cascade
 	m = showOn(t, m, todo.ColDone, "r")
-	m = press(m, "P") // out of Done: parent working, subtasks from the snapshot
+	m = press(m, "A") // out of Done: parent working, subtasks from the snapshot
 	if st := storedItem(t, path, "r").Status; st != todo.Working {
 		t.Errorf("[ out of Done must land r on working, got %v", st)
 	}
@@ -122,7 +116,7 @@ func TestBracketOnSubtaskIsHint(t *testing.T) {
 	m, path := newTestModel(t, "# C\n- [ ] a\n  - [ ] s\n")
 	m = selectTitle(t, m, "s")
 	before := storeFP(t, m)
-	for _, key := range []string{"p", "P"} {
+	for _, key := range []string{"a", "A"} {
 		got := press(m, key)
 		if got.status == "" {
 			t.Errorf("%q on a subtask must explain itself in the footer", key)
@@ -140,29 +134,30 @@ func TestBracketAtEdgeIsNoop(t *testing.T) {
 	m, _ := newTestModel(t, "# C\n- [ ] a\n- [x] d\n")
 	m = selectTitle(t, m, "a")
 	before := storeFP(t, m)
-	got := press(m, "P")
+	got := press(m, "A")
 	if got.status == "" || storeFP(t, got) != before {
 		t.Errorf("[ on Backlog must only hint, status %q", got.status)
 	}
 	m = showOn(t, m, todo.ColDone, "d")
-	got = press(m, "p")
+	got = press(m, "a")
 	if got.status == "" || storeFP(t, got) != before {
 		t.Errorf("] on Done must only hint, status %q", got.status)
 	}
 }
 
 func TestBracketUnknownStatusIsBacklog(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m, _ := newTestModel(t, "# C\n- [ ] a\n")
 	m = setStatusInMemory(t, m, "a", todo.Status(9))
 	m = selectTitle(t, m, "a")
 	before := storeFP(t, m)
-	got := press(m, "P")
-	if got.status != "no column beyond Backlog" || storeFP(t, got) != before {
-		t.Errorf("[ on an unknown status must hint as at Backlog's edge, status %q", got.status)
+	got := press(m, "A")
+	if got.status != "already in the Backlog" || storeFP(t, got) != before {
+		t.Errorf("A on an unknown status must hint as on a backlog task, status %q", got.status)
 	}
-	press(m, "p")
-	if st := storedItem(t, path, "a").Status; st != todo.New {
-		t.Errorf("] on an unknown status stored %v, want new", st)
+	// An unknown status is a backlog task: a offers sprints (none here).
+	got = press(m, "a")
+	if got.mode != modeMain || got.status != msgNoOpenSprints || storeFP(t, got) != before {
+		t.Errorf("a on an unknown status: mode %v status %q, want the no-sprints hint", got.mode, got.status)
 	}
 }
 
@@ -185,14 +180,14 @@ func TestSpaceAndXNeverChangeState(t *testing.T) {
 }
 
 func TestStatePickerSetsState(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m, path := newTestModelOn(t, "# C\n- [/] a\n", todo.ColInProgress)
 	m = selectTitle(t, m, "a")
 	m = press(m, "t")
-	if m.mode != modeStatePick || m.pick.selected() != todo.Open {
+	if m.mode != modeStatePick || m.pick.selected() != todo.Working {
 		t.Fatalf("t should open the picker on the current state, mode %v, on %v", m.mode, m.pick.selected())
 	}
-	// From open: deferred, won't do, then the Next heading is skipped to new, ready.
-	m = press(m, "down", "down", "down", "down")
+	// From working, up skips the In Progress heading to ready.
+	m = press(m, "up")
 	if got := m.pick.selected(); got != todo.Ready {
 		t.Fatalf("cursor on %v, want ready", got)
 	}
@@ -209,7 +204,7 @@ func TestStatePickerSetsState(t *testing.T) {
 }
 
 func TestStatePickerDoneAndCancel(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n  - [ ] s\n")
+	m, path := newTestModelOn(t, "# C\n- [/] a\n  - [ ] s\n", todo.ColInProgress)
 	m = selectTitle(t, m, "a")
 	before := storeFP(t, m)
 	m = press(m, "t", "down", "esc")
@@ -255,11 +250,11 @@ func TestStateFilter(t *testing.T) {
 		t.Errorf("footer should show the state filter, got %q", got)
 	}
 	// Other tabs ignore Backlog's states.
-	m.setColumn(todo.ColDone)
+	toTab(&m, todo.ColDone)
 	if len(m.view.activeStates()) != 0 {
 		t.Errorf("Done must not inherit Backlog's state filter")
 	}
-	m.setColumn(todo.ColBacklog)
+	toTab(&m, todo.ColBacklog)
 	m = press(m, "esc")
 	if len(m.view.activeStates()) != 0 || !hasRow(m, "a") {
 		t.Errorf("esc must clear the state filter, rows %v", rowTitles(m.tree))
@@ -303,7 +298,7 @@ func TestReopenWithoutSnapshotKeepsSubtasks(t *testing.T) {
 // tree, but completing its task must still cascade to it: the store reads the
 // tree at write time.
 func TestCompleteCascadesToSubtaskAddedExternally(t *testing.T) {
-	m, path := newTestModel(t, "# C\n- [ ] a\n")
+	m, path := newTestModelOn(t, "# C\n- [/] a\n", todo.ColInProgress)
 	a := find(m.doc, "a").ID
 	if _, _, err := openSecond(t, path).AddTask(context.Background(), todo.Fields{Title: "s"}, todo.Open, a, ""); err != nil {
 		t.Fatalf("external add: %v", err)
@@ -353,7 +348,7 @@ func TestEmptyTabKeysAreNoops(t *testing.T) {
 		t.Fatalf("precondition: Next must be empty, rows = %v", rowTitles(m.tree))
 	}
 	before := storeFP(t, m)
-	for _, key := range []string{"p", "P", "t", "x", " ", "e", "d", "m"} {
+	for _, key := range []string{"a", "A", "t", "x", " ", "e", "d", "m"} {
 		got := press(m, key)
 		if got.mode != modeMain || got.tree.grabbed {
 			t.Errorf("%q on an empty tab changed mode %v / grabbed %v", key, got.mode, got.tree.grabbed)
@@ -428,7 +423,7 @@ func TestItemMetaStatus(t *testing.T) {
 
 func TestHelpShowsBoardKeys(t *testing.T) {
 	got := ansi.Strip(helpModal(200, 60, 0))
-	for _, want := range []string{"Next / previous tab", "Move the task to the next / previous column", "Set the task's state", "Filter the tab by state", "Fold / unfold a category", "Quit"} {
+	for _, want := range []string{"Previous / next column", "Move the task to the next / previous column", "Set the task's state", "Filter the tab by state", "Fold / unfold a category", "Quit"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help dialog should list %q, got:\n%s", want, got)
 		}
@@ -440,7 +435,7 @@ func TestReopenFromSnapshotIntoPickedState(t *testing.T) {
 		{"id": "t000001", "category": "c000000", "title": "r", "status": "review", "subtasks": [
 			{"id": "s000001", "title": "s1"}, {"id": "s000002", "title": "s2", "done": true}]}]}`)
 	m = showOn(t, m, todo.ColInProgress, "r")
-	m = press(m, "p") // into Done: snapshot, cascade
+	m = press(m, "a") // into Done: snapshot, cascade
 	if len(m.snapshots) != 1 {
 		t.Fatalf("completing r must take one snapshot, got %d", len(m.snapshots))
 	}
@@ -457,5 +452,62 @@ func TestReopenFromSnapshotIntoPickedState(t *testing.T) {
 	}
 	if len(m.snapshots) != 0 {
 		t.Errorf("leaving Done must consume the snapshot, got %d", len(m.snapshots))
+	}
+}
+
+// closedBoard is a closed sprint holding one done task, shipped, with a done
+// subtask, beside an open sprint and a backlog task, shown on the closed
+// sprint's Done tab with shipped selected.
+func closedBoard(t *testing.T) (model, string) {
+	t.Helper()
+	m, path := newJSONModel(t, `{"version": 6,
+		"sprints": [{"id": "s000001", "name": "Closed", "status": "done"}, {"id": "s000002", "name": "Open", "status": "open"}],
+		"categories": [{"id": "c000000", "title": "C"}], "tasks": [
+		{"id": "t000001", "category": "c000000", "sprint": "s000001", "title": "shipped", "status": "done",
+			"subtasks": [{"id": "p000001", "title": "part", "done": true}]},
+		{"id": "t000002", "category": "c000000", "title": "idle", "status": "open"}]}`)
+	return onBoard(t, m, "s000001", todo.ColDone, "shipped"), path
+}
+
+// On a closed sprint's board every key that would change a task's membership
+// or state, or add a task, leaves the file alone and says why.
+func TestClosedBoardKeysShowReopenHint(t *testing.T) {
+	for _, key := range []string{"a", "A", "t", "n", "N", "o"} {
+		t.Run(key, func(t *testing.T) {
+			m, _ := closedBoard(t)
+			before := storeFP(t, m)
+			m = press(m, key)
+			if m.status != "reopen the sprint first" || m.err != nil {
+				t.Errorf("status %q err %v, want the reopen hint", m.status, m.err)
+			}
+			if m.mode != modeMain {
+				t.Errorf("mode = %v, want no dialog opened", m.mode)
+			}
+			if storeFP(t, m) != before {
+				t.Error("the file changed")
+			}
+		})
+	}
+}
+
+// A write the list refuses (here the sprint closed by another process since
+// the board was drawn) shows its reason in the footer, not as a failed save.
+func TestRefusedWriteIsAStatus(t *testing.T) {
+	m, path := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{{ID: "s000001", Name: "Sprint 1", Status: "open"}},
+		seedTask{ID: "t000001", Title: "x", Status: "done", Sprint: "s000001"}))
+	m = onBoard(t, m, "s000001", todo.ColDone, "x")
+	if _, err := openSecond(t, path).CloseSprint(context.Background(), "s000001"); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "A")
+	if m.err != nil || m.status != "reopen the sprint first" {
+		t.Errorf("err %v status %q, want no save error and the reopen hint", m.err, m.status)
+	}
+	if strings.Contains(m.footer(200), "save failed") {
+		t.Errorf("footer = %q", m.footer(200))
+	}
+	if it := find(loadSprintDoc(t, path), "x"); it.Status != todo.Done {
+		t.Errorf("x = %v, want still done", it.Status)
 	}
 }

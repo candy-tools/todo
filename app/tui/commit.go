@@ -85,6 +85,9 @@ func (m *model) writer() *todo.Store {
 // removed fails as errListRemoved and writes nothing (see writer); the view
 // keeps the list.
 //
+// A write the list's rules refuse (see refusal) did not fail to save: its
+// reason takes the footer as the status, e.g. "reopen the sprint first".
+//
 // commit reports whether the write succeeded, so a caller can keep the user's
 // input to retry a failed save.
 func (m *model) commit(focusID string, write storeWrite) (saved bool) {
@@ -93,12 +96,19 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 	onPH := m.focused().onPlaceholder()
 	r, err := write(ctx, m.writer())
 	if err != nil {
-		if errors.Is(err, todo.ErrListMissing) {
-			err = errListRemoved
+		reason, refused := refusal(err)
+		if !refused {
+			if errors.Is(err, todo.ErrListMissing) {
+				err = errListRemoved
+			}
+			m.err = fmt.Errorf("save failed: %w", err)
 		}
-		m.err = fmt.Errorf("save failed: %w", err)
 		m.reload(ctx)
 		m.adoptAll(m.doc, focusID, onPH)
+		if refused {
+			// After the reload, so the reason wins over its external-change notice.
+			m.status = reason
+		}
 		return false
 	}
 	external := r.Read != m.lastFP
@@ -106,11 +116,25 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 	// The write read and validated the file, so earlier poll failures are
 	// over: a later one counts from zero.
 	m.clearPollErr()
-	m.adoptAll(m.doc, focusID, onPH)
+	// The notice goes first, so a status the adopt sets (Planning left for a
+	// gone sprint) wins over it.
 	if external {
 		m.noteExternal()
 	}
+	m.adoptAll(m.doc, focusID, onPH)
 	return true
+}
+
+// refusal returns the footer status for err when it is a write the list's
+// rules refuse whatever the list holds (todo.ErrBadRequest): a task in a
+// closed sprint, tasks of two sprints nested, a sprint closed with tasks not
+// done. Such a write did not fail to save, so the footer shows its reason, not
+// an error. ok is false for any other error.
+func refusal(err error) (reason string, ok bool) {
+	if !errors.Is(err, todo.ErrBadRequest) {
+		return "", false
+	}
+	return err.Error(), true
 }
 
 // take makes doc, read from the file at fingerprint fp, the list the model

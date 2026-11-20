@@ -72,14 +72,30 @@ func HoldWriteLock(t testing.TB, path string) {
 	t.Cleanup(func() { _ = fl.Unlock() })
 }
 
+// ImportedSprintID is the ID of the open sprint Parse puts the top-level tasks
+// in a sprint state ([/], [x], ...) in, as an import into a list does.
+const ImportedSprintID = "0000000"
+
 // Parse turns md into a Document through todo.ImportMarkdown, failing the test
 // on an error. Tasks outside every heading land in an Uncategorized category,
-// and import warnings are ignored.
+// and import warnings are ignored. As an import into a list, it puts every
+// top-level task in a sprint state in an open sprint named
+// todo.ImportedSprintName (ID ImportedSprintID), so the document keeps the
+// membership rule the operations check.
 func Parse(t testing.TB, md string) *todo.Document {
 	t.Helper()
 	doc, _, err := todo.ImportMarkdown([]byte(md))
 	if err != nil {
 		t.Fatalf("todotest.Parse: %v", err)
+	}
+	for _, it := range doc.Enumerate() {
+		if !it.IsTask() || it.IsSubtask() || it.Sprint != "" || !it.Status.InSprint() {
+			continue
+		}
+		if _, ok := doc.SprintByID(ImportedSprintID); !ok {
+			doc.Sprints = append(doc.Sprints, &todo.Sprint{ID: ImportedSprintID, Name: todo.ImportedSprintName})
+		}
+		it.Sprint = ImportedSprintID
 	}
 	return doc
 }
