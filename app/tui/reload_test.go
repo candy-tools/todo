@@ -873,8 +873,7 @@ func TestExternalWriteReloadsKeepingSelection(t *testing.T) {
 }
 
 func TestUndoSurvivesOwnReloadClearedByExternal(t *testing.T) {
-	m, path := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n", todo.ColInProgress)
-	m = press(m, "down") // parent
+	m, path := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n", todo.ColInProgress) // on parent
 
 	// Own writes: cascade-complete, then un-toggle restores the subtasks.
 	m = pickState(t, m, todo.Done)
@@ -1033,7 +1032,7 @@ func TestClearDoneKeepsExternalNotice(t *testing.T) {
 // undo snapshots, so un-toggling the parent never writes old statuses over it.
 func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 	m, path := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n- [ ] other\n", todo.ColInProgress)
-	m = pickState(t, press(m, "down"), todo.Done) // cascade-complete parent
+	m = pickState(t, m, todo.Done) // cascade-complete parent
 	if len(m.snapshots) != 1 {
 		t.Fatalf("precondition: the cascade must leave a snapshot, got %d", len(m.snapshots))
 	}
@@ -1071,7 +1070,7 @@ func TestOwnWriteDetectsExternalWriteBeforePoll(t *testing.T) {
 func TestWriteErrorShowsAndReloads(t *testing.T) {
 	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
 	writeList(t, path, []byte(halfWritten))
-	m = pickState(t, press(m, "down"), todo.Done)
+	m = pickState(t, m, todo.Done)
 	if m.err == nil {
 		t.Fatal("a failed write must set m.err")
 	}

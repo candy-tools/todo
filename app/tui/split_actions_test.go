@@ -84,13 +84,6 @@ func TestSplitEditCategoryInSidebar(t *testing.T) {
 	if m.mode != modeForm || m.editing == nil || m.editing.Title != "Work" {
 		t.Fatalf("e on Work should edit it, mode %v", m.mode)
 	}
-	m = press(m, "esc")
-	toTab(&m, todo.ColNext)
-	m = sideSelect(t, m, "Work")
-	m = press(m, "e")
-	if m.mode != modeMain || !strings.Contains(m.footer(200), msgCategoriesInBacklog) {
-		t.Errorf("outside Backlog e on a category: mode %v footer %q", m.mode, m.footer(200))
-	}
 }
 
 func TestSplitDeleteScopeFallsBackToAll(t *testing.T) {

@@ -95,11 +95,12 @@ func TestAOnBacklogCategoryHintsToSelectATask(t *testing.T) {
 		t.Errorf("a on a Backlog category: status %q", m.status)
 	}
 	b, _ := threeSprints(t)
-	b = press(b, "s", "tab") // A's board, on its category row
+	b = press(b, "s", "tab", "u") // the unified view over A's board, on its top category row
+	b.tree.selectTop()
 	if it := b.selectedItem(); it == nil || it.IsTask() {
-		t.Fatalf("setup: selected %v, want the board's category row", it)
+		t.Fatalf("setup: selected %v, want a category row", it)
 	}
 	if b = press(b, "a"); b.status != "only tasks move between columns" {
-		t.Errorf("a on a board category: status %q", b.status)
+		t.Errorf("a on a category in the unified view: status %q", b.status)
 	}
 }

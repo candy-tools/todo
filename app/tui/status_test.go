@@ -33,16 +33,19 @@ func selectTitle(t *testing.T, m model, title string) model {
 
 func TestBracketMovesToNextColumn(t *testing.T) {
 	m, path := newTestModelOn(t, "# C\n- [/] a\n- [/] b\n", todo.ColInProgress)
-	m = press(m, "down") // a, row 1
+	row := m.tree.cursor // a
 	m = press(m, "a")
 	if st := storedItem(t, path, "a").Status; st != todo.Done {
 		t.Fatalf("a on an In Progress task stored %v, want done", st)
 	}
-	if contains(rowTitles(m.tree), "a") {
-		t.Errorf("a must leave In Progress, rows = %v", rowTitles(m.tree))
+	if got := sectionTitles(m.tree, todo.ColInProgress); !equalStrings(got, []string{"b"}) {
+		t.Errorf("a must leave In Progress, its rows = %v", got)
 	}
-	if m.tree.cursor != 1 {
-		t.Errorf("the cursor must stay at row 1, got %d", m.tree.cursor)
+	if got := sectionTitles(m.tree, todo.ColDone); !equalStrings(got, []string{"a"}) {
+		t.Errorf("a must show in Done, its rows = %v", got)
+	}
+	if m.tree.cursor != row {
+		t.Errorf("the cursor must stay at row %d, got %d", row, m.tree.cursor)
 	}
 	if got := m.tree.selected(); got == nil || got.Title != "b" {
 		t.Errorf("the row that took a's place must be selected, got %v", got)
@@ -423,7 +426,7 @@ func TestItemMetaStatus(t *testing.T) {
 
 func TestHelpShowsBoardKeys(t *testing.T) {
 	got := ansi.Strip(helpModal(200, 60, 0))
-	for _, want := range []string{"Previous / next column", "Move the task to the next / previous column", "Set the task's state", "Filter the tab by state", "Fold / unfold a category", "Quit"} {
+	for _, want := range []string{"Previous / next section", "Move the task to the next / previous column", "Set the task's state", "Filter the view by state", "Fold / unfold a category", "Quit"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help dialog should list %q, got:\n%s", want, got)
 		}

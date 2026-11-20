@@ -467,8 +467,8 @@ func TestClosedRowIgnoresBoardKeys(t *testing.T) {
 	m, _ := closedPair(t)
 	m = press(m, "s", "down")
 	m = press(m, "]", "2", "a", "A", "L", "/", "f", "e", "D")
-	if m.mode != modeMain || m.view.column != todo.ColNext || m.columns || m.view.filter != "" || !m.sprints.onGroup(m.doc) {
-		t.Errorf("mode %v column %v columns %v filter %q onGroup %v, want nothing changed", m.mode, m.view.column, m.columns, m.view.filter, m.sprints.onGroup(m.doc))
+	if m.mode != modeMain || m.boardColumn() != todo.ColNext || m.view.filter != "" || !m.sprints.onGroup(m.doc) {
+		t.Errorf("mode %v column %v filter %q onGroup %v, want nothing changed", m.mode, m.boardColumn(), m.view.filter, m.sprints.onGroup(m.doc))
 	}
 	// Back from the unified view the sidebar keeps the keys: the Closed row has
 	// no board to take them.
@@ -601,14 +601,14 @@ func TestSidebarAndPlanFootersFitWholeHints(t *testing.T) {
 	check("planning right", ansi.Strip(m.footer(60)), 60)
 }
 
-// The board footer leads with Help and the column keys, and offers L only
-// where the columns fit.
-func TestBoardFooterColumnHints(t *testing.T) {
+// The board footer leads with Help and the section keys; the columns layout
+// and its L are gone.
+func TestBoardFooterSectionHints(t *testing.T) {
 	m, _ := twoSprints(t)
 	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 30})
 	m = press(m, "s", "tab")
 	f := ansi.Strip(m.footer(200))
-	for _, want := range []string{"[ ] 1-3: Column", "a/A: Move task"} {
+	for _, want := range []string{"[ ] 1-3: Section", "a/A: Move task"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("footer at 80 = %q, misses %q", f, want)
 		}
@@ -616,15 +616,12 @@ func TestBoardFooterColumnHints(t *testing.T) {
 	if strings.Contains(f, "Next/prev column") {
 		t.Errorf("footer at 80 = %q, the old a/A label is gone", f)
 	}
-	if strings.Contains(f, "L:") {
-		t.Errorf("footer at 80 = %q, L needs a wider board", f)
-	}
 	if !strings.HasPrefix(f, " ?: Help  tab: Sprints") {
 		t.Errorf("footer at 80 = %q, want Help then tab Sprints first", f)
 	}
 	wide := send(m, tea.WindowSizeMsg{Width: 140, Height: 30})
-	if f := ansi.Strip(wide.footer(200)); !strings.Contains(f, "L: Columns") {
-		t.Errorf("footer at 140 = %q, want L: Columns", f)
+	if f := ansi.Strip(wide.footer(200)); strings.Contains(f, "L:") {
+		t.Errorf("footer at 140 = %q, want no L", f)
 	}
 }
 

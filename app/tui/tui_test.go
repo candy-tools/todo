@@ -49,7 +49,7 @@ func TestEnterOpensEditDialog(t *testing.T) {
 
 func TestToggleLeafPersists(t *testing.T) {
 	m, path := newTestModelOn(t, "# Work\n\n- [/] a\n", todo.ColInProgress)
-	m = pickState(t, press(m, "down"), todo.Done)
+	m = pickState(t, m, todo.Done)
 	if !find(m.doc, "a").IsDone() {
 		t.Errorf("task should be done in memory")
 	}
@@ -59,8 +59,7 @@ func TestToggleLeafPersists(t *testing.T) {
 }
 
 func TestCascadeCompleteAndRevert(t *testing.T) {
-	m, _ := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [x] c2\n", todo.ColInProgress)
-	m = press(m, "down") // select parent
+	m, _ := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [x] c2\n", todo.ColInProgress) // on parent
 
 	// Mark the parent done: everything cascades to done.
 	m = pickState(t, m, todo.Done)
@@ -85,8 +84,8 @@ func TestCascadeCompleteAndRevert(t *testing.T) {
 }
 
 func TestManualChildToggleInvalidatesSnapshot(t *testing.T) {
+	// The cursor starts on parent.
 	m, _ := newTestModelOn(t, "# Work\n\n- [/] parent\n  - [ ] c1\n  - [ ] c2\n", todo.ColInProgress)
-	m = press(m, "down")           // parent
 	m = pickState(t, m, todo.Done) // cascade all done (snapshot: all were false)
 
 	m = showOn(t, m, todo.ColDone, "c1") // the done parent and its subtasks left In Progress
@@ -509,8 +508,7 @@ func TestDeleteAfterCancelledClear(t *testing.T) {
 	// A cancelled clear must reset the confirm action, otherwise the next single
 	// delete would wrongly clear every completed task.
 	m, _ := newTestModelOn(t, "# Work\n\n- [x] a\n- [x] c\n- [ ] b\n", todo.ColDone)
-	m = press(m, "D", "esc") // open the clear-done confirm, then cancel it
-	m = press(m, "down")     // select task a
+	m = press(m, "D", "esc") // open the clear-done confirm, then cancel it; a stays selected
 	m = press(m, "d", "y")   // delete only a
 	if find(m.doc, "a") != nil {
 		t.Errorf("task a should be deleted")
@@ -558,8 +556,7 @@ func TestViewSmoke(t *testing.T) {
 // of both the old view and edit dialogs: the item's read-only status and subtask
 // progress, plus its editable title/description with Save.
 func TestEditDialogCombinesViewAndEdit(t *testing.T) {
-	m, _ := newTestModelOn(t, "# Work\n\n- [x] parent\n  the description\n  - [x] child\n", todo.ColDone)
-	m = press(m, "down") // task "parent" (done, has a description and a subtask)
+	m, _ := newTestModelOn(t, "# Work\n\n- [x] parent\n  the description\n  - [x] child\n", todo.ColDone) // on "parent" (done, has a description and a subtask)
 	m = press(m, "enter")
 	if m.mode != modeForm {
 		t.Fatalf("enter should open the edit dialog, mode = %v", m.mode)

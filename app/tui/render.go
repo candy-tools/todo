@@ -167,30 +167,20 @@ func closedSprintLines(s *todo.Sprint, counts map[todo.Column]int, width int) []
 }
 
 // boardBody renders the shown sprint's board, width wide: as much of its head
-// as fits (see boardHeadRows) over its tree, or, in the columns layout, over
-// the three columns, the head's tab bar giving way to the column titles.
+// as fits (see boardHeadRows) over its tree, whose sections hold the sprint's
+// Next, In Progress and Done tasks.
 func (m model) boardBody(width int) string {
 	s, ok := m.doc.SprintByID(m.view.sprint)
 	if !ok {
 		return m.tree.view(width, m.treeViewHeight())
 	}
-	counts := m.doc.ColumnCounts(s.ID)
-	head := boardHead(s, counts, m.view.column, width)
-	body := ""
-	if m.columnsShown() {
-		head[len(head)-1] = columnTitles(counts, m.view.column, width)
-		body = m.columnsBody(s.ID, width, m.treeViewHeight())
-	} else {
-		body = m.tree.view(width, m.treeViewHeight())
-	}
-	head = head[len(head)-m.boardHeadRows():]
-	return strings.Join(append(head, body), "\n")
+	head := boardHead(s, m.doc.ColumnCounts(s.ID), width, m.boardHeadRows())
+	return strings.Join(append(head, m.tree.view(width, m.treeViewHeight())), "\n")
 }
 
 // boardHeadRows is how many of the board head's lines show: all of them, less
-// as many as a short pane needs to keep one task row. The head gives up its
-// lines from the top, the goal first, then the progress, then the tab bar (in
-// the columns layout, the column titles, which take its row).
+// as many as a short pane needs to keep one task row (see boardHead for which
+// go first).
 func (m model) boardHeadRows() int {
 	return min(boardChrome, m.paneRows()-1)
 }
@@ -207,8 +197,7 @@ func (m model) boardWidth() int {
 
 // treeViewHeight is how many task rows the tree pane can show at the current
 // terminal size — the height handed to tree.view — less the board head's rows
-// on a sprint board (the same in the columns layout, whose title row takes the
-// tab bar's). Update stores it on the trees (see fitTrees) so their
+// on a sprint board. Update stores it on the trees (see fitTrees) so their
 // scroll math (reconcileOffset) matches what mainView renders; the two must
 // agree or the viewport clamp would fight the offset.
 func (m model) treeViewHeight() int {
@@ -295,7 +284,7 @@ func (m model) crumb() string {
 	if s.Status == todo.SprintDone {
 		name += " ✓"
 	}
-	return "Sprints › " + name + " › " + m.view.column.Title()
+	return "Sprints › " + name
 }
 
 // backlogSelection is the item the Backlog's crumb is about: in the split
@@ -386,18 +375,12 @@ func (m model) footer(width int) string {
 	return fitHints(parts, width)
 }
 
-// boardHints are the board's footer hints: the column keys, a/A to move a task
-// unless the sprint is closed, then L where the board is wide enough for columns.
+// boardHints are the board's footer hints: the section keys, then a/A to move
+// a task unless the sprint is closed.
 func (m model) boardHints() []string {
-	parts := []string{hint("?", "Help"), hint("tab", "Sprints"), hint("[ ] 1-3", "Column")}
+	parts := []string{hint("?", "Help"), hint("tab", "Sprints"), hint("[ ] 1-3", "Section")}
 	if !m.sprintClosed(m.view.sprint) { // a closed sprint's tasks cannot move
 		parts = append(parts, hint("a/A", "Move task"))
-	}
-	switch {
-	case m.columnsShown():
-		parts = append(parts, hint("L", "Tabs"))
-	case m.boardWidth() >= minColumnsWidth:
-		parts = append(parts, hint("L", "Columns"))
 	}
 	return append(parts, hint("/", "Search"), hint("q", "Quit"))
 }

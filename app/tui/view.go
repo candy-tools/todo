@@ -33,39 +33,37 @@ func (s screen) stored(sprint string) todo.Screen {
 }
 
 // viewKey identifies one view of the list for the per-view fold and selection
-// memory a tree keeps: the Backlog, each tab of each sprint board, and the
-// unified view have their own.
+// memory a tree keeps: the Backlog, each sprint board, and the unified view
+// have their own.
 type viewKey struct {
 	screen screen
 	sprint string
-	col    todo.Column
 	all    bool
 }
 
 // viewState is what every pane shows the list through: the screen (with the
-// board's sprint and tab), or the unified view of every task on top of it, the
+// board's sprint), or the unified view of every task on top of it, the
 // search query and the state filter. The model owns it and every tree points
 // at the same value, so a screen or tab switch, a search or a filter change is
 // made once and each tree only has to rebuild.
 type viewState struct {
 	// screen is the screen shown under the unified view, or alone when that
 	// is off. On screenSprint, sprint is the board's sprint ID, "" when the
-	// workspace shows none (no sprint to show); it is "" on the Backlog.
+	// workspace shows none (no sprint to show); it is "" on the Backlog. The
+	// board shows every task of its sprint, in a Next, an In Progress and a
+	// Done section (see tree.rebuildBoard).
 	screen screen
 	sprint string
-	// column is the board tab shown on screenSprint: Next, In Progress or
-	// Done. Only its tasks of the sprint (with their subtasks and category
-	// paths) are rows. It means nothing on the other screens.
-	column todo.Column
 	// all is the unified view ("u"): a mode on top of the screen where the
 	// tabs are hidden and every task, in any state and any sprint, is shown.
 	all bool
 	// filter is the active search query. It is kept across tab switches.
 	filter string
-	// states is the board tabs' state filter, picked with "f": when it holds
-	// any of the tab's states, the tab shows only top-level tasks in those
-	// states. Columns have disjoint states, so one set serves every tab: each
-	// tab only looks at its own states. Kept across tab switches, like filter.
+	// states is the state filter of the Backlog and the sprint boards, picked
+	// with "f": when it holds any of the view's states, the view shows only
+	// top-level tasks in those states. The Backlog and the boards have
+	// disjoint states, so one set serves them all: each only looks at its own
+	// states. Kept across screen switches, like filter.
 	states map[todo.Status]bool
 	// allStates is the unified view's own state filter, apart from the tabs'.
 	allStates map[todo.Status]bool
@@ -74,7 +72,7 @@ type viewState struct {
 // newViewState returns the view the app opens on: the Backlog, with no search
 // and no state filter.
 func newViewState() *viewState {
-	return &viewState{screen: screenBacklog, column: todo.ColNext, states: map[todo.Status]bool{}, allStates: map[todo.Status]bool{}}
+	return &viewState{screen: screenBacklog, states: map[todo.Status]bool{}, allStates: map[todo.Status]bool{}}
 }
 
 // key is the memory key of the current view. The unified view has one, on top
@@ -84,7 +82,7 @@ func (v *viewState) key() viewKey {
 	case v.all:
 		return viewKey{all: true}
 	case v.screen == screenSprint:
-		return viewKey{screen: screenSprint, sprint: v.sprint, col: v.column}
+		return viewKey{screen: screenSprint, sprint: v.sprint}
 	}
 	return viewKey{screen: v.screen}
 }
@@ -103,9 +101,9 @@ func (v *viewState) scopeSprint() string {
 }
 
 // columns lists the board columns the view shows: every one in the unified
-// view, Backlog on the Backlog, the tab on a sprint board, and none in the
-// Sprints workspace while it shows no sprint, nor in Planning, which shows no
-// tree (see planner).
+// view, Backlog on the Backlog, the sprint's three on a sprint board, and none
+// in the Sprints workspace while it shows no sprint, nor in Planning, which
+// shows no tree (see planner).
 func (v *viewState) columns() []todo.Column {
 	switch {
 	case v.all:
@@ -115,16 +113,16 @@ func (v *viewState) columns() []todo.Column {
 	case v.screen == screenPlan, v.sprint == "":
 		return nil
 	}
-	return []todo.Column{v.column}
+	return todo.SprintColumns()
 }
 
-// title names the view, e.g. "Backlog", "Next" or "All states".
+// title names the view, e.g. "Backlog", "this sprint" or "All states".
 func (v *viewState) title() string {
 	switch {
 	case v.all:
 		return "All states"
 	case v.screen == screenSprint:
-		return v.column.Title()
+		return "this sprint"
 	}
 	return todo.ColBacklog.Title()
 }
@@ -134,7 +132,7 @@ func (v *viewState) title() string {
 func (v *viewState) searching() bool { return strings.TrimSpace(v.filter) != "" }
 
 // filterSet is the state-filter set the current view reads: the unified
-// view's own, or the one the tabs share.
+// view's own, or the one the Backlog and the boards share.
 func (v *viewState) filterSet() map[todo.Status]bool {
 	if v.all {
 		return v.allStates
@@ -186,33 +184,20 @@ func (v *viewState) setActiveStates(next map[todo.Status]bool) {
 func (v *viewState) editsCategories() bool { return v.all || v.screen == screenBacklog }
 
 // newTaskPlacement is the state and sprint a new top-level task takes in the
-// view, so it shows where it was added: on a sprint board the tab's first
-// state in the board's sprint, elsewhere (the Backlog and the unified view)
-// open in the Backlog.
-func (v *viewState) newTaskPlacement() (todo.Status, string) {
+// view, so it shows where it was added: on a sprint board the first state of
+// col, the section the cursor is in, in the board's sprint; elsewhere (the
+// Backlog and the unified view) open in the Backlog.
+func (v *viewState) newTaskPlacement(col todo.Column) (todo.Status, string) {
 	if v.onBoard() {
-		return v.column.FirstState(), v.sprint
+		return col.FirstState(), v.sprint
 	}
 	return todo.ColBacklog.FirstState(), ""
 }
 
-// setColumn switches every tree to the board tab for column c, one of the
-// sprint board's: the main tree gets back that tab's folds and selection (see
-// tree.switchView), the sidebar that tab's folds while keeping its category
-// (or falling back to All). The board remembers the tab for when it is opened
-// again. The search and the state filter carry over.
-func (m *model) setColumn(c todo.Column) {
-	from := m.view.key()
-	m.view.column = c
-	m.boardTabs[m.view.sprint] = c
-	m.refreshSide()
-	m.tree.switchView(from)
-}
-
 // switchScreen turns the unified view off and switches every tree to screen
-// sc — for screenSprint, the board of sprint ("" for none), on the tab it last
-// showed (Next the first time) — as setColumn switches tabs. A board's sprint
-// becomes the last viewed one. The view is not stored; see showBacklog and the
+// sc — for screenSprint, the board of sprint ("" for none). Each tree gets
+// back that view's folds and selection (see tree.switchView); the search and
+// the state filter carry over. A board's sprint becomes the last viewed one. The view is not stored; see showBacklog and the
 // others.
 func (m *model) switchScreen(sc screen, sprint string) {
 	from := m.view.key()
@@ -226,16 +211,12 @@ func (m *model) switchScreen(sc screen, sprint string) {
 	m.tree.switchView(from)
 }
 
-// setShownSprint makes sprint ("" for none) the board's sprint, on the tab it
-// last showed (Next the first time), and the last viewed one.
+// setShownSprint makes sprint ("" for none) the board's sprint, and the last
+// viewed one.
 func (m *model) setShownSprint(sprint string) {
 	m.view.sprint = sprint
 	if sprint != "" {
 		m.lastSprint = sprint
-	}
-	m.view.column = todo.ColNext
-	if c, ok := m.boardTabs[sprint]; ok {
-		m.view.column = c
 	}
 }
 
@@ -386,8 +367,8 @@ func nextOpenAfter(d *todo.Document, id string) (string, bool) {
 
 // setUnified turns the unified view on or off. Every tree switches to that
 // view's own folds; the main tree's selected item stays selected when the
-// destination shows it, else its cursor goes to the top row. The screen and
-// its tab are kept, so turning it off returns to them. The keys go to the
+// destination shows it, else its cursor goes to the top row. The screen is
+// kept, so turning it off returns to them. The keys go to the
 // trees, not the Sprints workspace's sidebar — unless, back in the workspace,
 // its cursor is on no sprint (the Closed group row, an empty list): no sprint,
 // no board to take them (see focusBoard).
@@ -426,7 +407,7 @@ func (m *model) setStates(next map[todo.Status]bool) {
 	m.tree.rebuild()
 }
 
-// clearStates turns the current view's state filter off (other tabs keep
+// clearStates turns the current view's state filter off (other views keep
 // theirs), keeping the item under the cursor selected.
 func (m *model) clearStates() {
 	t := m.focused()

@@ -80,23 +80,17 @@ type model struct {
 
 	// Layout: what the trees show and how the screen is split.
 	//
-	// view is the screen, tab, search query and state filter every tree shows
-	// the list through; the model changes it (switchScreen, setColumn,
+	// view is the screen, search query and state filter every tree shows
+	// the list through; the model changes it (switchScreen,
 	// setFilter, setStates) and rebuilds the trees.
 	view *viewState
 	// sprints is the Sprints workspace's sidebar, beside the shown sprint's
 	// board; listFocus is whether the keys go to it (true) or to the board.
 	sprints   sprintList
 	listFocus bool
-	// columns is the board's layout, flipped with "L": three columns side by
-	// side instead of tabs, when the board pane is wide enough (see
-	// columnsShown). Session only, never stored.
-	columns bool
 	// lastSprint is the ID of the sprint whose board was shown last, where
-	// "k" goes back to from the other screens; boardTabs is the tab each
-	// sprint board showed last, by sprint ID.
+	// "k" goes back to from the other screens.
 	lastSprint string
-	boardTabs  map[string]todo.Column
 	// plan is Planning's state (see planner), meaningful on screenPlan.
 	plan planner
 	// tree is the main pane: the category/task tree, or — in the split view —
@@ -206,7 +200,6 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		version:   metainfo.Version,
 		doc:       doc,
 		view:      v,
-		boardTabs: map[string]todo.Column{},
 		tree:      newTree(doc, v),
 		side:      newSidebar(doc, v),
 		mode:      modeMain,
@@ -364,12 +357,13 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right":
 		m.focused().expand()
 	default:
-		if c, ok := tabKey(msg.String(), m.view.column); ok && m.view.screen == screenSprint {
+		if c, ok := tabKey(msg.String(), m.boardColumn()); ok && m.view.screen == screenSprint {
 			if m.view.all {
 				m.status = "press u to show the board"
 				return m, nil
 			}
-			m.setColumn(c)
+			dir := map[string]int{"]": 1, "[": -1}[msg.String()]
+			m.jumpSection(c, dir)
 			return m, nil
 		}
 		return m.updateMainItemKey(msg)
@@ -416,13 +410,13 @@ func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 
 // updateViewKey handles the keys that change how the trees show the list,
 // from the Sprints workspace's sidebar too, where they act on the board: /
-// (search), f (state filter), u (unified view), v (split view, which the
-// Sprints workspace does not show) and L (the board as tabs or columns). On
-// the Closed group row, which shows no board, /, f and L do nothing. The bool
-// reports whether the key was one of them.
+// (search), f (state filter), u (unified view) and v (split view, which the
+// Sprints workspace does not show). On the Closed group row, which shows no
+// board, / and f do nothing. The bool reports whether the key was one of
+// them.
 func (m model) updateViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
-	if k := msg.String(); m.onClosedRow() && (k == "/" || k == "f" || k == "L") {
-		return m, nil, true // the Closed row shows no board to search, filter or lay out
+	if k := msg.String(); m.onClosedRow() && (k == "/" || k == "f") {
+		return m, nil, true // the Closed row shows no board to search or filter
 	}
 	switch msg.String() {
 	case "/":
@@ -447,8 +441,6 @@ func (m model) updateViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			m.openSplitOnSelection()
 			m.saveView()
 		}
-	case "L":
-		m.toggleColumns()
 	default:
 		return m, nil, false
 	}

@@ -264,12 +264,16 @@ func TestPlanningBigKListsEverySprint(t *testing.T) {
 func TestEscLeavesPlanningToBoard(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s", "p", "k", "esc")
-	if m.view.screen != screenSprint || m.view.sprint != "s00000c" || m.listFocus || m.view.column != todo.ColNext {
-		t.Fatalf("esc: screen %v sprint %q listFocus %v column %v", m.view.screen, m.view.sprint, m.listFocus, m.view.column)
+	if m.view.screen != screenSprint || m.view.sprint != "s00000c" || m.listFocus || m.boardColumn() != todo.ColInProgress {
+		t.Fatalf("esc: screen %v sprint %q listFocus %v section %v, want C's board on cWorking (Next is empty)",
+			m.view.screen, m.view.sprint, m.listFocus, m.boardColumn())
 	}
-	m = press(m, "]", "p", "p") // p leaves too, on Next whatever tab the board showed
-	if m.view.screen != screenSprint || m.view.sprint != "s00000c" || m.view.column != todo.ColNext {
-		t.Fatalf("p: screen %v sprint %q column %v", m.view.screen, m.view.sprint, m.view.column)
+	m = press(m, "p", "a", "p") // pull backlogTask into C's Next; p leaves too, in the Next section
+	if m.view.screen != screenSprint || m.view.sprint != "s00000c" || m.boardColumn() != todo.ColNext {
+		t.Fatalf("p: screen %v sprint %q section %v", m.view.screen, m.view.sprint, m.boardColumn())
+	}
+	if sel := m.tree.selected(); sel == nil || sel.Title != "backlogTask" {
+		t.Errorf("p: selected %v, want the pulled-in backlogTask", sel)
 	}
 }
 

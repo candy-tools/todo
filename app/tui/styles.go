@@ -42,6 +42,9 @@ var (
 	helpTextStyle  = lipgloss.NewStyle().Foreground(colDim)
 	headerAppStyle = lipgloss.NewStyle().Foreground(colTitle).Bold(true)
 	headerHintSty  = lipgloss.NewStyle().Foreground(colDim)
+	// headLabelStyle is a sprint board head's labels (Goal, Done): lighter
+	// than the dim hints, so the head reads at a glance.
+	headLabelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Bold(true)
 
 	focusLabelStyle = lipgloss.NewStyle().Foreground(colAccent)
 
@@ -106,6 +109,19 @@ func statusGlyph(st todo.Status, subtask bool) (string, lipgloss.Style) {
 		return "●", doneStyle
 	}
 	return "○", plainStyle
+}
+
+// columnStyle is the colour of a sprint board's section for column c, the
+// colour of the glyphs of its first states: cyan Next, orange In Progress,
+// green Done.
+func columnStyle(c todo.Column) lipgloss.Style {
+	switch c {
+	case todo.ColInProgress:
+		return progStyle
+	case todo.ColDone:
+		return doneStyle
+	}
+	return nextStyle
 }
 
 // hint renders one "key: label" help entry — key accented, ": label" dim.

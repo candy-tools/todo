@@ -9,19 +9,43 @@ import (
 )
 
 // commitStatus commits write, a status change of top-level task id, like
-// commit. When the change took the task out of the tab, the cursor keeps its
-// row index (clamped), now on the row that took the task's place, and the
-// footer says where the task went, e.g. "moved to Next — new". A failed write
-// or an external-reload notice takes the footer instead. It reports whether
-// the write succeeded, as commit does.
+// commit. When the change took the task out of the view — or, on a sprint
+// board, into another section — the cursor keeps its row index (clamped),
+// now on the row that took the task's place, and the footer says where the
+// task went, e.g. "moved to Next — new". A failed write or an external-reload
+// notice takes the footer instead. It reports whether the write succeeded, as
+// commit does.
 func (m *model) commitStatus(id string, write storeWrite) (saved bool) {
+	from, row := todo.ColBacklog, m.tree.cursor
+	if it, ok := m.doc.ByID(id); ok {
+		from = it.Column()
+	}
 	saved = m.commit(id, write)
-	m.noteLeftTab(id)
+	if m.noteLeftTab(id) || !m.view.onBoard() {
+		return saved
+	}
+	if it, ok := m.doc.ByID(id); ok && it.Column() != from {
+		m.tree.cursor = max(min(row, len(m.tree.rows)-1), 0)
+		m.tree.settle(1)
+		m.tree.reconcileOffset()
+		if m.err == nil && m.status == "" {
+			m.status = movedNotice(it)
+		}
+	}
 	return saved
 }
 
+// movedNotice is the footer saying where task it (or, for a subtask, its
+// task) went: its column and state, e.g. "moved to Next — new".
+func movedNotice(it *todo.Item) string {
+	if it.IsSubtask() {
+		it = it.Parent
+	}
+	return fmt.Sprintf("moved to %s — %s", it.Column().Title(), it.Status.Label())
+}
+
 // noteLeftTab reports whether item id, after a commit, is no longer shown in
-// the tab (moved to another column, or gone). When a task left for another
+// the view (moved to another column, or gone). When a task left for another
 // column, the footer says where it went, e.g. "moved to Next — new" (a subtask
 // goes with its task, so its task's column and state are named), unless a save
 // error or the external-reload notice already holds the footer.
@@ -44,7 +68,7 @@ func (m *model) noteLeftTab(id string) bool {
 				return true
 			}
 		}
-		m.status = fmt.Sprintf("moved to %s — %s", task.Column().Title(), task.Status.Label())
+		m.status = movedNotice(it)
 	}
 	return true
 }

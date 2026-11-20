@@ -79,27 +79,6 @@ func TestColumnCounts(t *testing.T) {
 	}
 }
 
-func TestCountInColumn(t *testing.T) {
-	d := todotest.Parse(t, board)
-	if n := findByTitle(d, "B").CountInColumn("", todo.ColInProgress); n != 1 {
-		t.Errorf("B in progress = %d, want 1", n)
-	}
-	if n := findByTitle(d, "A").CountInColumn("", todo.ColBacklog); n != 0 {
-		t.Errorf("A backlog = %d, want 0", n)
-	}
-}
-
-func TestCountInColumnPerSprint(t *testing.T) {
-	d, s1, _ := twoSprints(t)
-	a := findByTitle(d, "A")
-	if n := a.CountInColumn(s1, todo.ColInProgress); n != 1 {
-		t.Errorf("A in progress in S1 = %d, want 1", n)
-	}
-	if n := a.CountInColumn("", todo.ColInProgress); n != 2 {
-		t.Errorf("A in progress in any sprint = %d, want 2", n)
-	}
-}
-
 func TestColumnMatchesBlankQueryIsColumn(t *testing.T) {
 	d := todotest.Parse(t, board)
 	checkVisible(t, d, d.ColumnMatches("  ", "", todo.ColInProgress), map[string]bool{

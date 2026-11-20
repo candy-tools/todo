@@ -240,8 +240,8 @@ func TestSidebarIgnoresBoardKeys(t *testing.T) {
 	before := storeFP(t, m)
 	for _, key := range []string{"[", "]", "2", "3", "a", "A", "m", "t"} {
 		got := press(m, key)
-		if got.view.column != todo.ColNext || got.mode != modeMain || got.tree.grabbed || got.view.sprint != "s00000a" {
-			t.Errorf("%q in the sidebar: column %v mode %v grabbed %v, want nothing", key, got.view.column, got.mode, got.tree.grabbed)
+		if got.boardColumn() != todo.ColNext || got.mode != modeMain || got.tree.grabbed || got.view.sprint != "s00000a" {
+			t.Errorf("%q in the sidebar: column %v mode %v grabbed %v, want nothing", key, got.boardColumn(), got.mode, got.tree.grabbed)
 		}
 		if it := find(loadSprintDoc(t, path), "aNext"); it == nil || it.Status != todo.New || it.SprintID() != "s00000a" || storeFP(t, got) != before {
 			t.Errorf("%q in the sidebar changed the task on disk: %+v", key, it)

@@ -9,12 +9,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// onBoard switches m to the c tab of sprint's board and selects the task
-// titled title, failing the test when the tab doesn't show it.
+// onBoard switches m to sprint's board, in section c, and selects the task
+// titled title, failing the test when the board doesn't show it.
 func onBoard(t *testing.T, m model, sprint string, c todo.Column, title string) model {
 	t.Helper()
 	m.switchScreen(screenSprint, sprint)
-	m.setColumn(c)
+	m.tree.rebuild() // a copy of m may have switched the shared view already
+	toSection(&m, c)
 	return selectTitle(t, m, title)
 }
 

@@ -74,8 +74,11 @@ func (m model) applyIndent() (tea.Model, tea.Cmd) {
 		m.noteRefusedStep(err)
 		return m, nil
 	}
-	if p, ok := m.doc.ByID(parentID); ok && !m.focused().shown[p] {
+	if p, ok := m.doc.ByID(parentID); ok && !m.stepShown(it)(p.ID) {
 		m.status = "can't nest under a task hidden in this tab"
+		if m.view.onBoard() {
+			m.status = "can't nest under a task in another section"
+		}
 		return m, nil
 	}
 	return m.moveTo(it.ID, parentID, afterID)
@@ -99,12 +102,27 @@ func (m model) applyMove(s todo.MoveStep) (tea.Model, tea.Cmd) {
 	if it == nil {
 		return m, nil
 	}
-	parentID, afterID, err := m.doc.StepPlacement(it.ID, s, m.focused().shownID())
+	parentID, afterID, err := m.doc.StepPlacement(it.ID, s, m.stepShown(it))
 	if err != nil {
 		m.noteRefusedStep(err)
 		return m, nil
 	}
 	return m.moveTo(it.ID, parentID, afterID)
+}
+
+// stepShown returns a predicate that reports whether the view shows the item
+// with a given ID beside it, for a move step of it to pass: on a sprint board
+// only the items of its section, elsewhere every item the tree shows.
+func (m *model) stepShown(it *todo.Item) func(id string) bool {
+	shown := m.focused().shownID()
+	if !m.view.onBoard() {
+		return shown
+	}
+	col := it.Column()
+	return func(id string) bool {
+		o, ok := m.doc.ByID(id)
+		return ok && shown(id) && (o.Kind == todo.Category || o.Column() == col)
+	}
 }
 
 // noteRefusedStep shows, as the footer status, why the list refuses a step of

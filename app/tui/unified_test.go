@@ -57,8 +57,8 @@ func TestUnifiedReturnsToLastTab(t *testing.T) {
 	m, _ := newUnifiedFixture(t)
 	toTab(&m, todo.ColNext)
 	m = press(m, "u", "u")
-	if m.view.screen != screenSprint || m.view.column != todo.ColNext {
-		t.Errorf("u twice should return to the board's Next, got screen %v tab %v", m.view.screen, m.view.column)
+	if m.view.screen != screenSprint || m.boardColumn() != todo.ColNext {
+		t.Errorf("u twice should return to the board's Next, got screen %v tab %v", m.view.screen, m.boardColumn())
 	}
 }
 
@@ -148,8 +148,14 @@ func TestUnifiedSelectionCarriesOver(t *testing.T) {
 	}
 	m = selectTitle(t, m, "r")
 	m = press(m, "u")
-	if m.tree.cursor != 0 {
-		t.Errorf("r isn't on In Progress: the cursor should go to the top, got %d", m.tree.cursor)
+	if got := m.tree.selected(); got == nil || got.Title != "r" {
+		t.Fatalf("the board shows r too (in Next), so it stays selected, got %v", got)
+	}
+	m = press(m, "u")
+	m = selectTitle(t, m, "o")
+	m = press(m, "u")
+	if got := m.tree.selected(); got == nil || got.Title != "r" {
+		t.Errorf("o isn't on the board: the cursor should go to its first task, r, got %v", got)
 	}
 }
 
