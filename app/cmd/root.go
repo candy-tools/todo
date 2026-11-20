@@ -28,10 +28,8 @@ func Execute() {
 // success). A failure is written to stderr: as one compact jsonError line when
 // the command ran in JSON mode (see wantsJSONErrors), else as the plain message.
 func execute(args []string, stdout, stderr io.Writer) int {
-	root := newRootCommand()
+	root := newRootCommand(stdout, stderr)
 	root.SetArgs(args)
-	root.SetOut(stdout)
-	root.SetErr(stderr)
 	c, err := root.ExecuteC()
 	if err == nil {
 		return 0
@@ -91,7 +89,11 @@ func jsonMode(c *cobra.Command) bool {
 	return false
 }
 
-func newRootCommand() *cobra.Command {
+// newRootCommand builds the complete command tree writing to stdout and stderr
+// (nil means os.Stdout and os.Stderr). The writers are set before cobra's
+// completion command is added, since that command captures them, so it gets
+// argsAsUsage too.
+func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "todo [list-file]",
 		Short:         "A minimalistic terminal TODO manager",
@@ -122,6 +124,9 @@ func newRootCommand() *cobra.Command {
 		return &flagError{usageErr(e.Error())}
 	})
 	cmd.AddCommand(versionCmd(), listCmd(), statusCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd(), moveCmd(), importCmd(), sprintCmd(), assignCmd(), unassignCmd(), settingsCmd(), showCmd(), nextCmd())
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.InitDefaultCompletionCmd()
 	argsAsUsage(cmd)
 	return cmd
 }

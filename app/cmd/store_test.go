@@ -17,10 +17,8 @@ import (
 // runSplit runs the root command capturing stdout and stderr separately.
 func runSplit(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
-	c := newRootCommand()
 	var out, errb bytes.Buffer
-	c.SetOut(&out)
-	c.SetErr(&errb)
+	c := newRootCommand(&out, &errb)
 	c.SetArgs(args)
 	err = c.Execute()
 	return out.String(), errb.String(), err
@@ -294,7 +292,7 @@ func TestStoreErrorsMapByClass(t *testing.T) {
 	} {
 		t.Run(c.err.Error(), func(t *testing.T) {
 			t.Chdir(t.TempDir())
-			err := withStore(newRootCommand(), func(context.Context, *todo.Store, *todo.Document) error { return c.err })
+			err := withStore(newRootCommand(nil, nil), func(context.Context, *todo.Store, *todo.Document) error { return c.err })
 			if codeOf(t, err) != c.code || err.Error() != c.msg {
 				t.Errorf("withStore with %v = %v (exit %d), want exit %d with %q", c.err, err, codeOf(t, err), c.code, c.msg)
 			}

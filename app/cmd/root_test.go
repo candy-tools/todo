@@ -11,7 +11,7 @@ import (
 )
 
 func TestRootArgs(t *testing.T) {
-	c := newRootCommand()
+	c := newRootCommand(nil, nil)
 	if err := c.Args(c, nil); err != nil {
 		t.Errorf("no argument should be valid (defaults to .todo.json): %v", err)
 	}
@@ -24,7 +24,7 @@ func TestRootArgs(t *testing.T) {
 }
 
 func TestResolvePath(t *testing.T) {
-	c := newRootCommand()
+	c := newRootCommand(nil, nil)
 	if p, def, err := resolvePath(c, nil); err != nil || p != defaultFile || !def {
 		t.Errorf("default = %q, %v, %v", p, def, err)
 	}
@@ -43,7 +43,7 @@ func TestResolvePath(t *testing.T) {
 }
 
 func TestRootMeta(t *testing.T) {
-	c := newRootCommand()
+	c := newRootCommand(nil, nil)
 	if c.Use != "todo [list-file]" || c.Short != "A minimalistic terminal TODO manager" {
 		t.Errorf("unexpected Use/Short: %q / %q", c.Use, c.Short)
 	}
@@ -165,6 +165,30 @@ func TestExecuteArgumentErrorIsUsage(t *testing.T) {
 			}
 			if strings.HasPrefix(stderr, "{") || strings.Count(stderr, "\n") != 1 {
 				t.Errorf("want one plain-text line, got %q", stderr)
+			}
+		})
+	}
+}
+
+// cobra's completion command follows the same contract: a wrong number of
+// arguments is a usage error, and a valid call writes the script to stdout.
+func TestExecuteCompletion(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		code int
+	}{
+		{"bash extra", []string{"completion", "bash", "extra"}, exitUsage},
+		{"bash", []string{"completion", "bash"}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, stdout, stderr := runExecute(tt.args...)
+			if code != tt.code {
+				t.Fatalf("code=%d stderr=%q, want exit %d", code, stderr, tt.code)
+			}
+			if tt.code == 0 && !strings.Contains(stdout, "bash completion") {
+				t.Errorf("want a bash completion script on stdout, got %q", stdout)
 			}
 		})
 	}

@@ -13,10 +13,8 @@ import (
 
 func runCmd(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	c := newRootCommand()
 	var buf bytes.Buffer
-	c.SetOut(&buf)
-	c.SetErr(&buf)
+	c := newRootCommand(&buf, &buf)
 	c.SetArgs(args)
 	err := c.Execute()
 	return buf.String(), err
@@ -25,10 +23,8 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 // runCmdSplit runs the CLI with args and returns stdout and stderr apart.
 func runCmdSplit(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
-	c := newRootCommand()
 	var out, errb bytes.Buffer
-	c.SetOut(&out)
-	c.SetErr(&errb)
+	c := newRootCommand(&out, &errb)
 	c.SetArgs(args)
 	err = c.Execute()
 	return out.String(), errb.String(), err
