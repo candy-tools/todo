@@ -10,7 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// jsonSprint is the shape `sprint list --json` emits for one sprint.
+// jsonSprint is the shape every `--json` sprint output uses: one per sprint in
+// `sprint list`, the sprint itself from `sprint add`, `edit`, `close` and
+// `reopen`, the sprint wrapped in {"removed": ...} from `sprint rm`, and the
+// sprint fields embedded in each sprint of `todo next`.
 type jsonSprint struct {
 	ID     string         `json:"id"`
 	Name   string         `json:"name"`

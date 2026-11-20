@@ -406,17 +406,23 @@ path to each match. `--kind task|category` and
 every node of `todo list --json`, which adds its `children` (camelCase; fields
 marked optional are left out when empty):
 
-- `number`: the `#` of `todo list`; `id`: the 7-character id; `kind`: `task` or `category`.
-- `ref` (optional, tasks): the reference, e.g. `APP-001`; `title` never includes it.
+- `number`: the `#` of `todo list`; `id`: the 7-character id; `kind`: `task` or
+  `category`.
+- `ref` (optional, tasks): the reference, e.g. `APP-001`; `title` never
+  includes it.
 - `prefix` (optional, categories): the category's reference prefix.
 - `title`: the raw title.
-- `status` (tasks): the state name; `column` (tasks): `backlog`, `next`, `progress` or `done`.
-- `sprint` (optional, tasks): the sprint's id (a subtask shows its parent's); `sprintName` (optional).
-- `path`: the titles of the ancestors, root first, excluding the item itself (`[]` at the top).
+- `status` (tasks): the state name; `column` (tasks): `backlog`, `next`,
+  `progress` or `done`.
+- `sprint` (optional, tasks): the sprint's id (a subtask shows its parent's);
+  `sprintName` (optional).
+- `path`: the titles of the ancestors, root first, excluding the item itself
+  (`[]` at the top).
 - `parentId`, `parentTitle` (optional): the parent item.
 - `level` (optional, categories): the category depth.
 - `description`, `plan` (optional, tasks).
-- `doneCount`, `totalCount`: done and total tasks below the item (subtasks for a task).
+- `doneCount`, `totalCount`: done and total tasks below the item
+  (subtasks for a task).
 - `subtasks` (optional): only in `show` and in the results of changes; one
   `{number, id, title, status}` per direct child task.
 
