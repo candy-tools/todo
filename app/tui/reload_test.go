@@ -1274,7 +1274,7 @@ func statusIn(t *testing.T, path, title string) todo.Status {
 // external change, and the writes that follow go to the file at the path.
 func TestReplacedFileIsReloaded(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(selectTitle(t, m, "a"), "p")
+	m = press(selectTitle(t, m, "a"), "a")
 	if err := os.Rename(todotest.Seed(t, "# Other\n\n- [ ] b\n"), path); err != nil {
 		t.Fatal(err)
 	}

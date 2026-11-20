@@ -50,11 +50,11 @@ func TestOpensOnDefaultView(t *testing.T) {
 // a stores the unified view in the list file, and a again the screen under it.
 func TestUnifiedToggleIsStored(t *testing.T) {
 	m, path := newJSONModel(t, viewSaveList(""))
-	m = press(m, "a")
+	m = press(m, "u")
 	if got := storedView(t, path); !got.Unified {
 		t.Errorf("after a the file holds %+v, want unified", got)
 	}
-	press(m, "a")
+	press(m, "u")
 	if got := storedView(t, path); got.Unified {
 		t.Errorf("after a again the file holds %+v, want the Backlog", got)
 	}
@@ -77,7 +77,7 @@ func TestSplitToggleIsStored(t *testing.T) {
 // for an external change.
 func TestViewSaveIsNotExternal(t *testing.T) {
 	m, _ := newJSONModel(t, viewSaveList(""))
-	m = press(m, "a")
+	m = press(m, "u")
 	m = pollCmdOnce(m)
 	if m.status != "" || m.err != nil {
 		t.Errorf("after storing the view: status=%q err=%v, want neither", m.status, m.err)

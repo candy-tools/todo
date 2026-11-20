@@ -52,13 +52,13 @@ func stepColumn(c todo.Column, delta int) todo.Column {
 }
 
 // tabKey maps a main-view key to the sprint board tab it switches to:
-// tab/shift+tab cycle from the current tab, 1–3 jump to a tab. ok is false for
+// ] and [ cycle from the current tab, 1–3 jump to a tab. ok is false for
 // any other key.
 func tabKey(key string, current todo.Column) (todo.Column, bool) {
 	switch key {
-	case "tab":
+	case "]":
 		return stepColumn(current, 1), true
-	case "shift+tab":
+	case "[":
 		return stepColumn(current, -1), true
 	}
 	if cols := todo.SprintColumns(); len(key) == 1 && key[0] >= '1' && int(key[0]-'1') < len(cols) {

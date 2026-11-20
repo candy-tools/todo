@@ -194,7 +194,7 @@ func TestEscOnBoardReturnsToList(t *testing.T) {
 	}
 	// The unified view over a board still quits.
 	m.showSprint("s00000a")
-	if _, cmd := press(m, "a").Update(keyMsg("esc")); !quits(cmd) {
+	if _, cmd := press(m, "u").Update(keyMsg("esc")); !quits(cmd) {
 		t.Error("esc in the unified view must quit")
 	}
 }
@@ -276,34 +276,34 @@ func TestBoardRemembersItsTab(t *testing.T) {
 	}
 }
 
-func TestAToggleUnifiedOnTopOfScreen(t *testing.T) {
+func TestUToggleUnifiedOnTopOfScreen(t *testing.T) {
 	m, _ := threeSprints(t)
 	m.showSprint("s00000c")
-	m = press(m, "a")
+	m = press(m, "u")
 	if !m.view.all {
-		t.Fatal("a should turn the unified view on")
+		t.Fatal("u should turn the unified view on")
 	}
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "backlogTask", "aNext", "aDone", "bDone", "cWorking"}) {
 		t.Errorf("unified rows = %v, want every task", got)
 	}
-	m = press(m, "a")
+	m = press(m, "u")
 	if m.view.all || m.view.screen != screenSprint || m.view.sprint != "s00000c" {
-		t.Errorf("a again: unified %v screen %v sprint %q, want C's board", m.view.all, m.view.screen, m.view.sprint)
+		t.Errorf("u again: unified %v screen %v sprint %q, want C's board", m.view.all, m.view.screen, m.view.sprint)
 	}
-	m = press(m, "a", "b")
+	m = press(m, "u", "b")
 	if m.view.all || m.view.screen != screenBacklog {
 		t.Errorf("b in the unified view: unified %v screen %v, want the Backlog", m.view.all, m.view.screen)
 	}
-	m = press(m, "s", "a")
+	m = press(m, "s", "u")
 	if m.view.all {
-		t.Error("a does nothing on the Sprint list")
+		t.Error("u does nothing on the Sprint list")
 	}
 }
 
 func TestTabsOnlyOnBoard(t *testing.T) {
 	m, _ := threeSprints(t)
 	before := rowTitles(m.tree)
-	for _, key := range []string{"2", "tab", "shift+tab"} {
+	for _, key := range []string{"2", "[", "]"} {
 		got := press(m, key)
 		if got.view.screen != screenBacklog || !equalStrings(rowTitles(got.tree), before) {
 			t.Errorf("%q on the Backlog: screen %v rows %v, want nothing changed", key, got.view.screen, rowTitles(got.tree))
@@ -316,7 +316,9 @@ func TestTabsOnlyOnBoard(t *testing.T) {
 	}{
 		{"2", todo.ColInProgress},
 		{"3", todo.ColDone},
-		{"tab", todo.ColNext},
+		{"]", todo.ColNext},
+		{"[", todo.ColDone},
+		{"tab", todo.ColDone}, // tab no longer switches columns
 		{"shift+tab", todo.ColDone},
 		{"1", todo.ColNext},
 		{"4", todo.ColNext}, // no fourth tab
@@ -400,7 +402,7 @@ func TestOpensOnStoredBoard(t *testing.T) {
 	if m.view.screen != screenSprint || m.view.sprint != "s00000a" || !m.view.all {
 		t.Fatalf("opened on screen %v sprint %q unified %v, want A's board under the unified view", m.view.screen, m.view.sprint, m.view.all)
 	}
-	if m = press(m, "a"); m.view.all || !hasRow(m, "aNext") {
+	if m = press(m, "u"); m.view.all || !hasRow(m, "aNext") {
 		t.Errorf("a should return to A's board: unified %v rows %v", m.view.all, rowTitles(m.tree))
 	}
 }
@@ -440,7 +442,7 @@ func TestWDoesNotMove(t *testing.T) {
 func TestSprintListIgnoresTreeKeys(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
-	for _, key := range []string{"v", "x", "m", "t", "p", "/", "f"} {
+	for _, key := range []string{"v", "tab", "m", "t", "a", "u", "/", "f"} {
 		got := press(m, key)
 		if got.mode != modeMain || got.split || got.view.screen != screenSprints || got.tree.grabbed {
 			t.Errorf("%q on the Sprint list must do nothing: mode %v split %v screen %v", key, got.mode, got.split, got.view.screen)

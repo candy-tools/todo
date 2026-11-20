@@ -42,7 +42,7 @@ func TestSplitAddTaskIntoEmptyScope(t *testing.T) {
 	m, path := newTestModel(t, actionsDoc)
 	m = press(m, "v")
 	m = sideSelect(t, m, "Empty")
-	m = press(m, "x")
+	m = press(m, "tab")
 	m = addTyped(t, m, "n", "z")
 	if z := storedItem(t, path, "z"); z.Parent == nil || z.Parent.Title != "Empty" {
 		t.Errorf("z stored under %v, want Empty", z.Parent)
@@ -54,12 +54,12 @@ func TestSplitAddTaskIntoEmptyScope(t *testing.T) {
 
 func TestSplitAddOnAllRefused(t *testing.T) {
 	m, _ := newTestModel(t, actionsDoc)
-	m = press(m, "v", "n")
+	m = press(splitAll(m), "n")
 	if m.mode != modeMain || !strings.Contains(m.footer(200), "pick a category in the sidebar") {
 		t.Errorf("n on All: mode %v footer %q", m.mode, m.footer(200))
 	}
 	toTab(&m, todo.ColNext) // nothing in Next: the list is empty
-	m = press(m, "x", "n")
+	m = press(m, "tab", "n")
 	if m.mode != modeMain || !strings.Contains(m.footer(200), "pick a category in the sidebar") {
 		t.Errorf("n in an empty list on All: mode %v footer %q", m.mode, m.footer(200))
 	}
@@ -67,7 +67,7 @@ func TestSplitAddOnAllRefused(t *testing.T) {
 
 func TestSplitCInRightPane(t *testing.T) {
 	m, _ := newTestModel(t, actionsDoc)
-	m = press(m, "v", "x", "c")
+	m = press(m, "v", "tab", "c")
 	if m.mode != modeMain || !strings.Contains(m.footer(200), "categories are managed in the sidebar") {
 		t.Errorf("c in the list: mode %v footer %q", m.mode, m.footer(200))
 	}
@@ -108,14 +108,14 @@ func TestSplitDeleteLastTaskInScope(t *testing.T) {
 	m, _ := newTestModel(t, actionsDoc)
 	m = press(m, "v")
 	m = sideSelect(t, m, "Home")
-	m = press(m, "x", "d", "y")
+	m = press(m, "tab", "d", "y")
 	if len(m.tree.rows) != 0 {
 		t.Fatalf("Home's list should be empty, rows %v", rowDesc(m.tree))
 	}
 	if got := m.tree.view(40, 5); !strings.Contains(got, "no tasks here") {
 		t.Errorf("empty list view = %q", got)
 	}
-	m = press(m, "down", "up", "t", "e", "enter", "p", "m", "y", "d")
+	m = press(m, "down", "up", "t", "e", "enter", "a", "m", "y", "d")
 	if m.mode != modeMain {
 		t.Errorf("keys on an empty list opened %v", m.mode)
 	}
@@ -130,7 +130,7 @@ func TestSplitGrabLeavesScope(t *testing.T) {
 	m = sideSelect(t, m, "Backend")
 	// Work's own tasks come after its subcategory Backend, so b steps down
 	// into Work.
-	m = press(m, "x", "m", "down")
+	m = press(m, "tab", "m", "down")
 	if p := storedItem(t, path, "b").Parent; p == nil || p.Title != "Work" {
 		t.Fatalf("b should move down into Work, parent %v", p)
 	}
@@ -195,7 +195,7 @@ func TestSplitEmptyDocument(t *testing.T) {
 	if got := m.tree.view(40, 5); !strings.Contains(got, "no tasks here") {
 		t.Errorf("empty list view = %q", got)
 	}
-	m = press(m, "x", "n")
+	m = press(m, "tab", "n")
 	if m.mode != modeMain || !strings.Contains(m.footer(200), "pick a category in the sidebar") {
 		t.Errorf("n in an empty list: mode %v footer %q", m.mode, m.footer(200))
 	}
@@ -207,7 +207,7 @@ func TestSplitFilteredStateChangeNamesColumn(t *testing.T) {
 		{"id": "t000002", "category": "c000000", "title": "r", "status": "ready"}]}`)
 	toTab(&m, todo.ColNext)
 	m = filterTick(t, m, todo.Ready)
-	m = press(m, "v", "x")
+	m = press(m, "v", "tab")
 	m = selectTitle(t, m, "r")
 	m = pickState(t, m, todo.New) // still in Next, but the filter hides it now
 	if got := m.footer(200); !strings.Contains(got, "moved to Next — new") {
@@ -217,7 +217,7 @@ func TestSplitFilteredStateChangeNamesColumn(t *testing.T) {
 
 func TestSplitEnterOnAllAddsCategory(t *testing.T) {
 	m, _ := newTestModel(t, actionsDoc)
-	m = press(m, "v", "enter")
+	m = press(splitAll(m), "enter")
 	if m.mode != modeForm || m.target != targetAddCategory {
 		t.Errorf("enter on All should open the add-category form, mode %v target %v", m.mode, m.target)
 	}

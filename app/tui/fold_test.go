@@ -95,7 +95,7 @@ func TestFoldLevelWhileSearchingRefused(t *testing.T) {
 // sidebar.
 func TestFoldLevelInTaskListRefused(t *testing.T) {
 	m, _ := newTestModel(t, foldDoc)
-	m = press(m, "v", "x", "down")
+	m = press(m, "v", "tab", "down")
 	before := maps.Clone(m.tree.collapsed)
 	m = press(m, "z")
 	if !maps.Equal(m.tree.collapsed, before) {

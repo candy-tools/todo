@@ -61,7 +61,7 @@ func TestPAssignsBacklogTask(t *testing.T) {
 	if !m.tree.selectID("t000001") {
 		t.Fatal("backlog task not shown")
 	}
-	m = press(m, "p")
+	m = press(m, "a")
 	if m.mode != modeSprintPick || m.sprintPick.title != "Assign to sprint" {
 		t.Fatalf("p: mode %v title %q, want the assign dialog", m.mode, m.sprintPick.title)
 	}
@@ -122,7 +122,7 @@ func TestOSendsToBacklogAsOpen(t *testing.T) {
 
 func TestOListsOnlyOtherOpenSprints(t *testing.T) {
 	m, _ := twoSprints(t)
-	m = press(m, "a") // the unified view shows every task
+	m = press(m, "u") // the unified view shows every task
 	m.tree.selectID("t000002")
 	m = press(m, "o")
 	if got := strings.Join(rowLabels(m), ","); got != "Backlog,Sprint 2" {
@@ -130,14 +130,14 @@ func TestOListsOnlyOtherOpenSprints(t *testing.T) {
 	}
 	m = press(m, "esc")
 	m.tree.selectID("t000001")
-	if m = press(m, "o"); m.mode != modeMain || m.status != "use p to assign it to a sprint" {
+	if m = press(m, "o"); m.mode != modeMain || m.status != "use a to assign it to a sprint" {
 		t.Errorf("o on a backlog task: mode %v status %q", m.mode, m.status)
 	}
 }
 
 func TestOOnSubtaskHints(t *testing.T) {
 	m, _ := newTestModel(t, "# Todo\n\n## C\n\n- [ ] parent\n  - [ ] child\n")
-	m = press(m, "a")
+	m = press(m, "u")
 	m.tree.selectID(find(m.doc, "child").ID)
 	if m = press(m, "o"); m.mode != modeMain || m.status != "subtasks move with their task" {
 		t.Errorf("o on a subtask: mode %v status %q", m.mode, m.status)
@@ -207,7 +207,7 @@ func TestNoOpenSprintHints(t *testing.T) {
 	const hint = "no open sprints — press s, then n to create one"
 	m, _ := newJSONModel(t, sprintJSON(t, nil, nil, seedTask{ID: "t000001", Title: "x", Status: "open"}))
 	m.tree.selectID("t000001")
-	for _, k := range []string{"k", "K", "p"} {
+	for _, k := range []string{"k", "K", "a"} {
 		m2 := press(m, k)
 		if m2.mode != modeMain || m2.status != hint {
 			t.Errorf("%s: mode %v status %q, want the hint and no dialog", k, m2.mode, m2.status)

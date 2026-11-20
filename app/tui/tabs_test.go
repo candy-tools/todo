@@ -133,7 +133,7 @@ func TestEmptyTabAddHint(t *testing.T) {
 		if got.mode != modeMain {
 			t.Errorf("%q on an empty tab must not open the form, mode = %v", key, got.mode)
 		}
-		if want := "add it in the Backlog (b, n), then assign it with p"; got.status != want {
+		if want := "add it in the Backlog (b, n), then assign it with a"; got.status != want {
 			t.Errorf("%q footer = %q, want %q", key, got.status, want)
 		}
 	}

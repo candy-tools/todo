@@ -45,7 +45,7 @@ func TestNOnBacklogAddsOpen(t *testing.T) {
 		t.Fatalf("stored idea = %+v, want the Backlog and open", it)
 	}
 	// The unified view adds to the Backlog too, even next to a sprint task.
-	m = press(m, "a")
+	m = press(m, "u")
 	m = selectTitle(t, m, "working")
 	m = typeText(press(m, "n"), "other")
 	_ = press(m, "enter")
@@ -54,35 +54,35 @@ func TestNOnBacklogAddsOpen(t *testing.T) {
 	}
 }
 
-func TestPPNextBackToBacklog(t *testing.T) {
+func TestAANextBackToBacklog(t *testing.T) {
 	m, path := twoSprints(t)
 	m = onBoard(t, m, "s000001", todo.ColInProgress, "working")
-	m = press(m, "P")
+	m = press(m, "A")
 	if it := find(loadSprintDoc(t, path), "working"); it.Sprint != "s000001" || it.Status != todo.New {
-		t.Fatalf("P from In Progress stored sprint %q state %v, want Sprint 1, new", it.Sprint, it.Status)
+		t.Fatalf("A from In Progress stored sprint %q state %v, want Sprint 1, new", it.Sprint, it.Status)
 	}
 	m = onBoard(t, m, "s000001", todo.ColNext, "working")
-	m = press(m, "P")
+	m = press(m, "A")
 	if m.err != nil {
-		t.Fatalf("P from Next: %v", m.err)
+		t.Fatalf("A from Next: %v", m.err)
 	}
 	if it := find(loadSprintDoc(t, path), "working"); it.Sprint != "" || it.Status != todo.Open {
-		t.Errorf("P from Next stored sprint %q state %v, want the Backlog, open", it.Sprint, it.Status)
+		t.Errorf("A from Next stored sprint %q state %v, want the Backlog, open", it.Sprint, it.Status)
 	}
 	if m.status != "moved to Backlog" {
 		t.Errorf("status = %q, want %q", m.status, "moved to Backlog")
 	}
 
-	// On the Backlog P only hints.
+	// On the Backlog A only hints.
 	m.switchScreen(screenBacklog, "")
 	m = selectTitle(t, m, "working")
 	before := storeFP(t, m)
-	if got := press(m, "P"); got.status != "already in the Backlog" || storeFP(t, got) != before {
-		t.Errorf("P on a backlog task: status %q, want the hint and no write", got.status)
+	if got := press(m, "A"); got.status != "already in the Backlog" || storeFP(t, got) != before {
+		t.Errorf("A on a backlog task: status %q, want the hint and no write", got.status)
 	}
 }
 
-func TestPMovesAlongSprintColumns(t *testing.T) {
+func TestAMovesAlongSprintColumns(t *testing.T) {
 	m, path := newJSONModel(t, sprintJSON(t, nil,
 		[]seedSprint{{ID: "s000001", Name: "Sprint 1", Status: "open"}},
 		seedTask{ID: "t000001", Title: "x", Status: "ready", Sprint: "s000001"}))
@@ -93,10 +93,10 @@ func TestPMovesAlongSprintColumns(t *testing.T) {
 		want   todo.Status
 		footer string
 	}{
-		{"p", todo.ColNext, todo.Working, "moved to In Progress — working"},
-		{"p", todo.ColInProgress, todo.Done, "moved to Done — done"},
-		{"P", todo.ColDone, todo.Working, "moved to In Progress — working"},
-		{"P", todo.ColInProgress, todo.New, "moved to Next — new"},
+		{"a", todo.ColNext, todo.Working, "moved to In Progress — working"},
+		{"a", todo.ColInProgress, todo.Done, "moved to Done — done"},
+		{"A", todo.ColDone, todo.Working, "moved to In Progress — working"},
+		{"A", todo.ColInProgress, todo.New, "moved to Next — new"},
 	} {
 		m = onBoard(t, m, "s000001", step.col, "x")
 		m = press(m, step.key)
@@ -108,13 +108,13 @@ func TestPMovesAlongSprintColumns(t *testing.T) {
 			t.Errorf("%s from %v: status %q, want %q", step.key, step.col, m.status, step.footer)
 		}
 	}
-	// Back in Next after the steps; two p reach Done, the board's edge.
-	m = press(onBoard(t, m, "s000001", todo.ColNext, "x"), "p")
-	m = press(onBoard(t, m, "s000001", todo.ColInProgress, "x"), "p")
+	// Back in Next after the steps; two a reach Done, the board's edge.
+	m = press(onBoard(t, m, "s000001", todo.ColNext, "x"), "a")
+	m = press(onBoard(t, m, "s000001", todo.ColInProgress, "x"), "a")
 	m = onBoard(t, m, "s000001", todo.ColDone, "x")
 	before := storeFP(t, m)
-	if got := press(m, "p"); got.status != "no column beyond Done" || storeFP(t, got) != before {
-		t.Errorf("p on Done: status %q, want the edge hint and no write", got.status)
+	if got := press(m, "a"); got.status != "no column beyond Done" || storeFP(t, got) != before {
+		t.Errorf("a on Done: status %q, want the edge hint and no write", got.status)
 	}
 }
 
@@ -147,7 +147,7 @@ func TestTOffersMembershipStates(t *testing.T) {
 		t.Errorf("t on a sprint task offers %q, want %q", got, want)
 	}
 	// In the unified view each task's dialog follows its own membership.
-	m = press(press(m, "esc"), "a")
+	m = press(press(m, "esc"), "u")
 	m = selectTitle(t, m, "backlogTask")
 	if got := strings.Join(pickStates(press(m, "t")), ","); got != "open,deferred,wontdo" {
 		t.Errorf("t on a backlog task in the unified view offers %q", got)
@@ -192,7 +192,7 @@ func TestDOutsideBoardHints(t *testing.T) {
 		t.Errorf("D on the Backlog: mode %v status %q", got.mode, got.status)
 	}
 	m.switchScreen(screenSprint, "s000003") // Old, with a done task
-	m = press(m, "a")
+	m = press(m, "u")
 	before = storeFP(t, m) // a stored the view
 	if got := press(m, "D"); got.mode != modeMain || got.status != "open a sprint to remove its done tasks" || storeFP(t, got) != before {
 		t.Errorf("D in the unified view: mode %v status %q", got.mode, got.status)
@@ -247,7 +247,7 @@ func TestHelpListsSprintKeys(t *testing.T) {
 			desc[b.keys] = append(desc[b.keys], b.desc)
 		}
 	}
-	for _, keys := range []string{"b", "s", "k", "K", "q", "a", "p P", "p", "P", "o", "t", "1–3", "tab  shift+tab", "n", "e", "c", "d", "enter", "D"} {
+	for _, keys := range []string{"b", "s", "k", "K", "q", "u", "a A", "a", "A", "o", "t", "1–3", "[  ]", "tab", "n", "e", "c", "d", "enter", "D"} {
 		if len(desc[keys]) == 0 {
 			t.Errorf("help has no row for %q", keys)
 		}
@@ -277,7 +277,7 @@ func TestUnifiedRowsNameTheSprint(t *testing.T) {
 		seedTask{ID: "t000001", Title: "backlogTask", Status: "open"},
 		seedTask{ID: "t000002", Title: "working", Status: "working", Sprint: "s000001"},
 		seedTask{ID: "t000003", Title: "longOne", Status: "new", Sprint: "s000002"}))
-	m = press(m, "a")
+	m = press(m, "u")
 	if got := ansi.Strip(rowOf(t, m.tree, "working")); !strings.Contains(got, "working · Sprint 1") {
 		t.Errorf("a sprint task's unified row = %q, want its sprint next to its state", got)
 	}
@@ -293,7 +293,7 @@ func TestUnifiedRowsNameTheSprint(t *testing.T) {
 		t.Errorf("a long sprint name must be cut to %d columns, row = %q", maxNameWidth, got)
 	}
 	// Boards and the Backlog don't repeat it.
-	m = press(m, "a")
+	m = press(m, "u")
 	if got := ansi.Strip(rowOf(t, m.tree, "backlogTask")); strings.Contains(got, "·") {
 		t.Errorf("Backlog row = %q", got)
 	}
@@ -305,14 +305,14 @@ func TestUnifiedRowsNameTheSprint(t *testing.T) {
 
 func TestUnifiedMovesSayWhereTheTaskWent(t *testing.T) {
 	m, _ := twoSprints(t)
-	m = selectTitle(t, press(m, "a"), "working")
+	m = selectTitle(t, press(m, "u"), "working")
 	m = press(m, "o", "down", "enter") // to Sprint 2
 	if m.err != nil || m.status != "moved to Sprint 2 — "+todo.Working.Label() {
 		t.Errorf("o in the unified view: status %q err %v", m.status, m.err)
 	}
 	m = selectTitle(t, m, "working")
-	m = press(m, "P", "P") // In Progress -> Next -> Backlog
+	m = press(m, "A", "A") // In Progress -> Next -> Backlog
 	if m.err != nil || m.status != "moved to Backlog" {
-		t.Errorf("P from Next in the unified view: status %q err %v", m.status, m.err)
+		t.Errorf("A from Next in the unified view: status %q err %v", m.status, m.err)
 	}
 }

@@ -167,7 +167,7 @@ func (m model) footer(width int) string {
 		parts = []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
 	}
 	if m.split {
-		parts = append(parts, hint("x", "Pane"))
+		parts = append(parts, hint("tab", "Pane"))
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }

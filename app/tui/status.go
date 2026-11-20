@@ -73,12 +73,12 @@ func (m model) sprintClosed(id string) bool {
 	return ok && s.Status == todo.SprintDone
 }
 
-// shiftColumn is p/P: it moves the selected top-level task delta columns along
+// shiftColumn is a/A: it moves the selected top-level task delta columns along
 // its sprint's board (no wrap), into the target column's first state. Into
 // Done it completes the task (cascade and undo snapshot); out of Done it
-// reopens it, restoring its subtasks from the snapshot when there is one. P
+// reopens it, restoring its subtasks from the snapshot when there is one. A
 // from Next sends the task back to the Backlog (it becomes open). On a backlog
-// task p opens the dialog that assigns it to a sprint, and P only hints. A
+// task a opens the dialog that assigns it to a sprint, and A only hints. A
 // subtask (it follows its task), a task of a closed sprint and a task at Done's
 // edge only get a footer hint.
 func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {

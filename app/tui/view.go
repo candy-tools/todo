@@ -55,7 +55,7 @@ type viewState struct {
 	// Done. Only its tasks of the sprint (with their subtasks and category
 	// paths) are rows. It means nothing on the other screens.
 	column todo.Column
-	// all is the unified view ("a"): a mode on top of the screen where the
+	// all is the unified view ("u"): a mode on top of the screen where the
 	// tabs are hidden and every task, in any state and any sprint, is shown.
 	all bool
 	// filter is the active search query. It is kept across tab switches.
@@ -366,6 +366,27 @@ func (m *model) toggleSplit() {
 	m.tree.setPane(paneMixed)
 	if target != nil {
 		m.tree.revealItem(target)
+	}
+}
+
+// openSplitOnSelection is v from the single tree: it opens the split on what
+// the cursor is on. A task opens the split on All with the task list focused
+// and that task selected; a category is selected in the sidebar, which keeps
+// the focus. Anything else (the placeholder row, an empty tab) opens it as
+// toggleSplit does.
+func (m *model) openSplitOnSelection() {
+	var sel *todo.Item
+	if id := m.tree.selectedID(); id != "" {
+		sel, _ = m.doc.ByID(id)
+	}
+	m.toggleSplit()
+	switch {
+	case sel == nil:
+	case sel.IsTask():
+		m.sideFocus = false
+	case sel.Kind == todo.Category:
+		m.side.revealItem(sel)
+		m.syncScope()
 	}
 }
 

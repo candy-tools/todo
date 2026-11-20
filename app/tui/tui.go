@@ -25,7 +25,7 @@ const (
 	modeHelp        // the "?" shortcuts dialog
 	modeStatePick   // the "t" dialog: pick the selected task's state
 	modeStateFilter // the "f" dialog: tick the states the tab shows
-	modeSprintPick  // the K, p and o dialog: pick a sprint (or the Backlog)
+	modeSprintPick  // the K, a and o dialog: pick a sprint (or the Backlog)
 	// modeSearch is the "/" search bar, focused and capturing keys. The query
 	// lives in search; the resulting filter lives on the view (m.view.filter),
 	// so it stays applied for navigation after the bar closes.
@@ -87,7 +87,7 @@ type model struct {
 	tree tree
 	side tree
 	// split is the split view ("v"): side on the left, tree as a task list on
-	// the right. sideFocus is whether the keys go to the sidebar ("x" flips it).
+	// the right. sideFocus is whether the keys go to the sidebar (tab flips it).
 	split     bool
 	sideFocus bool
 	width     int
@@ -277,13 +277,17 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "f":
 		m.pick = newFilterPicker("Filter "+m.view.title()+" by state", m.view.columns(), m.view.filterSet())
 		m.mode = modeStateFilter
-	case "a":
+	case "u":
 		m.setUnified(!m.view.all)
 		m.saveView()
 	case "v":
-		m.toggleSplit()
+		if m.split {
+			m.toggleSplit()
+		} else {
+			m.openSplitOnSelection()
+		}
 		m.saveView()
-	case "x":
+	case "tab", "shift+tab":
 		if m.split {
 			m.sideFocus = !m.sideFocus
 		}
@@ -302,7 +306,7 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		if c, ok := tabKey(msg.String(), m.view.column); ok && m.view.screen == screenSprint {
 			if m.view.all {
-				m.status = "press a to show the board"
+				m.status = "press u to show the board"
 				return m, nil
 			}
 			m.setColumn(c)
@@ -434,11 +438,11 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focused().toggleFold()
 		}
 		return m, nil
-	case "p":
+	case "a":
 		return m.shiftColumn(1)
 	case "o":
 		return m.openSendToPicker()
-	case "P":
+	case "A":
 		return m.shiftColumn(-1)
 	case "t":
 		return m.openStatePicker()

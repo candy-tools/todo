@@ -35,14 +35,14 @@ var helpSections = []helpSection{
 		{"k", "Last viewed open sprint; on a board, the next open one"},
 		{"K", "Pick a sprint to go to"},
 		{"q", "On a sprint board: back to the Sprint list (esc too)"},
-		{"tab  shift+tab", "Next / previous tab (sprint board)"},
+		{"[  ]", "Previous / next column (sprint board)"},
 		{"1–3", "Jump to Next / In Progress / Done (sprint board)"},
-		{"a", "Unified view: every task, any sprint / back"},
+		{"u", "Unified view: every task, any sprint / back"},
 	}},
 	{"Tasks", []helpBinding{
-		{"p P", "Move the task to the next / previous column"},
-		{"p", "On a backlog task: assign it to a sprint"},
-		{"P", "On a Next task: send it back to the Backlog"},
+		{"a A", "Move the task to the next / previous column"},
+		{"a", "On a backlog task: assign it to a sprint"},
+		{"A", "On a Next task: send it back to the Backlog"},
 		{"o", "Send the task to another sprint or the Backlog"},
 		{"t", "Set the task's state (also completes / reopens)"},
 		{"m", "Grab to reorder (arrows move, m/enter/esc drop)"},
@@ -65,7 +65,7 @@ var helpSections = []helpSection{
 	}},
 	{"Views", []helpBinding{
 		{"v", "Split: categories sidebar + task list"},
-		{"x", "Switch pane (split view)"},
+		{"tab", "Switch pane (split view)"},
 	}},
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},

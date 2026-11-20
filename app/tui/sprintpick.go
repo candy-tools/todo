@@ -16,7 +16,7 @@ type sprintPickPurpose int
 
 const (
 	pickJump   sprintPickPurpose = iota // K: show the chosen sprint's board
-	pickAssign                          // p: put a backlog task in the chosen sprint
+	pickAssign                          // a: put a backlog task in the chosen sprint
 	pickSendTo                          // o: move a sprint task to another sprint or the Backlog
 )
 
@@ -28,7 +28,7 @@ type sprintPickRow struct {
 	backlog  bool
 }
 
-// sprintPicker is the dialog behind K, p and o: a titled list of sprints (and,
+// sprintPicker is the dialog behind K, a and o: a titled list of sprints (and,
 // for o, the Backlog) with a cursor. taskID is the task p and o act on.
 type sprintPicker struct {
 	title   string
@@ -174,7 +174,7 @@ func (m model) openSendToPicker() (tea.Model, tea.Cmd) {
 		m.status = "subtasks move with their task"
 		return m, nil
 	case it.SprintID() == "":
-		m.status = "use p to assign it to a sprint"
+		m.status = "use a to assign it to a sprint"
 		return m, nil
 	case m.sprintClosed(it.SprintID()):
 		m.status = todo.ErrSprintClosed.Error()

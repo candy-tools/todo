@@ -119,7 +119,7 @@ func (m model) prepareAddForm(t formTarget) (model, bool) {
 		// assigned.
 		m.status = "Add a category first (press c) — tasks live under a category."
 		if !m.view.editsCategories() {
-			m.status = "add it in the Backlog (b, n), then assign it with p"
+			m.status = "add it in the Backlog (b, n), then assign it with a"
 		}
 		return m, false
 	}
