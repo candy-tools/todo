@@ -107,6 +107,7 @@ func (s *Store) importDoc(ctx context.Context, doc *Document, replace, backUp bo
 		}
 		d.Roots = doc.Roots
 		d.Sprints = doc.Sprints
+		d.fillSprintRefs()
 		return true, nil
 	})
 	if err == nil {

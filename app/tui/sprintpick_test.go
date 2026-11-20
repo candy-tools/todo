@@ -42,7 +42,7 @@ func TestKJumpsToChosenSprintIncludingDone(t *testing.T) {
 	if m.mode != modeSprintPick || m.sprintPick.title != "Go to sprint" {
 		t.Fatalf("K: mode %v title %q, want the jump dialog", m.mode, m.sprintPick.title)
 	}
-	if got, want := strings.Join(rowLabels(m), ","), "Sprint 1,Sprint 2,✓ Old"; got != want {
+	if got, want := strings.Join(rowLabels(m), ","), "SPRINT-001 Sprint 1,SPRINT-002 Sprint 2,✓ SPRINT-003 Old"; got != want {
 		t.Fatalf("rows = %q, want %q (open first, done marked)", got, want)
 	}
 	m = press(m, "down", "down", "enter")
@@ -65,7 +65,7 @@ func TestPAssignsBacklogTask(t *testing.T) {
 	if m.mode != modeSprintPick || m.sprintPick.title != "Assign to sprint" {
 		t.Fatalf("p: mode %v title %q, want the assign dialog", m.mode, m.sprintPick.title)
 	}
-	if got, want := strings.Join(rowLabels(m), ","), "Sprint 1,Sprint 2"; got != want {
+	if got, want := strings.Join(rowLabels(m), ","), "SPRINT-001 Sprint 1,SPRINT-002 Sprint 2"; got != want {
 		t.Fatalf("rows = %q, want only the open sprints %q", got, want)
 	}
 	m = press(m, "enter")
@@ -76,7 +76,7 @@ func TestPAssignsBacklogTask(t *testing.T) {
 	if it.Sprint != "s000001" || it.Status != todo.New {
 		t.Errorf("stored task = sprint %q state %v, want Sprint 1 and new", it.Sprint, it.Status)
 	}
-	if m.status != "moved to Sprint 1 — new" {
+	if m.status != "moved to SPRINT-001 Sprint 1 — new" {
 		t.Errorf("status = %q", m.status)
 	}
 	if find(m.doc, "backlogTask").Sprint == "" {
@@ -92,7 +92,7 @@ func TestOSendsToOtherSprintKeepingState(t *testing.T) {
 		t.Fatal("working task not shown")
 	}
 	m = press(m, "o")
-	if m.sprintPick.title != "Send to" || strings.Join(rowLabels(m), ",") != "Backlog,Sprint 2" {
+	if m.sprintPick.title != "Send to" || strings.Join(rowLabels(m), ",") != "Backlog,SPRINT-002 Sprint 2" {
 		t.Fatalf("o: title %q rows %v", m.sprintPick.title, rowLabels(m))
 	}
 	m = press(m, "down", "enter")
@@ -100,7 +100,7 @@ func TestOSendsToOtherSprintKeepingState(t *testing.T) {
 	if m.err != nil || it.Sprint != "s000002" || it.Status != todo.Working {
 		t.Errorf("task = sprint %q state %v err %v, want Sprint 2, working", it.Sprint, it.Status, m.err)
 	}
-	if m.status != "moved to Sprint 2 — "+todo.Working.Label() {
+	if m.status != "moved to SPRINT-002 Sprint 2 — "+todo.Working.Label() {
 		t.Errorf("status = %q", m.status)
 	}
 }
@@ -125,7 +125,7 @@ func TestOListsOnlyOtherOpenSprints(t *testing.T) {
 	m = press(m, "u") // the unified view shows every task
 	m.tree.selectID("t000002")
 	m = press(m, "o")
-	if got := strings.Join(rowLabels(m), ","); got != "Backlog,Sprint 2" {
+	if got := strings.Join(rowLabels(m), ","); got != "Backlog,SPRINT-002 Sprint 2" {
 		t.Errorf("rows = %q, want the Backlog and the other open sprint only", got)
 	}
 	m = press(m, "esc")
@@ -191,14 +191,14 @@ func TestSprintPickerScrollsToCursor(t *testing.T) {
 	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = press(m, "K")
 	shown := pickerRows(m)
-	if len(shown) == 0 || len(shown) >= 40 || shown[0] != "❯ S00" {
+	if len(shown) == 0 || len(shown) >= 40 || shown[0] != "❯ SPRINT-001 S00" {
 		t.Fatalf("K on 80x24: rows shown %v, want a window starting at the cursor", shown)
 	}
 	h := len(shown)
 	for i := 0; i < h+2; i++ {
 		m = press(m, "down")
 	}
-	want := fmt.Sprintf("❯ S%02d", h+2)
+	want := fmt.Sprintf("❯ SPRINT-%03d S%02d", h+3, h+2)
 	shown = pickerRows(m)
 	if len(shown) != h || shown[len(shown)-1] != want {
 		t.Fatalf("after %d downs: rows %v, want %d rows ending on %s", h+2, shown, h, want)
@@ -222,7 +222,7 @@ func TestSprintPickerOpensOnCurrentSprint(t *testing.T) {
 	if r := m.sprintPick.rows[m.sprintPick.cursor]; r.sprintID != "s000030" {
 		t.Fatalf("K on S30's board: cursor on %q, want S30", r.label)
 	}
-	if shown := pickerRows(m); !slices.Contains(shown, "❯ S30") {
+	if shown := pickerRows(m); !slices.Contains(shown, "❯ SPRINT-031 S30") {
 		t.Errorf("rows shown %v, want the cursor row S30 among them", shown)
 	}
 }

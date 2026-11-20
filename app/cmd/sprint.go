@@ -16,9 +16,9 @@ import (
 // sprint fields embedded in each sprint of `todo next`.
 type jsonSprint struct {
 	ID     string         `json:"id"`
+	Ref    string         `json:"ref"`
 	Name   string         `json:"name"`
 	Goal   string         `json:"goal"`
-	Prefix string         `json:"prefix,omitempty"`
 	Status string         `json:"status"`
 	Counts map[string]int `json:"counts"`
 }
@@ -34,10 +34,14 @@ func sprintCounts(doc *todo.Document, id string) map[string]int {
 	}
 }
 
-// writeSprintTable prints sprints as a table: id, status, per-column counts,
-// then the name and, when there is one, the goal.
+// writeSprintTable prints sprints as a table: reference, id, status,
+// per-column counts, then the name and, when there is one, the goal.
 func writeSprintTable(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) {
-	_, _ = fmt.Fprintln(w, "     id  status  next  progress  done  name — goal")
+	width := len("ref")
+	for _, sp := range sprints {
+		width = max(width, len(sp.Ref))
+	}
+	_, _ = fmt.Fprintf(w, "%-*s       id  status  next  progress  done  name — goal\n", width, "ref")
 	next, progress, done := todo.ColNext.String(), todo.ColInProgress.String(), todo.ColDone.String()
 	for _, sp := range sprints {
 		c := sprintCounts(doc, sp.ID)
@@ -45,7 +49,7 @@ func writeSprintTable(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) {
 		if sp.Goal != "" {
 			label += " — " + todo.Printable(sp.Goal)
 		}
-		_, _ = fmt.Fprintf(w, "%7s  %-6s  %4d  %8d  %4d  %s\n", sp.ID, sp.Status.String(), c[next], c[progress], c[done], label)
+		_, _ = fmt.Fprintf(w, "%-*s  %7s  %-6s  %4d  %8d  %4d  %s\n", width, sp.Ref, sp.ID, sp.Status.String(), c[next], c[progress], c[done], label)
 	}
 }
 
@@ -62,7 +66,7 @@ func writeSprintJSON(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) er
 type sprintWrite func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error)
 
 // withSprint resolves --sprint and runs write on it, then prints
-// "<verb>: <name>", or under --json the sprint as the written list has it (for
+// "<verb>: <ref> <name>", or under --json the sprint as the written list has it (for
 // rm, as it was before the write, wrapped in {"removed": ...}).
 func withSprint(cmd *cobra.Command, verb string, write sprintWrite) error {
 	return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
@@ -84,18 +88,18 @@ func withSprint(cmd *cobra.Command, verb string, write sprintWrite) error {
 			}
 			return writeJSON(cmd.OutOrStdout(), sprintOf(res.Doc, now))
 		}
-		name := sp.Name
+		shown := *sp
 		if n, _ := cmd.Flags().GetString("set-name"); cmd.Flags().Changed("set-name") {
-			name = n
+			shown.Name = n
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, todo.Printable(name))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, sprintLabel(&shown))
 		return nil
 	})
 }
 
 // addSprintFlag registers --sprint.
 func addSprintFlag(cmd *cobra.Command) {
-	cmd.Flags().String("sprint", "", "the sprint, by id or name (ignoring case)")
+	cmd.Flags().String("sprint", "", "the sprint, by reference (TODO-001), id or name (ignoring case)")
 }
 
 func sprintCmd() *cobra.Command {
@@ -135,44 +139,42 @@ func sprintListCmd() *cobra.Command {
 
 func sprintAddCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "add --name <name> [--goal <goal>] [--prefix <prefix>]",
-		Short: "create an open sprint and print its id",
+		Use:   "add --name <name> [--goal <goal>]",
+		Short: "create an open sprint and print its reference (TODO-001)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			name, _ := cmd.Flags().GetString("name")
 			goal, _ := cmd.Flags().GetString("goal")
-			prefix, _ := cmd.Flags().GetString("prefix")
 			if name == "" {
 				return usageErr("specify --name")
 			}
 			return withStore(cmd, func(ctx context.Context, s *todo.Store, _ *todo.Document) error {
-				id, res, err := s.AddSprintWith(ctx, todo.Fields{Title: name, Description: goal, Prefix: prefix})
+				id, res, err := s.AddSprint(ctx, name, goal)
 				if err != nil {
 					return err
 				}
+				sp, ok := res.Doc.SprintByID(id)
+				if !ok {
+					return fmt.Errorf("sprint %s is missing from the written list", id)
+				}
 				if wantJSON(cmd) {
-					sp, ok := res.Doc.SprintByID(id)
-					if !ok {
-						return fmt.Errorf("sprint %s is missing from the written list", id)
-					}
 					return writeJSON(cmd.OutOrStdout(), sprintOf(res.Doc, sp))
 				}
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), id)
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), sp.Ref)
 				return nil
 			})
 		},
 	}
 	c.Flags().String("name", "", "the sprint's name")
 	c.Flags().String("goal", "", "the sprint's goal")
-	c.Flags().String("prefix", "", "the reference prefix for tasks created in this sprint, such as S13 (a letter and up to 9 letters or digits)")
 	addJSONFlag(c)
 	return c
 }
 
 func sprintEditCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "edit --sprint <id|name> [--set-name <name>] [--set-goal <goal>] [--set-prefix <prefix>]",
-		Short: "change a sprint's name, goal or reference prefix",
+		Use:   "edit --sprint <ref|id|name> [--set-name <name>] [--set-goal <goal>]",
+		Short: "change a sprint's name or goal",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var ch todo.SprintChanges
@@ -184,12 +186,8 @@ func sprintEditCmd() *cobra.Command {
 				v, _ := cmd.Flags().GetString("set-goal")
 				ch.Goal = &v
 			}
-			if cmd.Flags().Changed("set-prefix") {
-				v, _ := cmd.Flags().GetString("set-prefix")
-				ch.Prefix = &v
-			}
-			if ch.Name == nil && ch.Goal == nil && ch.Prefix == nil {
-				return usageErr("specify --set-name, --set-goal or --set-prefix")
+			if ch.Name == nil && ch.Goal == nil {
+				return usageErr("specify --set-name or --set-goal")
 			}
 			return withSprint(cmd, "edit", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {
 				return s.EditSprint(ctx, sp.ID, ch)
@@ -200,20 +198,19 @@ func sprintEditCmd() *cobra.Command {
 	addJSONFlag(c)
 	c.Flags().String("set-name", "", "the new name")
 	c.Flags().String("set-goal", "", "the new goal (empty clears it)")
-	c.Flags().String("set-prefix", "", "the new reference prefix for tasks created in this sprint (empty clears it)")
 	return c
 }
 
 func sprintCloseCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "close --sprint <id|name>",
+		Use:   "close --sprint <ref|id|name>",
 		Short: "close a sprint; refused while it has tasks not done",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withSprint(cmd, "close", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {
 				res, err := s.CloseSprint(ctx, sp.ID)
 				if errors.Is(err, todo.ErrSprintNotDone) {
-					return res, fmt.Errorf("cannot close %q: %w", sp.Name, err)
+					return res, fmt.Errorf("cannot close %q: %w", sprintLabel(sp), err)
 				}
 				return res, err
 			})
@@ -226,7 +223,7 @@ func sprintCloseCmd() *cobra.Command {
 
 func sprintReopenCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "reopen --sprint <id|name>",
+		Use:   "reopen --sprint <ref|id|name>",
 		Short: "reopen a closed sprint",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -242,8 +239,8 @@ func sprintReopenCmd() *cobra.Command {
 
 func sprintRmCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "rm --sprint <id|name>",
-		Short: "delete a sprint; its tasks return to the backlog, refused while it holds done tasks",
+		Use:   "rm --sprint <ref|id|name>",
+		Short: "delete a closed sprint and all its tasks; refused while the sprint is open",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withSprint(cmd, "rm", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {

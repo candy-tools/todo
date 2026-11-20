@@ -43,8 +43,8 @@ func modelOn(t *testing.T, path string) model {
 // or import does, or the one setStatusExternally makes. Without one it is the
 // ID an upgrade gives it.
 func importedID(m model) string {
-	if s, ok := m.doc.SprintByName(todo.ImportedSprintName); ok {
-		return s.ID
+	if s := m.doc.ResolveSprint(todo.ImportedSprintName); len(s) > 0 {
+		return s[0].ID
 	}
 	return "0000000"
 }

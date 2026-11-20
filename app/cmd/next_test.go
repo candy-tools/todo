@@ -64,9 +64,9 @@ func TestNextJSON(t *testing.T) {
 	}
 }
 
-func TestNextJSONSprintPrefix(t *testing.T) {
+func TestNextJSONSprintRef(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [ ] seed\n")
-	addSprint(t, path, "S1", "--prefix", "S13")
+	addSprint(t, path, "S1")
 	out, err := runCmd(t, "next", "--file", path, "--json")
 	if err != nil {
 		t.Fatal(err)
@@ -77,8 +77,8 @@ func TestNextJSONSprintPrefix(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("bad JSON: %v\n%s", err, out)
 	}
-	if len(got.Sprints) != 1 || got.Sprints[0]["prefix"] != "S13" {
-		t.Errorf("next --json sprint lacks prefix S13:\n%s", out)
+	if len(got.Sprints) != 1 || got.Sprints[0]["ref"] != "SPRINT-001" {
+		t.Errorf("next --json sprint lacks ref SPRINT-001:\n%s", out)
 	}
 }
 
@@ -185,7 +185,7 @@ func TestNextText(t *testing.T) {
 	nums := numberMap(doc)
 	n := func(title string) int { return nums[doc.ByTitle(title)[0]] }
 	want := strings.Join([]string{
-		"S1 — g",
+		"SPRINT-001 S1 — g",
 		"  in progress:",
 		fmt.Sprintf("    #%d [working] w1", n("w1")),
 		fmt.Sprintf("    #%d [review] v1", n("v1")),
@@ -207,7 +207,7 @@ func TestNextTextEmptyListsAndSeparator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "S1\n  in progress:\n    (none)\n  next:\n    (none)\n\nS2 — x\n  in progress:\n    (none)\n  next:\n    (none)\n"
+	want := "SPRINT-001 S1\n  in progress:\n    (none)\n  next:\n    (none)\n\nSPRINT-002 S2 — x\n  in progress:\n    (none)\n  next:\n    (none)\n"
 	if out != want {
 		t.Errorf("got:\n%q\nwant:\n%q", out, want)
 	}

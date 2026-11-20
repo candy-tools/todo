@@ -144,8 +144,7 @@ func (m model) prepareAddForm(t formTarget) (model, bool) {
 	}
 	m.form = newForm(todo.Fields{}, kind, false)
 	if kind == formTask && p != nil {
-		_, sprint := m.view.newTaskPlacement(m.boardColumn())
-		m.form.autoRef = m.doc.PrefixFor(p.ID, sprint)
+		m.form.autoRef = m.doc.PrefixFor(p.ID)
 	}
 	return m, true
 }

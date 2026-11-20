@@ -252,7 +252,14 @@ func (m model) confirmQuestion() string {
 	case confirmClearDone:
 		return fmt.Sprintf("Remove %d completed task(s)?", m.doc.RemovableDoneIn(m.view.sprint))
 	case confirmDeleteSprint:
-		return fmt.Sprintf("Delete sprint %q? Its unfinished tasks go back to the Backlog.", todo.Printable(m.deletingSprint.Name))
+		n := 0
+		for _, t := range m.doc.SprintTasks(m.deletingSprint.ID) {
+			n += 1 + len(t.Descendants())
+		}
+		if n > 0 {
+			return fmt.Sprintf("Delete sprint %q and its %d task(s)?", sprintLabel(m.deletingSprint), n)
+		}
+		return fmt.Sprintf("Delete sprint %q?", sprintLabel(m.deletingSprint))
 	case confirmQuit:
 		return "Quit?"
 	}

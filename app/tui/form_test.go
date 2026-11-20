@@ -27,9 +27,13 @@ func TestFormRing(t *testing.T) {
 	if len(cat.ring()) != 4 {
 		t.Errorf("category form should have 4 focus stops (title, prefix, Save, Cancel), got %d", len(cat.ring()))
 	}
+	sprint := newForm(todo.Fields{}, formSprint, false)
+	if len(sprint.ring()) != 4 {
+		t.Errorf("sprint form should have 4 focus stops (name, goal, Save, Cancel), got %d", len(sprint.ring()))
+	}
 	settings := newForm(todo.Fields{}, formSettings, true)
-	if len(settings.ring()) != 3 {
-		t.Errorf("settings form should have 3 focus stops (the prefix, Save, Cancel), got %d", len(settings.ring()))
+	if len(settings.ring()) != 4 {
+		t.Errorf("settings form should have 4 focus stops (the two prefixes, Save, Cancel), got %d", len(settings.ring()))
 	}
 }
 
@@ -355,35 +359,29 @@ func TestCategoryFormPrefix(t *testing.T) {
 	}
 }
 
-// The sprint form has a Reference prefix field between the name and the goal.
-func TestSprintFormPrefix(t *testing.T) {
+// The sprint form has the name and the goal only: a sprint's reference is
+// given when it is created and has no prefix of its own to set.
+func TestSprintFormHasNoPrefix(t *testing.T) {
 	m, path := threeSprints(t)
 	m = press(m, "s", "n")
-	if want := []formFocus{focusTitle, focusRef, focusDesc, focusSave, focusCancel}; !slices.Equal(m.form.ring(), want) {
+	if want := []formFocus{focusTitle, focusDesc, focusSave, focusCancel}; !slices.Equal(m.form.ring(), want) {
 		t.Errorf("sprint ring = %v, want %v", m.form.ring(), want)
 	}
+	if v := m.form.view(); strings.Contains(v, "Reference prefix") {
+		t.Errorf("the sprint form should have no Reference prefix field:\n%s", v)
+	}
 	m = typeText(m, "S")
-	m = typeText(press(m, "tab"), "spr")
+	m = typeText(press(m, "tab"), "the goal")
 	m = press(m, "enter")
 	if m.mode != modeMain || m.err != nil || m.status != "" {
 		t.Fatalf("after enter: mode %v err %v status %q", m.mode, m.err, m.status)
 	}
-	s, ok := loadSprintDoc(t, path).SprintByName("S")
-	if !ok || s.Prefix != "SPR" {
-		t.Fatalf("stored sprint = %+v (found %v), want prefix SPR", s, ok)
+	s := loadSprintDoc(t, path).ResolveSprint("S")
+	if len(s) != 1 || s[0].Goal != "the goal" || s[0].Ref != "SPRINT-004" {
+		t.Fatalf("stored sprints named S = %+v, want one with the goal and ref SPRINT-004", s)
 	}
-
-	m = press(m, "e")
-	if m.form.ref.Value() != "SPR" {
-		t.Fatalf("e shows prefix %q, want SPR", m.form.ref.Value())
-	}
-	m = clearInput(press(m, "tab"), 3)
-	if ch := m.form.sprintChanges(); ch.Prefix == nil || *ch.Prefix != "" || ch.Name != nil || ch.Goal != nil {
-		t.Errorf("sprintChanges = %+v, want the prefix cleared only", ch)
-	}
-	m = press(m, "enter")
-	if s, _ := loadSprintDoc(t, path).SprintByName("S"); s.Prefix != "" {
-		t.Errorf("stored prefix after clearing = %q, want none", s.Prefix)
+	if v := press(m, "e").form.view(); strings.Contains(v, "Reference prefix") {
+		t.Errorf("the edit form should have no Reference prefix field:\n%s", v)
 	}
 }
 
@@ -429,20 +427,20 @@ func TestAddTaskFormAutoRef(t *testing.T) {
 	}
 }
 
-// On a sprint board a new task joins the board's sprint, so the sprint's
-// prefix is the one its form shows and its reference comes from.
-func TestAddTaskFormAutoRefFromSprint(t *testing.T) {
+// On a sprint board a new task still takes its category's prefix: the
+// sprint plays no part in a task's reference.
+func TestAddTaskFormAutoRefOnSprintBoard(t *testing.T) {
 	m, path := threeSprints(t)
-	if _, err := m.store.EditSprint(context.Background(), "s00000a", todo.SprintChanges{Prefix: new("sa")}); err != nil {
+	if _, err := m.store.UpdateSettings(context.Background(), todo.Settings{RefPrefix: new("todo")}); err != nil {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
 	m = press(m, "s", "tab", "n")
-	if m.mode != modeForm || m.form.autoRef != "SA" {
-		t.Fatalf("n on A's board: mode %v autoRef %q, want SA (status %q)", m.mode, m.form.autoRef, m.status)
+	if m.mode != modeForm || m.form.autoRef != "TODO" {
+		t.Fatalf("n on A's board: mode %v autoRef %q, want TODO (status %q)", m.mode, m.form.autoRef, m.status)
 	}
 	m = press(typeText(m, "t"), "enter")
-	if ref := storedItem(t, path, "t").Ref; ref != "SA-001" {
-		t.Errorf("the new task's ref = %q, want SA-001", ref)
+	if ref := storedItem(t, path, "t").Ref; ref != "TODO-001" {
+		t.Errorf("the new task's ref = %q, want TODO-001", ref)
 	}
 }

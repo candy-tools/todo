@@ -82,3 +82,42 @@ func TestSettingsKeyEverywhereButDialogs(t *testing.T) {
 		t.Errorf("S in the add form: kind %v title %q, want it typed", got.form.kind, got.form.title.Value())
 	}
 }
+
+// The settings dialog's second field is the sprint reference prefix: empty, it
+// shows the folder name's prefix the sprints fall back to; typing one sets it
+// (upper-cased) and new sprints take their references from it.
+func TestSettingsDialogSetsSprintPrefix(t *testing.T) {
+	m, path := newTestModel(t, "# B\n- [ ] a\n")
+	m = press(m, "S")
+	v := m.form.view()
+	if !strings.Contains(v, "Sprint reference prefix") || !strings.Contains(v, "SPRINT (folder name)") {
+		t.Errorf("the settings dialog should have a Sprint reference prefix field showing the folder default:\n%s", v)
+	}
+	m = press(typeText(press(m, "tab"), "sp"), "enter")
+	if m.mode != modeMain || m.err != nil || m.status != "" {
+		t.Fatalf("after enter: mode %v err %v status %q", m.mode, m.err, m.status)
+	}
+	if got := loadSprintDoc(t, path).SprintPrefix; got != "SP" {
+		t.Fatalf("stored SprintPrefix = %q, want SP", got)
+	}
+	if got := press(m, "S").form.ref.Value(); got != "SP" {
+		t.Errorf("the reopened dialog shows sprint prefix %q, want SP", got)
+	}
+}
+
+// A sprint prefix that is also the task prefix is refused: the footer says
+// why, the dialog stays open, and neither prefix is stored.
+func TestSettingsDialogPrefixClash(t *testing.T) {
+	m, path := newTestModel(t, "# B\n- [ ] a\n")
+	m = typeText(press(m, "S"), "todo")
+	m = press(typeText(press(m, "tab"), "TODO"), "enter")
+	if m.mode != modeForm {
+		t.Fatalf("mode %v, want the dialog kept open", m.mode)
+	}
+	if got := m.footer(200); !strings.Contains(got, todo.ErrPrefixClash.Error()) {
+		t.Errorf("footer = %q, want the clash message", got)
+	}
+	if d := loadSprintDoc(t, path); d.RefPrefix != "" || d.SprintPrefix != "" {
+		t.Errorf("stored prefixes = %q, %q; want none", d.RefPrefix, d.SprintPrefix)
+	}
+}

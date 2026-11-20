@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -98,7 +97,7 @@ func TestBSwitchesScreens(t *testing.T) {
 	if m.view.screen != screenSprint || m.view.sprint != "s00000a" {
 		t.Fatalf("s: screen = %v sprint = %q, want the Sprints workspace on A", m.view.screen, m.view.sprint)
 	}
-	if h := m.header(100); !strings.Contains(h, "[s Sprints]") || !strings.Contains(h, "Sprints › A") {
+	if h := m.header(100); !strings.Contains(h, "[s Sprints]") || !strings.Contains(h, "Sprints › SPRINT-001 A") {
 		t.Errorf("header = %q, want A's board line", h)
 	}
 	m = press(m, "b")
@@ -115,7 +114,7 @@ func TestBSwitchesScreens(t *testing.T) {
 	if got := sectionTitles(m.tree, todo.ColInProgress); !equalStrings(got, []string{"cWorking"}) {
 		t.Errorf("C's In Progress rows = %v", got)
 	}
-	if h := m.header(100); !strings.Contains(h, "Sprints › C") || strings.Contains(h, "[b Backlog]") {
+	if h := m.header(100); !strings.Contains(h, "Sprints › SPRINT-003 C") || strings.Contains(h, "[b Backlog]") {
 		t.Errorf("header = %q, want C's crumb", h)
 	}
 	if v := ansi.Strip(m.View()); !strings.Contains(v, "━━ In Progress 1 ━━") {
@@ -126,7 +125,7 @@ func TestBSwitchesScreens(t *testing.T) {
 func TestBoardHeaderMarksDoneSprint(t *testing.T) {
 	m, _ := threeSprints(t)
 	openBoard(&m, "s00000b")
-	if h := m.header(100); !strings.Contains(h, "Sprints › B ✓") {
+	if h := m.header(100); !strings.Contains(h, "Sprints › SPRINT-002 B ✓") {
 		t.Errorf("header = %q, want B marked done in the crumb", h)
 	}
 	if v := ansi.Strip(m.View()); !strings.Contains(v, "closed — c in the sidebar reopens it") || !strings.Contains(v, "━━ Done 1 ━━") ||
@@ -362,11 +361,11 @@ func TestSprintListRowsOrderAndCounts(t *testing.T) {
 	}
 	wants := [][]string{
 		{"━━ Open 2 ━"},
-		{"● Alpha", "2·1·1"}, {"first goal"},
-		{"● Gamma", "0·0·0"}, {"third goal"},
+		{"● SPRINT-001 Alpha", "2·1·1"}, {"first goal"},
+		{"● SPRINT-003 Gamma", "0·0·0"}, {"third goal"},
 		{"━━ Done 2 ━"},
-		{"✓ Delta", "0·0·0"}, {"—"},
-		{"✓ Beta", "0·0·1"}, {"—"},
+		{"✓ SPRINT-004 Delta", "0·0·0"}, {"—"},
+		{"✓ SPRINT-002 Beta", "0·0·1"}, {"—"},
 	}
 	for i, want := range wants {
 		for _, w := range want {
@@ -423,9 +422,7 @@ func TestApplyViewMissingSprint(t *testing.T) {
 func TestReloadSprintGoneFallsBackToList(t *testing.T) {
 	m, path := threeSprints(t)
 	m.showSprint("s00000c")
-	if _, err := openSecond(t, path).DeleteSprint(context.Background(), "s00000c"); err != nil {
-		t.Fatal(err)
-	}
+	deleteSprintOnDisk(t, path, "s00000c")
 	m = pollOnce(t, m)
 	if m.view.screen != screenSprint || m.view.sprint != "s00000a" {
 		t.Errorf("after the sprint was deleted the screen = %v sprint = %q, want A's board", m.view.screen, m.view.sprint)

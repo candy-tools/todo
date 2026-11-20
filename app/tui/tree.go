@@ -849,7 +849,7 @@ func (t *tree) sprintTag(it *todo.Item) string {
 	if !ok {
 		return ""
 	}
-	return ansi.Truncate(todo.Printable(s.Name), maxNameWidth, "…")
+	return ansi.Truncate(sprintLabel(s), maxNameWidth, "…")
 }
 
 // taskTrailer returns the unstyled pieces drawn after a task's title: the

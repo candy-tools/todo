@@ -49,7 +49,7 @@ func addCmd() *cobra.Command {
 				switch {
 				case parent.IsTask():
 				case st.InSprint() && sprintID == "":
-					return usageErr(fmt.Sprintf("--status %s needs --sprint <id|name>", st))
+					return usageErr(fmt.Sprintf("--status %s needs --sprint <ref|id|name>", st))
 				case !st.InSprint() && sprintID != "":
 					return usageErr("--sprint needs a sprint state (" + sprintStateNames() + ")")
 				}
@@ -77,7 +77,7 @@ func addCmd() *cobra.Command {
 	c.Flags().String("plan", "", "a path or reference to the task's plan")
 	c.Flags().String("ref", "", "the new task's reference, such as APP-001; unique in the list (not for a subtask; refused where a reference prefix applies, as it is generated)")
 	c.Flags().String("status", "open", "initial state: "+statusNames+" (default open; new with --sprint)")
-	c.Flags().String("sprint", "", "put the new task in this sprint, by id or name (top-level tasks only)")
+	c.Flags().String("sprint", "", "put the new task in this sprint, by reference, id or name (top-level tasks only)")
 	addSelectorFlags(c, "parent-")
 	addJSONFlag(c)
 	return c

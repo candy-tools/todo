@@ -132,6 +132,9 @@ func TestSprintAddJSON(t *testing.T) {
 	if sp.Name != "S9" || sp.Status != "open" || sp.ID == "" {
 		t.Errorf("sprint = %+v", sp)
 	}
+	if _, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "S9"); err != nil {
+		t.Fatal(err)
+	}
 	out, _, err = runCmdSplit(t, "sprint", "rm", "--file", path, "--sprint", "S9", "--json")
 	if err != nil {
 		t.Fatal(err)

@@ -51,9 +51,19 @@ func TestStoreSprintWritesPersist(t *testing.T) {
 	if sp, _ := load(t, s).SprintByID(a); sp.Status != SprintOpen {
 		t.Error("sprint not reopened")
 	}
+	if _, err := s.DeleteSprint(ctx, a); !errors.Is(err, ErrSprintOpen) {
+		t.Fatalf("DeleteSprint of the open sprint = %v, want ErrSprintOpen", err)
+	}
+	mustOK(t)(s.Assign(ctx, ids.t1, a))
+	mustOK(t)(s.SetState(ctx, ids.t1, Done, StateOptions{Cascade: true}))
+	mustOK(t)(s.CloseSprint(ctx, a))
 	mustOK(t)(s.DeleteSprint(ctx, a))
-	if _, ok := load(t, s).SprintByID(a); ok {
+	doc := load(t, s)
+	if _, ok := doc.SprintByID(a); ok {
 		t.Error("sprint not deleted")
+	}
+	if _, ok := doc.ByID(ids.t1); ok {
+		t.Error("the sprint's task was not deleted with it")
 	}
 }
 

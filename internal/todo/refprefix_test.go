@@ -58,21 +58,16 @@ func TestPrefixPrecedence(t *testing.T) {
 	sub := must(d.AppendCategory("Sub", work))
 	other := must(d.AppendCategory("Other", ""))
 	task := must(d.AppendTask(todo.Fields{Title: "t"}, todo.Open, sub))
-	s1 := must(d.AddSprintWith(todo.Fields{Title: "S1", Prefix: "spr"}))
-	s2 := must(d.AddSprint("S2", ""))
 
 	for _, tc := range []struct {
-		name, parent, sprint, want string
+		name, parent, want string
 	}{
-		{"category prefix inherited", sub, "", "WORK"},
-		{"sprint wins", sub, s1, "SPR"},
-		{"sprint without prefix", sub, s2, "WORK"},
-		{"list prefix", other, "", "TODO"},
-		{"task parent", task, "", ""},
-		{"missing parent", "nope", "", ""},
-		{"task parent in a prefixed sprint", task, s1, ""},
+		{"category prefix inherited", sub, "WORK"},
+		{"list prefix", other, "TODO"},
+		{"task parent", task, ""},
+		{"missing parent", "nope", ""},
 	} {
-		if got := d.PrefixFor(tc.parent, tc.sprint); got != tc.want {
+		if got := d.PrefixFor(tc.parent); got != tc.want {
 			t.Errorf("%s: PrefixFor = %q, want %q", tc.name, got, tc.want)
 		}
 	}
@@ -97,16 +92,6 @@ func TestAddTaskGetsRef(t *testing.T) {
 	sub := must(d.AppendTask(todo.Fields{Title: "s"}, todo.Open, first))
 	if got := refOf(t, d, sub); got != "" {
 		t.Errorf("subtask ref = %q, want none", got)
-	}
-}
-
-func TestAddTaskInSprintUsesSprintPrefix(t *testing.T) {
-	d := &todo.Document{}
-	cat := must(d.AppendCategoryWith(todo.Fields{Title: "C", Prefix: "c"}, ""))
-	s := must(d.AddSprintWith(todo.Fields{Title: "S", Prefix: "sp"}))
-	id := must(d.AppendTask(todo.Fields{Title: "a", Sprint: s}, todo.New, cat))
-	if got := refOf(t, d, id); got != "SP-001" {
-		t.Errorf("ref = %q, want SP-001", got)
 	}
 }
 
@@ -265,17 +250,6 @@ func TestEditPrefixKinds(t *testing.T) {
 		t.Errorf("category ref err = %v, want ErrNotTask", err)
 	}
 
-	s := must(d.AddSprint("S", ""))
-	if changed, err := d.EditSprint(s, todo.SprintChanges{Prefix: new("s1")}); err != nil || !changed {
-		t.Fatalf("EditSprint prefix = %v, %v", changed, err)
-	}
-	if sp, _ := d.SprintByID(s); sp.Prefix != "S1" {
-		t.Errorf("sprint prefix = %q, want S1", sp.Prefix)
-	}
-	if _, err := d.EditSprint(s, todo.SprintChanges{Prefix: new("s 1")}); !errors.Is(err, todo.ErrInvalidPrefix) {
-		t.Errorf("bad sprint prefix err = %v", err)
-	}
-
 	// A task's reference stays editable while a prefix applies.
 	must(d.SetRefPrefix("TODO"))
 	if changed, err := d.Edit(task, todo.Changes{Ref: new("MINE-7")}); err != nil || !changed {
@@ -291,10 +265,7 @@ func TestAddWithInvalidPrefixAddsNothing(t *testing.T) {
 	if _, err := d.AppendCategoryWith(todo.Fields{Title: "C", Prefix: "1"}, ""); !errors.Is(err, todo.ErrInvalidPrefix) {
 		t.Errorf("category err = %v", err)
 	}
-	if _, err := d.AddSprintWith(todo.Fields{Title: "S", Prefix: "1"}); !errors.Is(err, todo.ErrInvalidPrefix) {
-		t.Errorf("sprint err = %v", err)
-	}
-	if len(d.Roots) != 0 || len(d.Sprints) != 0 {
+	if len(d.Roots) != 0 {
 		t.Error("an invalid prefix still added something")
 	}
 	if _, err := d.SetRefPrefix("bad prefix"); !errors.Is(err, todo.ErrInvalidPrefix) {
@@ -306,7 +277,6 @@ func TestCloneCopiesRefs(t *testing.T) {
 	d := &todo.Document{RefLast: map[string]int{"A": 1}}
 	must(d.SetRefPrefix("TODO"))
 	cat := must(d.AppendCategoryWith(todo.Fields{Title: "C", Prefix: "c"}, ""))
-	s := must(d.AddSprintWith(todo.Fields{Title: "S", Prefix: "s"}))
 	c := d.Clone()
 	c.RefLast["A"] = 5
 	if d.RefLast["A"] != 1 {
@@ -317,8 +287,5 @@ func TestCloneCopiesRefs(t *testing.T) {
 	}
 	if it, _ := c.ByID(cat); it.Prefix != "C" {
 		t.Errorf("category prefix = %q", it.Prefix)
-	}
-	if sp, _ := c.SprintByID(s); sp.Prefix != "S" {
-		t.Errorf("sprint prefix = %q", sp.Prefix)
 	}
 }

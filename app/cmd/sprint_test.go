@@ -33,8 +33,16 @@ func sprintTask(t *testing.T, path, title, sprintID string, st todo.Status) {
 	}
 }
 
-// addSprint creates a sprint through the CLI and returns its printed ID.
+// addSprint creates a sprint through the CLI and returns the ID of the sprint
+// whose reference it printed.
 func addSprint(t *testing.T, path, name string, extra ...string) string {
+	t.Helper()
+	return sprintIDOf(t, path, sprintAddRef(t, path, name, extra...))
+}
+
+// sprintAddRef creates a sprint through the CLI and returns the reference it
+// printed.
+func sprintAddRef(t *testing.T, path, name string, extra ...string) string {
 	t.Helper()
 	args := append([]string{"sprint", "add", "--file", path, "--name", name}, extra...)
 	out, err := runCmd(t, args...)
@@ -44,13 +52,28 @@ func addSprint(t *testing.T, path, name string, extra ...string) string {
 	return strings.TrimSpace(out)
 }
 
-func TestSprintAddPrintsID(t *testing.T) {
+// sprintIDOf returns the ID of the sprint with reference ref in the list at
+// path.
+func sprintIDOf(t *testing.T, path, ref string) string {
+	t.Helper()
+	doc, _, err := todo.NewStore(path).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := doc.ResolveSprint(ref)
+	if len(m) != 1 || m[0].Ref != ref {
+		t.Fatalf("no sprint with reference %q: %v", ref, m)
+	}
+	return m[0].ID
+}
+
+func TestSprintAddPrintsRef(t *testing.T) {
 	path := todotest.Seed(t, "")
-	id := addSprint(t, path, "Alpha", "--goal", "ship it")
+	ref := sprintAddRef(t, path, "Alpha", "--goal", "ship it")
 	doc, _, _ := todo.NewStore(path).Load(context.Background())
-	sp, ok := doc.SprintByID(id)
+	sp, ok := doc.SprintByID(sprintIDOf(t, path, ref))
 	if !ok || sp.Name != "Alpha" || sp.Goal != "ship it" || sp.Status != todo.SprintOpen {
-		t.Errorf("printed id %q -> %+v", id, sp)
+		t.Errorf("printed ref %q -> %+v", ref, sp)
 	}
 }
 
@@ -116,9 +139,9 @@ func TestSprintEditByName(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc, _, _ := todo.NewStore(path).Load(context.Background())
-	sp, ok := doc.SprintByName("Gamma")
-	if !ok || sp.Goal != "new" {
-		t.Errorf("sprint = %+v", sp)
+	m := doc.ResolveSprint("Gamma")
+	if len(m) != 1 || m[0].Goal != "new" {
+		t.Errorf("sprints named Gamma = %+v", m)
 	}
 	_, err := runCmd(t, "sprint", "edit", "--file", path, "--sprint", "Gamma")
 	if err == nil || codeOf(t, err) != exitUsage {
@@ -136,7 +159,7 @@ func TestSprintCloseRefusedExit2(t *testing.T) {
 	if err == nil || codeOf(t, err) != exitUsage {
 		t.Fatalf("err = %v", err)
 	}
-	if want := `cannot close "Alpha": 3 tasks not done`; err.Error() != want {
+	if want := `cannot close "SPRINT-001 Alpha": 3 tasks not done`; err.Error() != want {
 		t.Errorf("message = %q, want %q", err.Error(), want)
 	}
 }
@@ -156,38 +179,41 @@ func TestSprintReopen(t *testing.T) {
 	}
 }
 
-func TestSprintRmReturnsTasks(t *testing.T) {
+func TestSprintRmDeletesClosedSprintAndTasks(t *testing.T) {
 	path := todotest.Seed(t, "")
 	id := addSprint(t, path, "Alpha")
-	sprintTask(t, path, "a", id, todo.New)
+	keep := addSprint(t, path, "Keep")
+	sprintTask(t, path, "a", id, todo.Done)
+	sprintTask(t, path, "k", keep, todo.New)
+	if _, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "Alpha"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := runCmd(t, "sprint", "rm", "--file", path, "--sprint", "Alpha"); err != nil {
 		t.Fatal(err)
 	}
 	doc, _, _ := todo.NewStore(path).Load(context.Background())
-	a := doc.ByTitle("a")[0]
-	if len(doc.Sprints) != 0 || a.Sprint != "" || a.Status != todo.Open {
-		t.Errorf("sprints %v, task sprint %q status %v", doc.Sprints, a.Sprint, a.Status)
+	if _, ok := doc.SprintByID(id); ok || len(doc.Sprints) != 1 {
+		t.Errorf("sprints = %v, want only Keep", doc.Sprints)
+	}
+	if got := doc.ByTitle("a"); len(got) != 0 {
+		t.Errorf("the sprint's task is still there: %v", got)
+	}
+	if got := doc.ByTitle("k"); len(got) != 1 || got[0].Sprint != keep {
+		t.Errorf("the other sprint's task = %v", got)
 	}
 }
 
-func TestSprintRmRefusedWithDone(t *testing.T) {
+func TestSprintRmRefusedWhileOpen(t *testing.T) {
 	path := todotest.Seed(t, "")
 	id := addSprint(t, path, "Alpha")
 	sprintTask(t, path, "a", id, todo.Done)
 	before := bytesOf(t, path)
 	_, err := runCmd(t, "sprint", "rm", "--file", path, "--sprint", "Alpha")
-	if err == nil || codeOf(t, err) != exitUsage || err.Error() != todo.ErrSprintHasDone.Error() {
+	if err == nil || codeOf(t, err) != exitUsage || err.Error() != todo.ErrSprintOpen.Error() {
 		t.Errorf("err = %v", err)
 	}
 	if string(bytesOf(t, path)) != string(before) {
 		t.Error("a refused rm must leave the list unchanged")
-	}
-	// Closed, it is refused the same way.
-	if _, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "Alpha"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runCmd(t, "sprint", "rm", "--file", path, "--sprint", "Alpha"); codeOf(t, err) != exitUsage {
-		t.Errorf("rm of a closed sprint with done tasks: %v", err)
 	}
 }
 
@@ -218,7 +244,7 @@ func TestSprintEditPrintsNewName(t *testing.T) {
 	path := todotest.Seed(t, "")
 	addSprint(t, path, "Alpha")
 	out, err := runCmd(t, "sprint", "edit", "--file", path, "--sprint", "Alpha", "--set-name", "Gamma")
-	if err != nil || strings.TrimSpace(out) != "edit: Gamma" {
+	if err != nil || strings.TrimSpace(out) != "edit: SPRINT-001 Gamma" {
 		t.Errorf("out %q err %v", out, err)
 	}
 }

@@ -27,6 +27,16 @@ type sprintList struct {
 	offset int    // the index of the first entry shown (see sidebarEntries)
 }
 
+// sprintLabel is how a sprint is named on screen: its reference, then its name
+// made safe to draw ("TODO-001 Sprint 13"), or the name alone when it has no
+// reference. Names may repeat; the reference tells such sprints apart.
+func sprintLabel(s *todo.Sprint) string {
+	if s.Ref == "" {
+		return todo.Printable(s.Name)
+	}
+	return s.Ref + " " + todo.Printable(s.Name)
+}
+
 // maxNameWidth caps a sprint's name wherever it is shown beside other text, so
 // a long one never pushes the rest off the row.
 const maxNameWidth = 30
@@ -296,7 +306,7 @@ func (l *sprintList) view(d *todo.Document, width, height int) string {
 }
 
 // sidebarRowLines renders the two lines of sprint s's row in the sidebar, width
-// cells wide: a status glyph (● open, ✓ done), its name and its top-level task
+// cells wide: a status glyph (● open, ✓ done), its label (see sprintLabel) and its top-level task
 // counts "Next·In Progress·Done" right-aligned, then its goal ("—" without
 // one). Names and goals are cut with "…" to the width: nothing wraps.
 func sidebarRowLines(d *todo.Document, s *todo.Sprint, width int, cur bool) (first, second string) {
@@ -308,7 +318,7 @@ func sidebarRowLines(d *todo.Document, s *todo.Sprint, width int, cur bool) (fir
 	if s.Status == todo.SprintDone {
 		glyph, glyphStyle, nameStyle = "✓", doneStyle, helpTextStyle
 	}
-	name, goal := todo.Printable(s.Name), todo.Printable(s.Goal)
+	name, goal := sprintLabel(s), todo.Printable(s.Goal)
 	if goal == "" {
 		goal = "—"
 	}
@@ -371,14 +381,14 @@ func (m *model) moveSprints(delta int) {
 	m.followList()
 }
 
-// openSprintForm opens the sprint form: for edit, that sprint's name, reference
-// prefix and goal, else a blank one to add a sprint.
+// openSprintForm opens the sprint form: for edit, that sprint's name and goal,
+// else a blank one to add a sprint.
 func (m model) openSprintForm(edit *todo.Sprint) (tea.Model, tea.Cmd) {
 	v, editing := todo.Fields{}, edit != nil
 	m.target = targetAddSprint
 	if editing {
 		// Shown as the rows show them: a legacy value may hold control characters.
-		v = todo.Fields{Title: todo.Printable(edit.Name), Description: todo.PrintableLines(edit.Goal), Prefix: todo.Printable(edit.Prefix)}
+		v = todo.Fields{Title: todo.Printable(edit.Name), Description: todo.PrintableLines(edit.Goal)}
 		m.target, m.editingSprint = targetEditSprint, edit.ID
 	}
 	m.form = newForm(v, formSprint, editing)
@@ -407,7 +417,7 @@ func (m *model) submitSprint() {
 	if m.target == targetAddSprint {
 		var id string
 		if !m.writeSprint(func(ctx context.Context, st *todo.Store) (res todo.WriteResult, err error) {
-			id, res, err = st.AddSprintWith(ctx, v)
+			id, res, err = st.AddSprint(ctx, v.Title, v.Description)
 			return res, err
 		}) {
 			m.mode = modeForm
@@ -455,10 +465,15 @@ func (m model) toggleSprintClosed() (tea.Model, tea.Cmd) {
 }
 
 // openDeleteSprint opens the confirm dialog for the selected sprint (focused on
-// the safe Cancel button). A no-op on an empty list.
+// the safe Cancel button). An open sprint is refused at once, in the footer:
+// only a closed one may be deleted. A no-op on an empty list.
 func (m model) openDeleteSprint() (tea.Model, tea.Cmd) {
 	s := m.sprints.selected(m.doc)
 	if s == nil {
+		return m, nil
+	}
+	if s.Status != todo.SprintDone {
+		m.status = todo.ErrSprintOpen.Error()
 		return m, nil
 	}
 	m.deletingSprint = s
@@ -468,9 +483,9 @@ func (m model) openDeleteSprint() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// doDeleteSprint deletes the confirmed sprint; its unfinished tasks return to
-// the Backlog. A sprint holding done tasks is refused, and the footer says so
-// rather than reporting a save error.
+// doDeleteSprint deletes the confirmed sprint and all its tasks. A sprint
+// reopened since the dialog opened is refused, and the footer says so rather
+// than reporting a save error.
 func (m model) doDeleteSprint() (tea.Model, tea.Cmd) {
 	s := m.deletingSprint
 	m.deletingSprint = nil
@@ -478,8 +493,8 @@ func (m model) doDeleteSprint() (tea.Model, tea.Cmd) {
 	if s == nil {
 		return m, nil
 	}
-	// Tasks change state when they return to the Backlog, which ends the
-	// accidental-complete undo window.
+	// The sprint's tasks go with it, which ends the accidental-complete undo
+	// window.
 	m.snapshots = map[string]todo.DoneStates{}
 	id := s.ID
 	next := m.rowAfterDelete(id)

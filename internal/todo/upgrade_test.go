@@ -19,7 +19,7 @@ const v5Sprinted = `{"version": 5, "categories": [{"id": "c000000", "title": "C"
 
 func TestUpgradeV5MovesSprintStatesToImported(t *testing.T) {
 	d := loadList(t, todotest.SeedJSON(t, v5Sprinted))
-	if len(d.Sprints) != 1 || *d.Sprints[0] != (todo.Sprint{ID: "0000000", Name: "Imported", Status: todo.SprintOpen}) {
+	if len(d.Sprints) != 1 || *d.Sprints[0] != (todo.Sprint{ID: "0000000", Name: "Imported", Status: todo.SprintOpen, Ref: "SPRINT-001"}) {
 		t.Fatalf("Sprints = %+v, want the one Imported sprint", d.Sprints)
 	}
 	for title, want := range map[string]string{"open": "", "new": "0000000", "working": "0000000", "done": "0000000", "deferred": ""} {
@@ -59,8 +59,8 @@ func TestUpgradeTwoWritersOneImportedSprint(t *testing.T) {
 	if n := len(loadList(t, path).Sprints); n != 1 {
 		t.Errorf("%d sprints, want 1", n)
 	}
-	if f := readFile(t, path); !strings.Contains(f, `"version": 7`) {
-		t.Errorf("file is not version 7:\n%s", f)
+	if f := readFile(t, path); !strings.Contains(f, `"version": 8`) {
+		t.Errorf("file is not version 8:\n%s", f)
 	}
 }
 
@@ -82,8 +82,8 @@ func TestV6RoundTrip(t *testing.T) {
 	if want := (todo.View{Split: true, Screen: todo.ScreenSprint, Sprint: "sssssss"}); got.View != want {
 		t.Errorf("View = %+v, want %+v", got.View, want)
 	}
-	if len(got.Sprints) != 2 || *got.Sprints[0] != (todo.Sprint{ID: "sssssss", Name: "One", Goal: "ship", Status: todo.SprintDone}) ||
-		*got.Sprints[1] != (todo.Sprint{ID: "rrrrrrr", Name: "Two"}) {
+	if len(got.Sprints) != 2 || *got.Sprints[0] != (todo.Sprint{ID: "sssssss", Name: "One", Goal: "ship", Status: todo.SprintDone, Ref: "SPRINT-001"}) ||
+		*got.Sprints[1] != (todo.Sprint{ID: "rrrrrrr", Name: "Two", Ref: "SPRINT-002"}) {
 		t.Errorf("Sprints = %+v %+v", got.Sprints[0], got.Sprints[1])
 	}
 	if find(got, "a").Sprint != "sssssss" || find(got, "b").Sprint != "rrrrrrr" {

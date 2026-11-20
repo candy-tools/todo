@@ -63,8 +63,8 @@ func (l *diskList) validate() error {
 }
 
 // validateSprints checks every sprint: a well formed ID that no other sprint
-// has, a name CleanTitle accepts unchanged that no other sprint has ignoring
-// case, and a known status, in that order over all sprints.
+// has, a name CleanTitle accepts unchanged (names may repeat), and a known
+// status, in that order over all sprints.
 func (l *diskList) validateSprints() error {
 	ids := make(map[string]bool, len(l.Sprints))
 	for i, s := range l.Sprints {
@@ -76,7 +76,6 @@ func (l *diskList) validateSprints() error {
 		}
 		ids[s.ID] = true
 	}
-	names := make(map[string]string, len(l.Sprints)) // folded name to the ID of the sprint holding it
 	for _, s := range l.Sprints {
 		clean, err := CleanTitle(s.Name)
 		if err != nil {
@@ -85,11 +84,6 @@ func (l *diskList) validateSprints() error {
 		if clean != s.Name {
 			return invalidf("sprint %s: name has leading or trailing whitespace", s.ID)
 		}
-		key := sprintNameKey(s.Name)
-		if other, ok := names[key]; ok {
-			return invalidf("sprint %s: name %q is already used by sprint %s", s.ID, s.Name, other)
-		}
-		names[key] = s.ID
 	}
 	for _, s := range l.Sprints {
 		if _, ok := SprintStatusFromName(s.Status); !ok {
@@ -144,33 +138,46 @@ func (l *diskList) validateMembership() error {
 	return nil
 }
 
-// validateRefs checks every task reference is one CleanRef accepts unchanged
-// and that no two tasks hold the same one, ignoring case.
+// validateRefs checks every task and sprint reference is one CleanRef accepts
+// unchanged and that no two of them, tasks and sprints together, hold the
+// same one, ignoring case. Tasks are checked first, then sprints.
 func (l *diskList) validateRefs() error {
-	seen := map[string]string{} // refKey to the ID of the task holding it
-	for _, t := range l.Tasks {
-		if t.Ref == "" {
-			continue
+	seen := map[string]string{} // refKey to the task or sprint holding it
+	check := func(owner, ref string) error {
+		if ref == "" {
+			return nil
 		}
-		clean, err := CleanRef(t.Ref)
+		clean, err := CleanRef(ref)
 		if err != nil {
-			return invalidf("task %s: %v", t.ID, err)
+			return invalidf("%s: %v", owner, err)
 		}
-		if clean != t.Ref {
-			return invalidf("task %s: reference has leading or trailing whitespace", t.ID)
+		if clean != ref {
+			return invalidf("%s: reference has leading or trailing whitespace", owner)
 		}
-		if other, ok := seen[refKey(t.Ref)]; ok {
-			return invalidf("task %s: reference %q is already used by task %s", t.ID, t.Ref, other)
+		if other, ok := seen[refKey(ref)]; ok {
+			return invalidf("%s: reference %q is already used by %s", owner, ref, other)
 		}
-		seen[refKey(t.Ref)] = t.ID
+		seen[refKey(ref)] = owner
+		return nil
+	}
+	for _, t := range l.Tasks {
+		if err := check("task "+t.ID, t.Ref); err != nil {
+			return err
+		}
+	}
+	for _, s := range l.Sprints {
+		if err := check("sprint "+s.ID, s.Ref); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // validatePrefixes checks every stored reference prefix, the list's, the
 // sprints' and the categories', is one CleanPrefix returns unchanged and not
-// empty, and every counter is at least 1 under such a prefix. Counters are
-// checked in prefix order.
+// empty, and every counter is at least 1 under such a prefix; counters are
+// checked in prefix order. The sprints' prefix setting must not be the list's
+// or a category's. A version 7 sprint's own prefix is ignored.
 func (l *diskList) validatePrefixes() error {
 	check := func(owner, p string) error {
 		if clean, err := CleanPrefix(p); err != nil || clean != p || p == "" {
@@ -181,17 +188,17 @@ func (l *diskList) validatePrefixes() error {
 	if err := l.Refs.validate(check); err != nil {
 		return err
 	}
-	for _, s := range l.Sprints {
-		if s.Prefix != "" {
-			if err := check("sprint "+s.ID, s.Prefix); err != nil {
-				return err
-			}
-		}
+	sprint := ""
+	if l.Refs != nil {
+		sprint = l.Refs.SprintPrefix
 	}
 	for _, c := range l.Categories {
 		if c.Prefix != "" {
 			if err := check("category "+c.ID, c.Prefix); err != nil {
 				return err
+			}
+			if c.Prefix == sprint {
+				return invalidf("category %s: reference prefix %s is also the sprint reference prefix", c.ID, c.Prefix)
 			}
 		}
 	}
@@ -208,6 +215,14 @@ func (r *diskRefs) validate(check func(owner, p string) error) error {
 	if r.Prefix != "" {
 		if err := check("refs", r.Prefix); err != nil {
 			return err
+		}
+	}
+	if r.SprintPrefix != "" {
+		if err := check("refs", r.SprintPrefix); err != nil {
+			return err
+		}
+		if r.SprintPrefix == r.Prefix {
+			return invalidf("refs: reference prefix %s is both the list's and the sprint reference prefix", r.Prefix)
 		}
 	}
 	for _, p := range slices.Sorted(maps.Keys(r.Last)) {

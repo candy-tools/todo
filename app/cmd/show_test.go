@@ -57,7 +57,7 @@ func TestShowText(t *testing.T) {
 	a := doc.ByTitle("a")[0]
 	want := strings.Join([]string{
 		a.DisplayTitle(), // "[APP-001] a"
-		fmt.Sprintf("  id %s · #%d · task · working · column progress · sprint S1", a.ID, nums[a]),
+		fmt.Sprintf("  id %s · #%d · task · working · column progress · sprint SPRINT-001 S1", a.ID, nums[a]),
 		"  path: Work / Sub",
 		"  plan: docs/p.md",
 		"  subtasks: 1/2 done",

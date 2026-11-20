@@ -12,10 +12,19 @@ import (
 )
 
 // deleteSprintOnDisk deletes sprint id through a second store on path, as
-// another session would.
+// another session would: an open sprint is finished and closed first, as only
+// a closed sprint may be deleted.
 func deleteSprintOnDisk(t *testing.T, path, id string) {
 	t.Helper()
-	if _, err := openSecond(t, path).DeleteSprint(context.Background(), id); err != nil {
+	st := openSecond(t, path)
+	doc, _, err := st.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sp, ok := doc.SprintByID(id); ok && sp.Status != todo.SprintDone {
+		finishAndCloseOnDisk(t, path, id)
+	}
+	if _, err := st.DeleteSprint(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 }

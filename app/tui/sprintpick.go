@@ -41,10 +41,10 @@ type sprintPicker struct {
 	taskID  string
 }
 
-// sprintRow is the picker row of sprint s, its name made safe to draw: done
+// sprintRow is the picker row of sprint s, its label (see sprintLabel): done
 // sprints carry a check mark.
 func sprintRow(s *todo.Sprint) sprintPickRow {
-	label := todo.Printable(s.Name)
+	label := sprintLabel(s)
 	if s.Status == todo.SprintDone {
 		label = "✓ " + label
 	}
@@ -261,7 +261,7 @@ func (m *model) commitMoved(id string, write storeWrite) {
 		return
 	}
 	if s, ok := m.doc.SprintByID(it.SprintID()); ok {
-		m.status = fmt.Sprintf("moved to %s — %s", s.Name, it.Status.Label())
+		m.status = fmt.Sprintf("moved to %s — %s", sprintLabel(s), it.Status.Label())
 	} else {
 		m.status = "moved to " + todo.ColBacklog.Title()
 	}

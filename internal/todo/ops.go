@@ -281,7 +281,7 @@ func (d *Document) addTask(f Fields, st Status, parentID string, at func(parent 
 	}
 	prefix := ""
 	if parent.Kind == Category {
-		prefix = d.PrefixFor(parentID, f.Sprint)
+		prefix = d.PrefixFor(parentID)
 	}
 	if prefix != "" && ref != "" {
 		return "", ErrRefGenerated
@@ -397,8 +397,9 @@ func (c Changes) cleaned() (Changes, error) {
 // an empty one) fails the whole edit with ErrNotTask. A reference fails it
 // with ErrSubtaskRef on a subtask and ErrDuplicateRef when another task holds
 // it; clearing one ("") always fits. A prefix (c.Prefix, cleaned as CleanPrefix
-// does; "" clears it) is for a category: ErrInvalidPrefix when it is refused
-// and ErrNotCategory for a task.
+// does; "" clears it) is for a category: ErrInvalidPrefix when it is refused,
+// ErrPrefixClash when it is the SprintPrefix setting, and ErrNotCategory for
+// a task.
 func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	c, err = c.cleaned()
 	if err != nil {
@@ -413,6 +414,11 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	}
 	if it.Kind != Category && c.Prefix != nil {
 		return false, ErrNotCategory
+	}
+	if c.Prefix != nil {
+		if err := d.checkTaskPrefix(*c.Prefix); err != nil {
+			return false, err
+		}
 	}
 	if c.Ref != nil {
 		if err := d.checkRef(it, *c.Ref, it.IsSubtask()); err != nil {

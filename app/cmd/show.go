@@ -33,7 +33,7 @@ func showCmd() *cobra.Command {
 			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
 				return writeJSON(cmd.OutOrStdout(), r)
 			}
-			return writeShowText(cmd.OutOrStdout(), it, r)
+			return writeShowText(cmd.OutOrStdout(), doc, it, r)
 		},
 	}
 	addSelectorFlags(c, "")
@@ -41,16 +41,16 @@ func showCmd() *cobra.Command {
 	return c
 }
 
-// writeShowText prints the record r of it as indented text; lines for an empty
-// sprint, plan, description or subtask list are left out.
-func writeShowText(w io.Writer, it *todo.Item, r record) error {
+// writeShowText prints the record r of it, an item of doc, as indented text;
+// lines for an empty sprint, plan, description or subtask list are left out.
+func writeShowText(w io.Writer, doc *todo.Document, it *todo.Item, r record) error {
 	p := todo.Printable
 	_, _ = fmt.Fprintln(w, p(it.DisplayTitle()))
 	head := []string{"id " + r.ID, fmt.Sprintf("#%d", r.Number), r.Kind}
 	if r.Kind == "task" {
 		head = append(head, r.Status, "column "+r.Column)
-		if r.SprintName != "" {
-			head = append(head, "sprint "+p(r.SprintName))
+		if sp, ok := doc.SprintByID(r.Sprint); ok {
+			head = append(head, "sprint "+sprintLabel(sp))
 		}
 	}
 	if r.Prefix != "" {

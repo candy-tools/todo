@@ -29,28 +29,53 @@ func TestSprintListNewCreatesSprint(t *testing.T) {
 		t.Fatalf("n: mode %v kind %v, want the sprint form", m.mode, m.form.kind)
 	}
 	m = typeText(m, "Delta")
-	m = press(m, "tab", "tab") // past the reference prefix to the goal
+	m = press(m, "tab")
 	m = typeText(m, "ship it")
 	m = press(m, "enter")
 	if m.mode != modeMain || m.err != nil {
 		t.Fatalf("after enter: mode %v err %v", m.mode, m.err)
 	}
-	s, ok := loadSprintDoc(t, path).SprintByName("Delta")
-	if !ok || s.Goal != "ship it" || s.Status != todo.SprintOpen {
-		t.Fatalf("stored sprint = %+v (found %v), want open Delta with its goal", s, ok)
+	found := loadSprintDoc(t, path).ResolveSprint("Delta")
+	if len(found) != 1 || found[0].Goal != "ship it" || found[0].Status != todo.SprintOpen {
+		t.Fatalf("stored sprints named Delta = %+v, want one open with its goal", found)
 	}
+	s := found[0]
 	if sel := m.sprints.selected(m.doc); sel == nil || sel.ID != s.ID {
 		t.Errorf("selected = %v, want the new sprint", sel)
 	}
 }
 
-func TestSprintListNewDuplicateKeepsForm(t *testing.T) {
-	m, _ := threeSprints(t)
+// Sprints may share a name: their references tell them apart.
+func TestSprintListNewDuplicateNameAdds(t *testing.T) {
+	m, path := threeSprints(t)
 	m = typeText(press(m, "s", "n"), "a")
 	m = press(m, "enter")
-	// A refused write is no failed save: the reason is the footer status.
-	if m.mode != modeForm || m.err != nil || !strings.Contains(m.status, todo.ErrDuplicateSprint.Error()) {
-		t.Errorf("a duplicate name: mode %v err %v status %q, want the form open with the refusal", m.mode, m.err, m.status)
+	if m.mode != modeMain || m.err != nil || m.status != "" {
+		t.Fatalf("a duplicate name: mode %v err %v status %q, want it added", m.mode, m.err, m.status)
+	}
+	if got := loadSprintDoc(t, path).ResolveSprint("A"); len(got) != 2 {
+		t.Errorf("sprints named A = %d, want 2", len(got))
+	}
+}
+
+// A sprint is shown with its reference before its name: in the sidebar, the
+// board's title, the crumb and the sprint picker.
+func TestSprintShownWithRef(t *testing.T) {
+	m, _ := threeSprints(t)
+	m = press(m, "s")
+	a, _ := m.doc.SprintByID("s00000a")
+	first, _ := sidebarRowLines(m.doc, a, 60, false)
+	if !strings.Contains(first, "SPRINT-001 A") {
+		t.Errorf("sidebar row = %q, want SPRINT-001 A", first)
+	}
+	if got := m.boardTitle(); got != "SPRINT-001 A" {
+		t.Errorf("board title = %q, want SPRINT-001 A", got)
+	}
+	if got := m.crumb(); !strings.Contains(got, "SPRINT-001 A") {
+		t.Errorf("crumb = %q, want SPRINT-001 A", got)
+	}
+	if got := sprintRow(a).label; got != "SPRINT-001 A" {
+		t.Errorf("picker row = %q, want SPRINT-001 A", got)
 	}
 }
 
@@ -111,36 +136,59 @@ func TestSprintListCloseThenReopen(t *testing.T) {
 
 func TestSprintListDeleteConfirm(t *testing.T) {
 	m, path := newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}},
-		seedTask{ID: "t000001", Title: "w", Status: "working", Sprint: "s00000a"}))
-	m = press(m, "s", "d")
+		[]seedSprint{{ID: "s00000a", Name: "A", Status: "done"}, {ID: "s00000k", Name: "K", Status: "open"}},
+		seedTask{ID: "t000001", Title: "d1", Status: "done", Sprint: "s00000a"},
+		seedTask{ID: "t000002", Title: "d2", Status: "done", Sprint: "s00000a"},
+		seedTask{ID: "t000003", Title: "k", Status: "new", Sprint: "s00000k"},
+		seedTask{ID: "t000004", Title: "b", Status: "open"}))
+	m = press(m, "s", "down", "d") // rows: K (Open), A (Done)
 	if m.mode != modeConfirm {
 		t.Fatalf("d: mode %v, want the confirm dialog", m.mode)
 	}
-	if q, want := m.confirmQuestion(), `Delete sprint "A"? Its unfinished tasks go back to the Backlog.`; q != want {
+	if q, want := m.confirmQuestion(), `Delete sprint "SPRINT-001 A" and its 2 task(s)?`; q != want {
 		t.Errorf("question = %q, want %q", q, want)
 	}
 	m = press(m, "y")
 	doc := loadSprintDoc(t, path)
-	if len(doc.Sprints) != 0 {
-		t.Errorf("sprints = %v, want none", doc.Sprints)
+	if _, ok := doc.SprintByID("s00000a"); ok || len(doc.Sprints) != 1 {
+		t.Errorf("sprints = %v, want only K", doc.Sprints)
 	}
-	if it := find(doc, "w"); it == nil || it.Status != todo.Open || it.SprintID() != "" {
-		t.Errorf("task = %+v, want open in the backlog", it)
+	for _, title := range []string{"d1", "d2"} {
+		if it := find(doc, title); it != nil {
+			t.Errorf("task %s is still there: %+v", title, it)
+		}
+	}
+	for _, title := range []string{"k", "b"} {
+		if find(doc, title) == nil {
+			t.Errorf("task %s was deleted", title)
+		}
 	}
 	if m.err != nil {
 		t.Errorf("err = %v", m.err)
 	}
 }
 
+func TestSprintListDeleteEmptySprintConfirm(t *testing.T) {
+	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Status: "done"}}))
+	m = press(m, "s", "d")
+	if q, want := m.confirmQuestion(), `Delete sprint "SPRINT-001 A"?`; q != want {
+		t.Errorf("question = %q, want %q", q, want)
+	}
+}
+
 func TestSprintListDeleteFallsBackByIndex(t *testing.T) {
-	m, path := threeSprints(t) // rows: A, C (Open), B (Done)
+	m, path := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{
+			{ID: "s00000a", Name: "A", Status: "open"},
+			{ID: "s00000b", Name: "B", Status: "done"},
+			{ID: "s00000d", Name: "D", Status: "done"},
+		})) // rows: A (Open), D, B (Done)
 	m = press(m, "s", "down", "d", "y")
-	if len(loadSprintDoc(t, path).Sprints) != 2 {
-		t.Fatalf("C was not deleted")
+	if _, ok := loadSprintDoc(t, path).SprintByID("s00000d"); ok {
+		t.Fatalf("D was not deleted")
 	}
 	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000b" || m.view.sprint != "s00000b" {
-		t.Errorf("after deleting C: selected %v board %q, want B, now at C's index, and its board", s, m.view.sprint)
+		t.Errorf("after deleting D: selected %v board %q, want B, now at D's index, and its board", s, m.view.sprint)
 	}
 	if !m.listFocus {
 		t.Error("the sidebar should keep the focus")
@@ -148,24 +196,53 @@ func TestSprintListDeleteFallsBackByIndex(t *testing.T) {
 }
 
 func TestSprintListDeleteCancelKeepsSprint(t *testing.T) {
-	m, path := threeSprints(t)
-	m = press(m, "s", "d", "esc")
+	m, path := threeSprints(t) // rows: A, C (Open), B (Done)
+	m = press(m, "s", "down", "down", "d")
+	if m.mode != modeConfirm {
+		t.Fatalf("d on the closed B: mode %v, want the confirm dialog", m.mode)
+	}
+	m = press(m, "esc")
 	if len(loadSprintDoc(t, path).Sprints) != 3 || m.mode != modeMain {
 		t.Errorf("esc must cancel the delete")
 	}
 }
 
-func TestSprintListDeleteRefusedWithDone(t *testing.T) {
-	m, path := threeSprints(t) // A holds a done task
-	m = press(m, "s", "d", "y")
+// d on an open sprint is refused at once, as a status, without a dialog.
+func TestSprintListDeleteRefusedWhileOpen(t *testing.T) {
+	m, path := threeSprints(t) // A is open
+	m = press(m, "s", "d")
+	if m.mode != modeMain {
+		t.Errorf("mode = %v, want no dialog", m.mode)
+	}
 	if m.err != nil {
 		t.Errorf("err = %v, want none: a refused delete is a status", m.err)
 	}
-	if m.status != todo.ErrSprintHasDone.Error() {
-		t.Errorf("status = %q, want %q", m.status, todo.ErrSprintHasDone.Error())
+	if m.status != todo.ErrSprintOpen.Error() {
+		t.Errorf("status = %q, want %q", m.status, todo.ErrSprintOpen.Error())
 	}
-	if _, ok := loadSprintDoc(t, path).SprintByID("s00000a"); !ok {
-		t.Error("A must still exist")
+	doc := loadSprintDoc(t, path)
+	if _, ok := doc.SprintByID("s00000a"); !ok || find(doc, "aNext") == nil {
+		t.Error("a refused delete must leave A and its tasks")
+	}
+}
+
+// A sprint reopened by another session after the dialog opened is refused at
+// write time, as a status.
+func TestSprintListDeleteRefusedWhenReopenedElsewhere(t *testing.T) {
+	m, path := threeSprints(t) // rows: A, C (Open), B (Done)
+	m = press(m, "s", "down", "down", "d")
+	if _, err := openSecond(t, path).ReopenSprint(context.Background(), "s00000b"); err != nil {
+		t.Fatal(err)
+	}
+	m = press(m, "y")
+	if m.err != nil {
+		t.Errorf("err = %v, want none: a refused delete is a status", m.err)
+	}
+	if m.status != todo.ErrSprintOpen.Error() {
+		t.Errorf("status = %q, want %q", m.status, todo.ErrSprintOpen.Error())
+	}
+	if _, ok := loadSprintDoc(t, path).SprintByID("s00000b"); !ok {
+		t.Error("B must still exist")
 	}
 }
 
@@ -252,11 +329,11 @@ func TestSidebarSectionsListOpenThenDone(t *testing.T) {
 	}
 	want := []string{
 		rule("━━ Open 2 "),
-		row("❯ ● A", "1·0·0"), "    goal a",
-		row("  ● C", "0·0·0"), "    —",
+		row("❯ ● SPRINT-001 A", "1·0·0"), "    goal a",
+		row("  ● SPRINT-003 C", "0·0·0"), "    —",
 		rule("━━ Done 2 "),
-		row("  ✓ D", "0·0·1"), "    —",
-		row("  ✓ B", "0·0·1"), "    goal b",
+		row("  ✓ SPRINT-004 D", "0·0·1"), "    —",
+		row("  ✓ SPRINT-002 B", "0·0·1"), "    goal b",
 	}
 	if got := sidebarLines(m, 30, 20); !equalStrings(got, want) {
 		t.Errorf("sidebar =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -396,11 +473,11 @@ func TestSidebarScrollWithRules(t *testing.T) {
 		t.Errorf("on Done's first sprint the sidebar is\n%s\nwant the Done rule right above it", strings.Join(lines, "\n"))
 	}
 	m = press(m, "2", "1")
-	if lines := sidebarLines(m, 30, h); !strings.HasPrefix(lines[0], "━━ Open 6 ") || !strings.HasPrefix(lines[1], "❯ ● S00") {
+	if lines := sidebarLines(m, 30, h); !strings.HasPrefix(lines[0], "━━ Open 6 ") || !strings.HasPrefix(lines[1], "❯ ● SPRINT-001 S00") {
 		t.Errorf("1 shows\n%s\nwant the Open rule on top over S00", strings.Join(lines, "\n"))
 	}
 	m = press(m, "2")
-	if lines := sidebarLines(m, 30, h); !strings.HasPrefix(lines[0], "━━ Done 6 ") || !strings.HasPrefix(lines[1], "❯ ✓ S11") {
+	if lines := sidebarLines(m, 30, h); !strings.HasPrefix(lines[0], "━━ Done 6 ") || !strings.HasPrefix(lines[1], "❯ ✓ SPRINT-012 S11") {
 		t.Errorf("2 shows\n%s\nwant the Done rule on top over S11", strings.Join(lines, "\n"))
 	}
 }
@@ -483,7 +560,7 @@ func TestClosingSelectedSprintMovesItToDone(t *testing.T) {
 	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000a" || m.view.sprint != "s00000a" {
 		t.Errorf("after closing A: selected %v board %q, want A kept and shown", s, m.view.sprint)
 	}
-	if lines := sidebarLines(m, 30, 20); !strings.HasPrefix(lines[3], "━━ Done 1 ") || !strings.HasPrefix(lines[4], "❯ ✓ A") {
+	if lines := sidebarLines(m, 30, 20); !strings.HasPrefix(lines[3], "━━ Done 1 ") || !strings.HasPrefix(lines[4], "❯ ✓ SPRINT-001 A") {
 		t.Errorf("after closing A the sidebar is %q, want A under Done", lines)
 	}
 }
@@ -505,12 +582,14 @@ func TestReloadCursorStaysOnSprintClosedElsewhere(t *testing.T) {
 	}
 }
 
-func TestDeletingLastOpenSprintGoesToNewestDone(t *testing.T) {
+// Deleting the last row, the only done sprint, falls back to the open sprint
+// above it, across the section boundary.
+func TestDeletingLastDoneSprintGoesToOpenAbove(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, nil,
 		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}, {ID: "s00000d", Name: "D", Status: "done"}}))
-	m = press(m, "s", "d", "y")
-	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000d" || m.view.sprint != "s00000d" || !m.listFocus {
-		t.Errorf("selected %v board %q listFocus %v, want D, now first, shown with the sidebar focused", s, m.view.sprint, m.listFocus)
+	m = press(m, "s", "down", "d", "y")
+	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000a" || m.view.sprint != "s00000a" || !m.listFocus {
+		t.Errorf("selected %v board %q listFocus %v, want A, now last, shown with the sidebar focused", s, m.view.sprint, m.listFocus)
 	}
 }
 

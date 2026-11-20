@@ -83,9 +83,9 @@ func (m model) boardTitle() string {
 	case !ok:
 		return "Board"
 	case s.Status == todo.SprintDone:
-		return todo.Printable(s.Name) + " ✓ closed"
+		return sprintLabel(s) + " ✓ closed"
 	}
-	return todo.Printable(s.Name)
+	return sprintLabel(s)
 }
 
 // boardPane renders the Sprints workspace's board pane, width wide: the shown
@@ -216,7 +216,7 @@ func (m model) crumb() string {
 	if !ok {
 		return "Sprints"
 	}
-	name := todo.Printable(s.Name)
+	name := sprintLabel(s)
 	if s.Status == todo.SprintDone {
 		name += " ✓"
 	}
