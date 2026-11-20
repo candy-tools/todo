@@ -9,23 +9,24 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// screen is one of the TUI's screens: the Backlog, the Sprint list, or one
-// sprint's board.
+// screen is one of the TUI's workspaces: the Backlog, or the Sprints
+// workspace (the sprint list beside one sprint's board).
 type screen int
 
 const (
 	screenBacklog screen = iota // the category tree with the sprint-less tasks
-	screenSprints               // the list of sprints; no tree is shown
-	screenSprint                // one sprint's board, with its Next / In Progress / Done tabs
+	screenSprint                // the Sprints workspace: the sprint list beside the shown sprint's board
 )
 
-// stored returns the screen as the list file's view holds it.
-func (s screen) stored() todo.Screen {
-	switch s {
-	case screenSprints:
-		return todo.ScreenSprints
-	case screenSprint:
+// stored returns the screen as the list file's view holds it, with sprint the
+// shown sprint: the Sprints workspace is stored as that sprint's board, or as
+// the sprint list when it shows none.
+func (s screen) stored(sprint string) todo.Screen {
+	switch {
+	case s == screenSprint && sprint != "":
 		return todo.ScreenSprint
+	case s == screenSprint:
+		return todo.ScreenSprints
 	}
 	return todo.ScreenBacklog
 }
@@ -47,8 +48,8 @@ type viewKey struct {
 // made once and each tree only has to rebuild.
 type viewState struct {
 	// screen is the screen shown under the unified view, or alone when that
-	// is off. On screenSprint, sprint is the board's sprint ID; it is "" on
-	// the other screens.
+	// is off. On screenSprint, sprint is the board's sprint ID, "" when the
+	// workspace shows none (no sprint to show); it is "" on the Backlog.
 	screen screen
 	sprint string
 	// column is the board tab shown on screenSprint: Next, In Progress or
@@ -87,12 +88,9 @@ func (v *viewState) key() viewKey {
 	return viewKey{screen: v.screen}
 }
 
-// onBoard reports whether a sprint board is shown, without the unified view
-// over it.
+// onBoard reports whether the Sprints workspace is shown (its board, even an
+// empty one), without the unified view over it.
 func (v *viewState) onBoard() bool { return !v.all && v.screen == screenSprint }
-
-// onSprintList reports whether the Sprint list is shown, where no tree is.
-func (v *viewState) onSprintList() bool { return !v.all && v.screen == screenSprints }
 
 // scopeSprint is the sprint whose tasks the view keeps: the board's sprint, or
 // "" (any membership) elsewhere.
@@ -104,18 +102,18 @@ func (v *viewState) scopeSprint() string {
 }
 
 // columns lists the board columns the view shows: every one in the unified
-// view, Backlog on the Backlog, the tab on a sprint board, and none on the
-// Sprint list.
+// view, Backlog on the Backlog, the tab on a sprint board, and none in the
+// Sprints workspace while it shows no sprint.
 func (v *viewState) columns() []todo.Column {
 	switch {
 	case v.all:
 		return todo.Columns()
 	case v.screen == screenBacklog:
 		return []todo.Column{todo.ColBacklog}
-	case v.screen == screenSprint:
-		return []todo.Column{v.column}
+	case v.sprint == "":
+		return nil
 	}
-	return nil
+	return []todo.Column{v.column}
 }
 
 // title names the view, e.g. "Backlog", "Next" or "All states".
@@ -123,12 +121,10 @@ func (v *viewState) title() string {
 	switch {
 	case v.all:
 		return "All states"
-	case v.screen == screenBacklog:
-		return todo.ColBacklog.Title()
 	case v.screen == screenSprint:
 		return v.column.Title()
 	}
-	return "Sprints"
+	return todo.ColBacklog.Title()
 }
 
 // searching reports whether a search query filters the rows. A blank query
@@ -212,20 +208,25 @@ func (m *model) setColumn(c todo.Column) {
 }
 
 // switchScreen turns the unified view off and switches every tree to screen
-// sc — for screenSprint, the board of sprint, on the tab it last showed (Next
-// the first time) — as setColumn switches tabs. A board's sprint becomes the
-// last viewed one. The view is not stored; see showBacklog and the others.
+// sc — for screenSprint, the board of sprint ("" for none), on the tab it last
+// showed (Next the first time) — as setColumn switches tabs. A board's sprint
+// becomes the last viewed one. The view is not stored; see showBacklog and the
+// others.
 func (m *model) switchScreen(sc screen, sprint string) {
 	from := m.view.key()
 	m.view.all = false
 	m.view.screen, m.view.sprint = sc, ""
 	if sc == screenSprint {
-		m.view.sprint, m.lastSprint = sprint, sprint
+		m.view.sprint = sprint
+		if sprint != "" {
+			m.lastSprint = sprint
+		}
 		m.view.column = todo.ColNext
 		if c, ok := m.boardTabs[sprint]; ok {
 			m.view.column = c
 		}
 	}
+	m.tree.pane = m.mainPane()
 	m.refreshSide()
 	m.tree.switchView(from)
 }
@@ -236,23 +237,82 @@ func (m *model) showBacklog() {
 	m.saveView()
 }
 
-// showSprints shows the Sprint list ("s"), with the last viewed sprint
-// selected when it is listed, and stores the view.
+// showSprints opens the Sprints workspace ("s") on the last viewed sprint
+// while the list holds it, else on the first open sprint (see
+// defaultSprint), and stores the view.
 func (m *model) showSprints() {
-	m.switchScreen(screenSprints, "")
-	m.sprints.selectID(m.doc, m.lastSprint)
+	id := m.lastSprint
+	if _, ok := m.doc.SprintByID(id); !ok {
+		id = m.defaultSprint()
+	}
+	m.showSprint(id)
+}
+
+// showSprint opens the Sprints workspace on sprint id and stores the view.
+func (m *model) showSprint(id string) {
+	m.openWorkspace(id)
 	m.saveView()
 }
 
-// showSprint shows the board of sprint id and stores the view.
-func (m *model) showSprint(id string) {
+// openWorkspace opens the Sprints workspace on sprint id ("" for none), with
+// the sprint selected in the focused sidebar. The view is not stored.
+func (m *model) openWorkspace(id string) {
 	m.switchScreen(screenSprint, id)
-	m.saveView()
+	m.listFocus = true
+	m.selectInList(id)
+}
+
+// selectInList puts the sidebar's cursor on sprint id, or on no row for "",
+// and keeps it shown.
+func (m *model) selectInList(id string) {
+	if id == "" {
+		m.sprints.deselect()
+		return
+	}
+	m.sprints.selectID(m.doc, id)
+	m.sprints.reconcile(m.doc, m.sprintListHeight())
+}
+
+// defaultSprint is the sprint the Sprints workspace shows when it has no
+// other to show: the first open one, or "" when none is open.
+func (m *model) defaultSprint() string {
+	if open := m.doc.OpenSprints(); len(open) > 0 {
+		return open[0].ID
+	}
+	return ""
+}
+
+// followList shows the board of the sprint under the sidebar's cursor, after
+// the cursor moved. The view is not stored (see quit).
+func (m *model) followList() {
+	if s := m.sprints.selected(m.doc); s != nil && s.ID != m.view.sprint {
+		m.switchScreen(screenSprint, s.ID)
+	}
+}
+
+// onList reports whether the keys go to the Sprints workspace's sidebar.
+func (m *model) onList() bool { return m.view.onBoard() && m.listFocus }
+
+// splitShown reports whether the split view is on screen: it is on, and the
+// Sprints workspace, whose sidebar is the sprint list, is not shown.
+func (m model) splitShown() bool { return m.split && !m.view.onBoard() }
+
+// mainPane is the pane the main tree shows: the task list beside the
+// categories sidebar while the split is shown, else the mixed tree.
+func (m *model) mainPane() paneKind {
+	if m.splitShown() {
+		return paneTasks
+	}
+	return paneMixed
 }
 
 // msgNoOpenSprints is the footer hint for "k" with no open sprint to go to,
-// and "enter" on an empty Sprint list.
+// and "enter" in a Sprints workspace that shows no sprint.
 const msgNoOpenSprints = "no open sprints — press s, then n to create one"
+
+// msgSplitsBacklog is the footer hint for "v" in the Sprints workspace, whose
+// sidebar is the sprint list.
+const msgSplitsBacklog = "v splits the Backlog"
 
 // nextOpenSprint returns the sprint "k" goes to. On a sprint board it is the
 // next open sprint after the board's in creation order, wrapping around (the
@@ -282,7 +342,8 @@ func (m *model) nextOpenSprint() (id string, ok bool) {
 // setUnified turns the unified view on or off. Every tree switches to that
 // view's own folds; the main tree's selected item stays selected when the
 // destination shows it, else its cursor goes to the top row. The screen and
-// its tab are kept, so turning it off returns to them.
+// its tab are kept, so turning it off returns to them. The keys go to the
+// trees, not the Sprints workspace's sidebar.
 func (m *model) setUnified(on bool) {
 	if m.view.all == on {
 		return
@@ -290,6 +351,8 @@ func (m *model) setUnified(on bool) {
 	sel := m.tree.selectedID()
 	from := m.view.key()
 	m.view.all = on
+	m.listFocus = false
+	m.tree.pane = m.mainPane()
 	m.refreshSide()
 	m.tree.switchView(from)
 	if !m.tree.selectID(sel) {
@@ -343,6 +406,8 @@ func (m *model) syncScope() { m.tree.setScope(m.side.selectedID()) }
 // toggleSplit turns the split view on or off. On, the sidebar starts on All
 // with the focus, and the task list keeps the selected task. Off, the tree
 // selects what had focus: the task list's task, or the sidebar's category.
+// In the Sprints workspace the split is kept for the other views but not
+// shown (see splitShown).
 func (m *model) toggleSplit() {
 	if !m.split {
 		sel := m.tree.selectedID()
@@ -350,7 +415,7 @@ func (m *model) toggleSplit() {
 		m.side.refreshSidebar()
 		m.side.selectTop()
 		m.tree.scope = ""
-		m.tree.setPane(paneTasks)
+		m.tree.setPane(m.mainPane())
 		if !m.tree.selectID(sel) {
 			m.tree.selectTop()
 		}
@@ -391,38 +456,50 @@ func (m *model) openSplitOnSelection() {
 }
 
 // applyView puts the model in the view v, the one the list file holds, when
-// the app opens: its screen (the Sprint list when the board's sprint is gone),
-// the unified view on top of it (never over the Sprint list), and the split.
-// A later change of the file's view, by another session, is not applied: it
-// would switch the view under the user.
+// the app opens: its screen (the Sprints workspace on the stored sprint, or on
+// the first open one when the view names none or a sprint that is gone), the
+// unified view on top of it, and the split. A later change of the file's
+// view, by another session, is not applied: it would switch the view under
+// the user.
 func (m *model) applyView(v todo.View) {
 	switch v.Screen {
-	case todo.ScreenSprints:
-		m.switchScreen(screenSprints, "")
-	case todo.ScreenSprint:
-		if _, ok := m.doc.SprintByID(v.Sprint); ok {
-			m.switchScreen(screenSprint, v.Sprint)
-		} else {
-			m.switchScreen(screenSprints, "")
+	case todo.ScreenSprints, todo.ScreenSprint:
+		id := v.Sprint
+		if _, ok := m.doc.SprintByID(id); !ok || v.Screen == todo.ScreenSprints {
+			id = m.defaultSprint()
 		}
+		m.openWorkspace(id)
 	}
-	if m.view.screen != screenSprints {
-		m.setUnified(v.Unified)
-	}
+	m.setUnified(v.Unified)
 	if v.Split != m.split {
 		m.toggleSplit()
 	}
 }
 
-// saveView stores the view on screen (the screen and its sprint, unified or
-// not, split or not) in the list file, so the next session opens on it. It is
-// a write like any other (see commit): a failed one shows in the footer, and
-// the view stays as it is on screen.
+// viewOnScreen is the view on screen as the list file holds it: the screen and
+// its sprint, unified or not, split or not.
+func (m *model) viewOnScreen() todo.View {
+	return todo.View{Unified: m.view.all, Split: m.split, Screen: m.view.screen.stored(m.view.sprint), Sprint: m.view.sprint}
+}
+
+// saveView stores the view on screen in the list file, so the next session
+// opens on it. It is a write like any other (see commit): a failed one shows
+// in the footer, and the view stays as it is on screen.
 func (m *model) saveView() {
-	v := todo.View{Unified: m.view.all, Split: m.split, Screen: m.view.screen.stored(), Sprint: m.view.sprint}
+	v := m.viewOnScreen()
 	m.commit(m.focused().selectedID(), func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
 		return st.SetView(ctx, v)
 	})
+}
+
+// quit stores the view on screen when the list file holds another — so a
+// sprint browsed to in the Sprints workspace's sidebar is the one the next
+// session opens on — and quits. Every way out of the app goes through it.
+func (m model) quit() (tea.Model, tea.Cmd) {
+	if m.viewOnScreen() != m.doc.View {
+		m.saveView()
+	}
+	return m, tea.Quit
 }
 
 // sidebarWidth is the split view's sidebar width for a terminal w wide: 30%,
@@ -430,9 +507,9 @@ func (m *model) saveView() {
 func sidebarWidth(w int) int { return min(max(w*30/100, 20), 40) }
 
 // focused returns the tree the item keys act on: the sidebar while it has the
-// split view's focus, else the main tree.
+// shown split view's focus, else the main tree.
 func (m *model) focused() *tree {
-	if m.split && m.sideFocus {
+	if m.splitShown() && m.sideFocus {
 		return &m.side
 	}
 	return &m.tree
@@ -443,11 +520,11 @@ func (m *model) focused() *tree {
 // placeholder row when onPH); the other keeps its own selection. The sidebar
 // goes first and falls back to All when its category is gone, so the task
 // list is rebuilt for the category that is left. A sprint board whose sprint
-// doc no longer holds gives way to the Sprint list (see leaveGoneSprint).
+// doc no longer holds gives way to another sprint (see leaveGoneSprint).
 func (m *model) adoptAll(doc *todo.Document, focusID string, onPH bool) {
 	sideID, sidePH := m.side.selectedID(), m.side.onPlaceholder()
 	mainID, mainPH := m.tree.selectedID(), m.tree.onPlaceholder()
-	if m.split && m.sideFocus {
+	if m.splitShown() && m.sideFocus {
 		// No item to focus (an add whose new ID is selected afterwards) keeps
 		// the sidebar's category.
 		if focusID != "" || onPH {

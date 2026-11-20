@@ -400,7 +400,7 @@ func TestSearchCarriesAcrossTabs(t *testing.T) {
 	if got := rowTitles(m.tree); len(got) != 0 {
 		t.Errorf("Backlog has no match for \"work\", rows = %v", got)
 	}
-	m = press(m, "k", "2") // the Imported sprint's board, In Progress
+	m = press(m, "k", "tab", "2") // the Imported sprint's board, In Progress
 	if m.view.filter != "work" {
 		t.Fatalf("the filter must carry over, got %q", m.view.filter)
 	}

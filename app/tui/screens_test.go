@@ -95,11 +95,11 @@ func TestBacklogHidesSprintTasks(t *testing.T) {
 func TestBSwitchesScreens(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
-	if m.view.screen != screenSprints {
-		t.Fatalf("s: screen = %v, want the Sprint list", m.view.screen)
+	if m.view.screen != screenSprint || m.view.sprint != "s00000a" {
+		t.Fatalf("s: screen = %v sprint = %q, want the Sprints workspace on A", m.view.screen, m.view.sprint)
 	}
-	if h := m.header(100); !strings.Contains(h, "Sprints · 2 open") {
-		t.Errorf("header = %q, want the Sprint list line", h)
+	if h := m.header(100); !strings.Contains(h, "A · ") {
+		t.Errorf("header = %q, want A's board line", h)
 	}
 	m = press(m, "b")
 	if m.view.screen != screenBacklog {
@@ -123,7 +123,7 @@ func TestBSwitchesScreens(t *testing.T) {
 
 func TestBoardHeaderMarksDoneSprint(t *testing.T) {
 	m, _ := threeSprints(t)
-	m.showSprint("s00000b")
+	openBoard(&m, "s00000b")
 	m = press(m, "3")
 	if h := m.header(100); !strings.Contains(h, "B ✓ done   ") || strings.Contains(h, "B ✓ done · ") || !strings.Contains(h, "[Done 1]") {
 		t.Errorf("header = %q, want B marked done", h)
@@ -155,16 +155,11 @@ func TestBoardHeaderShowsGoal(t *testing.T) {
 	}
 }
 
-func TestQOnBoardReturnsToList(t *testing.T) {
+func TestQOnBoardQuits(t *testing.T) {
 	m, _ := threeSprints(t)
-	m.showSprint("s00000a")
-	nm, cmd := m.Update(keyMsg("q"))
-	m = nm.(model)
-	if quits(cmd) {
-		t.Fatal("q on a board must not quit")
-	}
-	if m.view.screen != screenSprints {
-		t.Errorf("q on a board: screen = %v, want the Sprint list", m.view.screen)
+	openBoard(&m, "s00000a")
+	if _, cmd := m.Update(keyMsg("q")); !quits(cmd) {
+		t.Fatal("q on a board must quit")
 	}
 }
 
@@ -172,16 +167,16 @@ func TestQOnListQuits(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
 	if _, cmd := m.Update(keyMsg("q")); !quits(cmd) {
-		t.Error("q on the Sprint list must quit")
+		t.Error("q in the sprint sidebar must quit")
 	}
 	if _, cmd := press(m, "b").Update(keyMsg("q")); !quits(cmd) {
 		t.Error("q on the Backlog must quit")
 	}
 }
 
-func TestEscOnBoardReturnsToList(t *testing.T) {
+func TestEscOnBoardFocusesList(t *testing.T) {
 	m, _ := threeSprints(t)
-	m.showSprint("s00000a")
+	openBoard(&m, "s00000a")
 	// A search is cleared first, on the board.
 	m.setFilter("zzz")
 	nm, cmd := m.Update(keyMsg("esc"))
@@ -189,8 +184,8 @@ func TestEscOnBoardReturnsToList(t *testing.T) {
 		t.Fatalf("esc with a search: screen %v filter %q quit %v, want the search cleared on the board", m.view.screen, m.view.filter, quits(cmd))
 	}
 	nm, cmd = m.Update(keyMsg("esc"))
-	if m = nm.(model); quits(cmd) || m.view.screen != screenSprints {
-		t.Fatalf("esc on a board: screen %v quit %v, want the Sprint list", m.view.screen, quits(cmd))
+	if m = nm.(model); quits(cmd) || m.view.screen != screenSprint || m.view.sprint != "s00000a" || !m.listFocus {
+		t.Fatalf("esc on a board: screen %v sprint %q listFocus %v quit %v, want the sprint list focused", m.view.screen, m.view.sprint, m.listFocus, quits(cmd))
 	}
 	// The unified view over a board still quits.
 	m.showSprint("s00000a")
@@ -211,8 +206,8 @@ func TestKFromBacklogSkipsClosedLastViewed(t *testing.T) {
 func TestEnterOnEmptySprintListHints(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, nil, nil))
 	m = press(m, "s", "enter")
-	if m.mode != modeMain || m.view.screen != screenSprints {
-		t.Errorf("enter on an empty Sprint list: mode %v screen %v, want to stay", m.mode, m.view.screen)
+	if m.mode != modeMain || !m.onList() {
+		t.Errorf("enter on an empty sprint sidebar: mode %v listFocus %v, want to stay", m.mode, m.listFocus)
 	}
 	if want := "no open sprints — press s, then n to create one"; m.status != want {
 		t.Errorf("footer = %q, want %q", m.status, want)
@@ -246,8 +241,8 @@ func TestKFromBacklogOpensLastViewed(t *testing.T) {
 		t.Errorf("k from the Backlog: screen = %v sprint = %q, want C", m.view.screen, m.view.sprint)
 	}
 	m = press(m, "s", "k")
-	if m.view.sprint != "s00000c" {
-		t.Errorf("k from the Sprint list = %q, want C", m.view.sprint)
+	if m.view.sprint != "s00000a" {
+		t.Errorf("k in the Sprints workspace on C = %q, want the next open one, A", m.view.sprint)
 	}
 }
 
@@ -264,7 +259,7 @@ func TestKWithoutOpenSprintsHints(t *testing.T) {
 
 func TestBoardRemembersItsTab(t *testing.T) {
 	m, _ := threeSprints(t)
-	m.showSprint("s00000a")
+	openBoard(&m, "s00000a")
 	m = press(m, "3")
 	m.showSprint("s00000c")
 	if m.view.column != todo.ColNext {
@@ -295,8 +290,8 @@ func TestUToggleUnifiedOnTopOfScreen(t *testing.T) {
 		t.Errorf("b in the unified view: unified %v screen %v, want the Backlog", m.view.all, m.view.screen)
 	}
 	m = press(m, "s", "u")
-	if m.view.all {
-		t.Error("u does nothing on the Sprint list")
+	if !m.view.all || m.listFocus {
+		t.Errorf("u in the sprint sidebar: unified %v listFocus %v, want the unified view with the tree focused", m.view.all, m.listFocus)
 	}
 }
 
@@ -309,7 +304,7 @@ func TestTabsOnlyOnBoard(t *testing.T) {
 			t.Errorf("%q on the Backlog: screen %v rows %v, want nothing changed", key, got.view.screen, rowTitles(got.tree))
 		}
 	}
-	m.showSprint("s00000a")
+	openBoard(&m, "s00000a")
 	steps := []struct {
 		key  string
 		want todo.Column
@@ -375,7 +370,7 @@ func TestSprintListRowsOrderAndCounts(t *testing.T) {
 		t.Errorf("selected = %v, want Delta", sel)
 	}
 	if out := m.View(); !strings.Contains(out, "Gamma") || strings.Contains(out, "a1") {
-		t.Errorf("the Sprint list screen shows the sprints, not the tasks:\n%s", out)
+		t.Errorf("the sidebar lists the sprints, and Delta's empty board none of Alpha's tasks:\n%s", out)
 	}
 }
 
@@ -385,8 +380,8 @@ func TestSaveViewStoresScreen(t *testing.T) {
 	if got, want := storedView(t, path), (todo.View{Screen: todo.ScreenSprint, Sprint: "s00000c"}); got != want {
 		t.Errorf("stored view = %+v, want %+v", got, want)
 	}
-	m = press(m, "s")
-	if got, want := storedView(t, path), (todo.View{Screen: todo.ScreenSprints}); got != want {
+	m = press(m, "b", "s") // the Sprints workspace opens on the last viewed sprint
+	if got, want := storedView(t, path), (todo.View{Screen: todo.ScreenSprint, Sprint: "s00000c"}); got != want {
 		t.Errorf("stored view = %+v, want %+v", got, want)
 	}
 	press(m, "b")
@@ -410,8 +405,8 @@ func TestOpensOnStoredBoard(t *testing.T) {
 func TestApplyViewMissingSprint(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, map[string]any{"screen": "sprint", "sprint": "s0000zz"},
 		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}}))
-	if m.view.screen != screenSprints {
-		t.Errorf("a saved view naming a missing sprint opened screen %v, want the Sprint list", m.view.screen)
+	if m.view.screen != screenSprint || m.view.sprint != "s00000a" || !m.listFocus {
+		t.Errorf("a saved view naming a missing sprint opened screen %v sprint %q, want the Sprints workspace on A", m.view.screen, m.view.sprint)
 	}
 }
 
@@ -422,8 +417,8 @@ func TestReloadSprintGoneFallsBackToList(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = pollOnce(t, m)
-	if m.view.screen != screenSprints {
-		t.Errorf("after the sprint was deleted the screen = %v, want the Sprint list", m.view.screen)
+	if m.view.screen != screenSprint || m.view.sprint != "s00000a" {
+		t.Errorf("after the sprint was deleted the screen = %v sprint = %q, want A's board", m.view.screen, m.view.sprint)
 	}
 	if m.err != nil {
 		t.Errorf("err = %v, want none", m.err)
@@ -442,10 +437,10 @@ func TestWDoesNotMove(t *testing.T) {
 func TestSprintListIgnoresTreeKeys(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
-	for _, key := range []string{"v", "tab", "m", "t", "a", "u", "/", "f"} {
+	for _, key := range []string{"v", "m", "t", "a", "D"} {
 		got := press(m, key)
-		if got.mode != modeMain || got.split || got.view.screen != screenSprints || got.tree.grabbed {
-			t.Errorf("%q on the Sprint list must do nothing: mode %v split %v screen %v", key, got.mode, got.split, got.view.screen)
+		if got.mode != modeMain || got.split || !got.onList() || got.tree.grabbed {
+			t.Errorf("%q in the sprint sidebar must do nothing: mode %v split %v listFocus %v", key, got.mode, got.split, got.listFocus)
 		}
 	}
 }

@@ -27,7 +27,7 @@ const (
 	// (or a task inside one) is selected.
 	targetAddCategory
 	targetEdit // rename/re-describe the selected item
-	// targetAddSprint adds a sprint, from the Sprint list.
+	// targetAddSprint adds a sprint, from the Sprints workspace's sidebar.
 	targetAddSprint
 	// targetEditSprint renames or re-words the goal of the sprint in m.editingSprint.
 	targetEditSprint
@@ -50,7 +50,7 @@ func (m *model) taskAnchor() *todo.Item {
 	if sel := t.selected(); sel != nil {
 		return sel
 	}
-	if m.split && !m.sideFocus {
+	if m.splitShown() && !m.sideFocus {
 		return m.tree.scopeItem()
 	}
 	return nil
@@ -85,7 +85,7 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 		}, formKindOf(sel), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
-		if m.split && !m.sideFocus {
+		if m.splitShown() && !m.sideFocus {
 			m.status = "categories are managed in the sidebar"
 			return m, nil
 		}
@@ -109,7 +109,7 @@ func (m model) prepareAddForm(t formTarget) (model, bool) {
 		return m, false
 	}
 	sel := m.taskAnchor()
-	if sel == nil && m.split {
+	if sel == nil && m.splitShown() {
 		m.status = msgPickCategory
 		return m, false
 	}
@@ -250,7 +250,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	}
 	// The ID is only known once the write ran. A task added from the sidebar
 	// shows in the task list, so look there too.
-	if !m.focused().selectID(newID) && m.split {
+	if !m.focused().selectID(newID) && m.splitShown() {
 		m.tree.selectID(newID)
 	}
 	return m, nil

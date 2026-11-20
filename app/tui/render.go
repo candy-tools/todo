@@ -41,10 +41,14 @@ func (m model) mainView(dim bool) string {
 	}
 	var body string
 	switch {
-	case m.view.onSprintList():
-		// The Sprint list replaces the trees, split view or not.
-		body = titledBox("Sprints", m.sprints.view(m.doc, w-2, m.treeViewHeight()), w, bodyH, !dim)
-	case m.split:
+	case m.view.onBoard():
+		// The Sprints workspace: the sprint list beside the shown sprint's
+		// board, split view or not.
+		sw := sidebarWidth(w)
+		left := titledBox("Sprints", m.sprints.view(m.doc, sw-2, m.sprintListHeight()), sw, bodyH, !dim && m.listFocus)
+		right := titledBox(m.boardTitle(), m.boardPane(w-sw-2), w-sw, bodyH, !dim && !m.listFocus)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	case m.splitShown():
 		sw := sidebarWidth(w)
 		left := titledBox("Categories", m.side.view(sw-2, m.treeViewHeight()), sw, bodyH, !dim && m.sideFocus)
 		right := titledBox("Tasks", m.tree.view(w-sw-2, m.treeViewHeight()), w-sw, bodyH, !dim && !m.sideFocus)
@@ -55,12 +59,40 @@ func (m model) mainView(dim bool) string {
 	return m.header(w) + "\n" + body + "\n" + m.footer(w)
 }
 
+// boardTitle is the title of the Sprints workspace's board pane: the shown
+// sprint's name, or "Board" when it shows none.
+func (m model) boardTitle() string {
+	if s, ok := m.doc.SprintByID(m.view.sprint); ok {
+		return todo.Printable(s.Name)
+	}
+	return "Board"
+}
+
+// boardPane renders the Sprints workspace's board pane, width wide: the
+// shown sprint's tree, or a dim line saying why there is none.
+func (m model) boardPane(width int) string {
+	switch {
+	case m.view.sprint != "":
+		return m.tree.view(width, m.treeViewHeight())
+	case len(m.doc.Sprints) == 0:
+		return "  " + helpTextStyle.Render("no sprints yet — n creates one")
+	}
+	return "  " + helpTextStyle.Render("no open sprints")
+}
+
 // treeViewHeight is how many task rows the tree pane can show at the current
 // terminal size — the height handed to tree.view. WindowSizeMsg stores it on the
 // tree so its scroll math (reconcileOffset) matches what mainView renders; the
-// two must agree or the viewport clamp would fight the offset. It mirrors the
-// body-height layout math in mainView.
-func (m model) treeViewHeight() int {
+// two must agree or the viewport clamp would fight the offset.
+func (m model) treeViewHeight() int { return m.paneRows() }
+
+// sprintListHeight is how many rows the Sprints workspace's sidebar can show:
+// the full pane height, whatever the board beside it gives to its own lines.
+func (m model) sprintListHeight() int { return m.paneRows() }
+
+// paneRows is how many rows fit inside a pane's border at the current
+// terminal size. It mirrors the body-height layout math in mainView.
+func (m model) paneRows() int {
 	h := m.height
 	if m.width == 0 {
 		h = 24 // matches mainView's fallback when the terminal size is unknown
@@ -82,7 +114,7 @@ const headerHeight = 2
 
 // header renders the title line (app, version, file, overall progress) and,
 // under it, the screen's line: a sprint board's name and tab bar, or the
-// Backlog's, the Sprint list's or the unified view's label.
+// Backlog's, the sprint-less Sprints workspace's or the unified view's label.
 func (m model) header(width int) string {
 	done, total := overallCounts(m.doc)
 	left := headerAppStyle.Render("todo") + " " + headerHintSty.Render(m.version) + "  " + headerHintSty.Render(filepath.Base(m.store.Path()))
@@ -106,7 +138,7 @@ func (m model) screenLine(width int) string {
 		return screenBar(fmt.Sprintf("All states · %d tasks", total), width)
 	case m.view.screen == screenBacklog:
 		return screenBar(fmt.Sprintf("Backlog · %d tasks", m.doc.ColumnCounts("")[todo.ColBacklog]), width)
-	case m.view.screen == screenSprints:
+	case m.view.sprint == "":
 		return screenBar(fmt.Sprintf("Sprints · %d open", len(m.doc.OpenSprints())), width)
 	}
 	name, goal, done := m.view.sprint, "", false
@@ -127,11 +159,11 @@ func (m model) footer(width int) string {
 		// A transient message (a refused move, where a task went) wins over the
 		// move and filter lines; the next key clears it.
 		return ansi.Truncate(" "+helpTextStyle.Render(m.status), width, "")
-	case m.view.onSprintList():
-		// The list's own keys; a board's search filter does not carry over.
+	case m.onList():
+		// The sidebar's own keys, ahead of the board's search filter.
 		return ansi.Truncate(" "+strings.Join([]string{
 			hint("n", "New"), hint("e", "Edit"), hint("c", "Close/reopen"), hint("d", "Delete"),
-			hint("enter", "Open"), hint("?", "Help"), hint("q", "Quit"),
+			hint("tab", "Board"), hint("?", "Help"), hint("q", "Quit"),
 		}, "  "), width, "")
 	case m.focused().grabbed:
 		// Move mode: the arrows reorder/re-nest the grabbed item.
@@ -158,15 +190,11 @@ func (m model) footer(width int) string {
 		return ansi.Truncate(" "+strings.Join(info, "  "), width, "")
 	}
 	// The full key list lives in the "?" dialog; the footer only points at it.
-	var parts []string
-	switch m.view.screen {
-	case screenSprint:
-		// q leaves a board for the Sprint list, under the unified view too.
-		parts = []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Sprints")}
-	default:
-		parts = []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
-	}
-	if m.split {
+	parts := []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
+	switch {
+	case m.view.onBoard():
+		parts = append(parts, hint("tab", "Sprints"))
+	case m.splitShown():
 		parts = append(parts, hint("tab", "Pane"))
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")

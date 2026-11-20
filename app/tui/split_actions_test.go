@@ -58,10 +58,12 @@ func TestSplitAddOnAllRefused(t *testing.T) {
 	if m.mode != modeMain || !strings.Contains(m.footer(200), "pick a category in the sidebar") {
 		t.Errorf("n on All: mode %v footer %q", m.mode, m.footer(200))
 	}
-	toTab(&m, todo.ColNext) // nothing in Next: the list is empty
-	m = press(m, "tab", "n")
-	if m.mode != modeMain || !strings.Contains(m.footer(200), "pick a category in the sidebar") {
-		t.Errorf("n in an empty list on All: mode %v footer %q", m.mode, m.footer(200))
+	// A board keeps the split but does not show it: n on its empty tab gives
+	// the board's hint, not the sidebar's.
+	toTab(&m, todo.ColNext)
+	m = press(m, "n")
+	if m.mode != modeMain || strings.Contains(m.footer(200), "pick a category in the sidebar") || !strings.Contains(m.footer(200), "add it in the Backlog") {
+		t.Errorf("n on an empty board tab with the split kept: mode %v footer %q", m.mode, m.footer(200))
 	}
 }
 
@@ -205,7 +207,7 @@ func TestSplitFilteredStateChangeNamesColumn(t *testing.T) {
 	m, _ := newJSONModel(t, `{"version": 3, "categories": [{"id": "c000000", "title": "C"}], "tasks": [
 		{"id": "t000001", "category": "c000000", "title": "o", "status": "open"},
 		{"id": "t000002", "category": "c000000", "title": "r", "status": "ready"}]}`)
-	toTab(&m, todo.ColNext)
+	m = press(m, "u") // the split shows in the unified view, not on a board
 	m = filterTick(t, m, todo.Ready)
 	m = press(m, "v", "tab")
 	m = selectTitle(t, m, "r")

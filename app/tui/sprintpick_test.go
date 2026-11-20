@@ -49,10 +49,10 @@ func TestKJumpsToChosenSprintIncludingDone(t *testing.T) {
 	if m.mode != modeMain || m.view.screen != screenSprint || m.view.sprint != "s000003" {
 		t.Errorf("after enter: mode %v screen %v sprint %q, want Old's board", m.mode, m.view.screen, m.view.sprint)
 	}
-	// K works from the Sprint list too, and esc cancels.
+	// K works from the sprint sidebar too, and esc cancels.
 	m = press(m, "s", "K", "esc")
-	if m.mode != modeMain || m.view.screen != screenSprints {
-		t.Errorf("K, esc on the Sprint list: mode %v screen %v", m.mode, m.view.screen)
+	if m.mode != modeMain || !m.onList() {
+		t.Errorf("K, esc in the sprint sidebar: mode %v listFocus %v", m.mode, m.listFocus)
 	}
 }
 

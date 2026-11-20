@@ -31,10 +31,9 @@ var helpSections = []helpSection{
 	}},
 	{"Screens", []helpBinding{
 		{"b", "The Backlog"},
-		{"s", "The Sprint list"},
+		{"s", "The Sprints workspace (sprint list + board)"},
 		{"k", "Last viewed open sprint; on a board, the next open one"},
 		{"K", "Pick a sprint to go to"},
-		{"q", "On a sprint board: back to the Sprint list (esc too)"},
 		{"[  ]", "Previous / next column (sprint board)"},
 		{"1–3", "Jump to Next / In Progress / Done (sprint board)"},
 		{"u", "Unified view: every task, any sprint / back"},
@@ -56,12 +55,12 @@ var helpSections = []helpSection{
 		{"d", "Delete the selected item"},
 		{"D", "Remove the sprint's completed tasks (sprint board)"},
 	}},
-	{"Sprint list", []helpBinding{
-		{"enter", "Open the sprint's board"},
+	{"Sprints sidebar", []helpBinding{
 		{"n", "New sprint"},
 		{"e", "Edit the sprint's name and goal"},
 		{"c", "Close / reopen the sprint"},
 		{"d", "Delete the sprint"},
+		{"enter  tab", "Focus the board (tab on the board: back to the list)"},
 	}},
 	{"Views", []helpBinding{
 		{"v", "Split: categories sidebar + task list (opens on the selection)"},
@@ -69,8 +68,8 @@ var helpSections = []helpSection{
 	}},
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},
-		{"q", "Quit (Backlog, Sprint list)"},
-		{"esc", "Clear search / state filter, else like q"},
+		{"q", "Quit"},
+		{"esc", "Clear search / state filter; on a board focus the sprint list; else quit"},
 	}},
 }
 

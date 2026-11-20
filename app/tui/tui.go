@@ -39,6 +39,7 @@ const (
 //   - An item is grabbed (tree.grabbed or side.grabbed) only in modeMain and
 //     only on the focused tree, m.focused().
 //   - sideFocus implies split.
+//   - listFocus means something only in the Sprints workspace (view.onBoard).
 //   - An external reload is applied in modeMain and modeSearch, and deferred
 //     in the modal modes and while an item is grabbed (see handleReload).
 type model struct {
@@ -75,8 +76,10 @@ type model struct {
 	// the list through; the model changes it (switchScreen, setColumn,
 	// setFilter, setStates) and rebuilds the trees.
 	view *viewState
-	// sprints is the Sprint list screen, shown instead of the trees there.
-	sprints sprintList
+	// sprints is the Sprints workspace's sidebar, beside the shown sprint's
+	// board; listFocus is whether the keys go to it (true) or to the board.
+	sprints   sprintList
+	listFocus bool
 	// lastSprint is the ID of the sprint whose board was shown last, where
 	// "k" goes back to from the other screens; boardTabs is the tab each
 	// sprint board showed last, by sprint ID.
@@ -88,6 +91,7 @@ type model struct {
 	side tree
 	// split is the split view ("v"): side on the left, tree as a task list on
 	// the right. sideFocus is whether the keys go to the sidebar (tab flips it).
+	// The Sprints workspace keeps split but does not show it (see splitShown).
 	split     bool
 	sideFocus bool
 	width     int
@@ -213,7 +217,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm, cmd := m.updateKey(msg)
 		// In the split view the task list follows the sidebar's category,
 		// whatever the key did to it.
-		if mm, ok := nm.(model); ok && mm.split {
+		if mm, ok := nm.(model); ok && mm.splitShown() {
 			mm.syncScope()
 			return mm, cmd
 		}
@@ -235,7 +239,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // grabbed item, or the main view.
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
-		return m, tea.Quit
+		return m.quit()
 	}
 	switch m.mode {
 	case modeSearch:
@@ -261,34 +265,26 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// updateMain handles the main-view keys: the screen keys work everywhere; the
-// Sprint list has its own (see updateSprintList); the rest act on the trees.
+// updateMain handles the main-view keys: the screen keys and the view keys
+// work everywhere; the Sprints workspace's sidebar has its own (see
+// updateSprintList); the rest act on the trees.
 func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	if next, cmd, ok := m.updateScreenKey(msg); ok {
 		return next, cmd
 	}
-	if m.view.onSprintList() {
+	if next, cmd, ok := m.updateViewKey(msg); ok {
+		return next, cmd
+	}
+	if m.onList() {
 		return m.updateSprintList(msg)
 	}
 	switch msg.String() {
-	case "/":
-		return m.openSearch()
-	case "f":
-		m.pick = newFilterPicker("Filter "+m.view.title()+" by state", m.view.columns(), m.view.filterSet())
-		m.mode = modeStateFilter
-	case "u":
-		m.setUnified(!m.view.all)
-		m.saveView()
-	case "v":
-		if m.split {
-			m.toggleSplit()
-		} else {
-			m.openSplitOnSelection()
-		}
-		m.saveView()
 	case "tab", "shift+tab":
-		if m.split {
+		switch {
+		case m.view.onBoard():
+			m.listFocus = true
+		case m.splitShown():
 			m.sideFocus = !m.sideFocus
 		}
 	case "up":
@@ -317,17 +313,14 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateScreenKey handles the keys that work on every screen: q (back to the
-// Sprint list from a board, else quit), esc, ? and the screen jumps b, s, k and
-// K. The bool reports whether the key was one of them.
+// updateScreenKey handles the keys that work on every screen: q (quit), esc,
+// ? and the screen jumps b, s, k and K. The bool reports whether the key was
+// one of them.
 func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "q":
-		if m.view.screen == screenSprint {
-			m.showSprints()
-			return m, nil, true
-		}
-		return m, tea.Quit, true
+		next, cmd := m.quit()
+		return next, cmd, true
 	case "esc":
 		next, cmd := m.escOrQuit()
 		return next, cmd, true
@@ -354,10 +347,45 @@ func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	return m, nil, false
 }
 
-// updateSprintList handles the keys of the Sprint list: the arrows move the
-// selection, enter opens the selected sprint's board, n adds a sprint, e edits
-// the selected one, c closes or reopens it and d deletes it. Every other key
-// does nothing there.
+// updateViewKey handles the keys that change how the trees show the list,
+// from the Sprints workspace's sidebar too, where they act on the board: /
+// (search), f (state filter), u (unified view) and v (split view, which the
+// Sprints workspace does not show). The bool reports whether the key was one
+// of them.
+func (m model) updateViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	switch msg.String() {
+	case "/":
+		next, cmd := m.openSearch()
+		return next, cmd, true
+	case "f":
+		if cols := m.view.columns(); len(cols) > 0 {
+			m.pick = newFilterPicker("Filter "+m.view.title()+" by state", cols, m.view.filterSet())
+			m.mode = modeStateFilter
+		}
+	case "u":
+		m.setUnified(!m.view.all)
+		m.saveView()
+	case "v":
+		switch {
+		case m.view.onBoard():
+			m.status = msgSplitsBacklog
+		case m.split:
+			m.toggleSplit()
+			m.saveView()
+		default:
+			m.openSplitOnSelection()
+			m.saveView()
+		}
+	default:
+		return m, nil, false
+	}
+	return m, nil, true
+}
+
+// updateSprintList handles the keys of the Sprints workspace's sidebar: the
+// arrows move the selection and show its sprint's board, enter and tab focus
+// the board, n adds a sprint, e edits the selected one, c closes or reopens it
+// and d deletes it. Every other key does nothing there.
 func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "n":
@@ -378,12 +406,13 @@ func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveSprints(-navStep)
 	case "pgdown":
 		m.moveSprints(navStep)
-	case "enter":
-		if s := m.sprints.selected(m.doc); s != nil {
-			m.showSprint(s.ID)
-		} else {
+	case "enter", "tab", "shift+tab":
+		if m.view.sprint == "" {
 			m.status = msgNoOpenSprints
+			return m, nil
 		}
+		m.listFocus = false
+		m.saveView()
 	}
 	return m, nil
 }
@@ -401,7 +430,7 @@ func (m model) categoryLocked(it *todo.Item) bool {
 
 // escOrQuit clears an active search (dismissing it the same way it's
 // cancelled), else the tab's state filter. When there is nothing to dismiss it
-// goes back to the Sprint list from a sprint board, like q, and quits
+// focuses the sprint list from the Sprints workspace's board, and quits
 // elsewhere.
 func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 	if m.view.filter != "" {
@@ -412,11 +441,11 @@ func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 		m.clearStates()
 		return m, nil
 	}
-	if m.view.onBoard() {
-		m.showSprints()
+	if m.view.onBoard() && !m.listFocus {
+		m.listFocus = true
 		return m, nil
 	}
-	return m, tea.Quit
+	return m.quit()
 }
 
 // updateMainItemKey handles the item-scoped main-view keys (add/edit/delete/

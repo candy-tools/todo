@@ -206,8 +206,8 @@ func TestWSNoLongerNavigate(t *testing.T) {
 	if got := press(m, "w"); got.tree.cursor != cursor || got.mode != modeMain {
 		t.Errorf("w in the main view moved the cursor %d -> %d", cursor, got.tree.cursor)
 	}
-	if got := press(m, "s"); got.view.screen != screenSprints {
-		t.Errorf("s in the main view: screen %v, want the Sprint list", got.view.screen)
+	if got := press(m, "s"); got.view.screen != screenSprint || !got.listFocus {
+		t.Errorf("s in the main view: screen %v, want the Sprints workspace", got.view.screen)
 	}
 
 	// The help dialog, scrolled part way.
@@ -247,7 +247,7 @@ func TestHelpListsSprintKeys(t *testing.T) {
 			desc[b.keys] = append(desc[b.keys], b.desc)
 		}
 	}
-	for _, keys := range []string{"b", "s", "k", "K", "q", "u", "a A", "a", "A", "o", "t", "1–3", "[  ]", "tab", "n", "e", "c", "d", "enter", "D"} {
+	for _, keys := range []string{"b", "s", "k", "K", "q", "u", "a A", "a", "A", "o", "t", "1–3", "[  ]", "tab", "n", "e", "c", "d", "enter  e", "enter  tab", "D"} {
 		if len(desc[keys]) == 0 {
 			t.Errorf("help has no row for %q", keys)
 		}
@@ -258,7 +258,7 @@ func TestHelpListsSprintKeys(t *testing.T) {
 		}
 	}
 	all := ansi.Strip(helpModal(200, 80, 0))
-	for _, want := range []string{"back to the Sprint list", "Unified view", "Close / reopen the sprint", "assign it to a sprint", "Send the task to another sprint or the Backlog"} {
+	for _, want := range []string{"The Sprints workspace", "on a board focus the sprint list", "Unified view", "Close / reopen the sprint", "assign it to a sprint", "Send the task to another sprint or the Backlog"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("help should say %q:\n%s", want, all)
 		}

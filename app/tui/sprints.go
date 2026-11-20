@@ -13,15 +13,18 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// sprintList is the Sprint list screen: one row per sprint, the cursor over
-// them and the first row shown. The rows are derived from the list on every
-// use. The cursor follows the sprint it is on (selID) when a write or reload
-// reorders the rows, and falls back to its index, clamped, when that sprint is
-// gone.
+// sprintList is the Sprints workspace's sidebar: one row per sprint, the
+// cursor over them and the first row shown. The rows are derived from the list
+// on every use. The cursor follows the sprint it is on (selID) when a write or
+// reload reorders the rows, and falls back to its index, clamped, when that
+// sprint is gone.
 type sprintList struct {
 	cursor int
 	selID  string // the ID of the sprint the cursor is on, "" before the first use
 	offset int    // the index of the first row shown
+	// none is true while no row is selected: the workspace shows no sprint,
+	// as when every sprint is closed. A move down or selectID ends it.
+	none bool
 }
 
 // maxGoalWidth and maxNameWidth cap the goal and name columns, so a long one
@@ -52,8 +55,12 @@ func (l *sprintList) clamp(n int) {
 }
 
 // sync puts the cursor on the sprint it was on, wherever it is in rows now;
-// when that sprint is gone it keeps the index, clamped.
+// when that sprint is gone it keeps the index, clamped. With no row selected
+// it does nothing.
 func (l *sprintList) sync(rows []*todo.Sprint) {
+	if l.none {
+		return
+	}
 	if i := slices.IndexFunc(rows, func(s *todo.Sprint) bool { return s.ID == l.selID }); i >= 0 {
 		l.cursor = i
 		return
@@ -65,10 +72,18 @@ func (l *sprintList) sync(rows []*todo.Sprint) {
 	}
 }
 
-// move shifts the cursor by delta rows, clamped to the list.
+// move shifts the cursor by delta rows, clamped to the list. With no row
+// selected, a move down starts above the first row and a move up does nothing.
 func (l *sprintList) move(d *todo.Document, delta int) {
 	rows := l.rows(d)
-	l.sync(rows)
+	if l.none {
+		if delta <= 0 || len(rows) == 0 {
+			return
+		}
+		l.none, l.cursor = false, -1
+	} else {
+		l.sync(rows)
+	}
 	l.cursor += delta
 	l.clamp(len(rows))
 	if len(rows) > 0 {
@@ -76,11 +91,12 @@ func (l *sprintList) move(d *todo.Document, delta int) {
 	}
 }
 
-// selected returns the sprint under the cursor, or nil when d has none.
+// selected returns the sprint under the cursor, or nil when d has none or no
+// row is selected.
 func (l *sprintList) selected(d *todo.Document) *todo.Sprint {
 	rows := l.rows(d)
 	l.sync(rows)
-	if len(rows) == 0 {
+	if len(rows) == 0 || l.none {
 		return nil
 	}
 	return rows[l.cursor]
@@ -89,8 +105,13 @@ func (l *sprintList) selected(d *todo.Document) *todo.Sprint {
 // selectID puts the cursor on the sprint with the given ID, when d has it.
 func (l *sprintList) selectID(d *todo.Document, id string) {
 	if i := slices.IndexFunc(l.rows(d), func(s *todo.Sprint) bool { return s.ID == id }); i >= 0 {
-		l.cursor, l.selID = i, id
+		l.cursor, l.selID, l.none = i, id, false
 	}
+}
+
+// deselect leaves no row selected (see none).
+func (l *sprintList) deselect() {
+	l.none, l.selID = true, ""
 }
 
 // window returns the index of the first of height rows to show out of n, the
@@ -123,9 +144,10 @@ func (l *sprintList) reconcile(d *todo.Document, height int) {
 }
 
 // view renders the rows of d that fit width x height, the cursor's always
-// among them: per sprint a status glyph, the name, the status, the goal and
-// its top-level task counts as "Next · In Progress · Done", in aligned
-// columns. A list without sprints renders a dim line saying so.
+// among them (highlighted unless no row is selected): per sprint a status
+// glyph, the name, the status, the goal and its top-level task counts as
+// "Next · In Progress · Done", in aligned columns. A list without sprints
+// renders a dim line saying so.
 func (l *sprintList) view(d *todo.Document, width, height int) string {
 	rows := l.rows(d)
 	if len(rows) == 0 {
@@ -155,7 +177,7 @@ func (l *sprintList) view(d *todo.Document, width, height int) string {
 		counts := fmt.Sprintf("%d · %d · %d", c[todo.ColNext], c[todo.ColInProgress], c[todo.ColDone])
 		name, status, goal := padRight(names[i], nameW), padRight(s.Status.String(), 4), padRight(goals[i], goalW)
 		var line string
-		if i == l.cursor {
+		if i == l.cursor && !l.none {
 			line = selectedRowStyle.Render("❯ " + glyph + " " + name + "   " + status + "   " + goal + "   " + counts)
 		} else {
 			line = "  " + glyphStyle.Render(glyph) + " " + categoryStyle.Render(name) + "   " +
@@ -171,10 +193,12 @@ func padRight(s string, w int) string {
 	return s + strings.Repeat(" ", max(w-ansi.StringWidth(s), 0))
 }
 
-// moveSprints moves the Sprint list's cursor by delta rows and keeps it shown.
+// moveSprints moves the sidebar's cursor by delta rows, keeps it shown, and
+// shows its sprint's board.
 func (m *model) moveSprints(delta int) {
 	m.sprints.move(m.doc, delta)
-	m.sprints.reconcile(m.doc, m.treeViewHeight())
+	m.sprints.reconcile(m.doc, m.sprintListHeight())
+	m.followList()
 }
 
 // openSprintForm opens the sprint form: for edit, that sprint's name and goal,
@@ -193,16 +217,19 @@ func (m model) openSprintForm(edit *todo.Sprint) (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
-// writeSprint runs one store write of the Sprint list through commit, then
-// keeps the cursor on its sprint, wherever the write moved it.
+// writeSprint runs one store write of the sidebar through commit, then keeps
+// the cursor on its sprint, wherever the write moved it, and the board on the
+// cursor's sprint.
 func (m *model) writeSprint(write storeWrite) (saved bool) {
 	saved = m.commit("", write)
-	m.sprints.reconcile(m.doc, m.treeViewHeight())
+	m.sprints.reconcile(m.doc, m.sprintListHeight())
+	m.followList()
 	return saved
 }
 
 // submitSprint stores the open sprint form, for submitForm: it adds the
-// sprint and puts the cursor on it, or writes the fields of the edited sprint
+// sprint, puts the cursor on it and shows its board, or writes the fields of
+// the edited sprint
 // that changed. A failed write reopens the form with what was typed, unless
 // the edited sprint is gone.
 func (m *model) submitSprint() {
@@ -216,8 +243,8 @@ func (m *model) submitSprint() {
 			m.mode = modeForm
 			return
 		}
-		m.sprints.selectID(m.doc, id)
-		m.sprints.reconcile(m.doc, m.treeViewHeight())
+		m.selectInList(id)
+		m.followList()
 		return
 	}
 	ch := m.form.sprintChanges()

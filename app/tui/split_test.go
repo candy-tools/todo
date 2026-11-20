@@ -107,21 +107,26 @@ func TestSplitNarrowTerminalFits(t *testing.T) {
 	}
 }
 
-func TestSplitSidebarFollowsTab(t *testing.T) {
+func TestSplitSidebarFollowsView(t *testing.T) {
 	m, path := newTestModel(t, splitDoc)
 	m = setStatusExternally(t, m, path, "b", todo.Ready)
 	m = press(m, "v")
+	m = sideSelect(t, m, "Work")
+	m = press(m, "u") // the unified view shows every task
+	if got := m.side.selected(); got == nil || got.Title != "Work" {
+		t.Errorf("Work holds tasks in the unified view: it should stay selected, got %v", got)
+	}
 	m = sideSelect(t, m, "Backend")
-	toTab(&m, todo.ColNext)
-	if got := m.side.selected(); got == nil || got.Title != "Backend" {
-		t.Errorf("Backend holds a Next task: it should stay selected, got %v", got)
-	}
 	if got := rowDesc(m.tree); !equalStrings(got, []string{"b"}) {
-		t.Errorf("Next rows for Backend = %v", got)
+		t.Errorf("unified rows for Backend = %v", got)
 	}
-	toTab(&m, todo.ColDone)
+	m = press(m, "u") // the Backlog lists every category, but not b, now in a sprint
+	if got := m.side.selected(); got == nil || got.Title != "Backend" || len(rowDesc(m.tree)) != 0 {
+		t.Errorf("Backlog: sidebar on %v, rows %v, want Backend kept with no task", got, rowDesc(m.tree))
+	}
+	m.setFilter("Home")
 	if !m.side.onAll() {
-		t.Errorf("Done shows no Backend: the sidebar should fall back to All, got %v", m.side.selected())
+		t.Errorf("a search with no match in Backend: the sidebar should fall back to All, got %v", m.side.selected())
 	}
 }
 

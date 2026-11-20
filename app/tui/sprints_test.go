@@ -161,7 +161,7 @@ func TestSprintListFooterShowsOwnHints(t *testing.T) {
 	if strings.Contains(f, "filter") || strings.Contains(f, "Clear") {
 		t.Errorf("footer = %q, must not show the search filter", f)
 	}
-	for _, want := range []string{"New", "Edit", "Close/reopen", "Delete", "Open"} {
+	for _, want := range []string{"New", "Edit", "Close/reopen", "Delete", "Board"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("footer = %q, misses %q", f, want)
 		}
@@ -181,7 +181,7 @@ func manySprints(t *testing.T, n int) model {
 
 func TestSprintListScrollsOnlyWhenCursorLeavesWindow(t *testing.T) {
 	m := manySprints(t, 60)
-	h := m.treeViewHeight()
+	h := m.sprintListHeight()
 	for i := 0; i < h+3; i++ {
 		m = press(m, "down")
 	}

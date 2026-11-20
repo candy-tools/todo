@@ -200,16 +200,24 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 	m.noteExternal()
 }
 
-// leaveGoneSprint moves from a sprint board whose sprint the list no longer
-// holds (another session deleted it) to the Sprint list. The view is not
-// stored: the list that lost the sprint is no write of this session.
+// leaveGoneSprint moves the Sprints workspace from a board whose sprint the
+// list no longer holds (it was deleted) to the first open sprint, or to none,
+// with the sidebar focused on it. A workspace that shows no sprint takes the
+// first open one when one appears (unless the unified view is over it). The
+// view is not stored: the list that changed is no write of this session.
 func (m *model) leaveGoneSprint() {
 	if m.view.screen != screenSprint {
 		return
 	}
-	if _, ok := m.doc.SprintByID(m.view.sprint); !ok {
-		m.switchScreen(screenSprints, "")
+	if _, ok := m.doc.SprintByID(m.view.sprint); ok || (m.view.sprint == "" && m.view.all) {
+		return
 	}
+	id := m.defaultSprint()
+	if id != m.view.sprint {
+		m.switchScreen(screenSprint, id)
+		m.listFocus = true
+	}
+	m.selectInList(id)
 }
 
 // noteExternal drops the undo snapshots and says so in the footer, after the
