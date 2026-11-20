@@ -518,15 +518,6 @@ func (m *model) opensOn(v todo.View) todo.View {
 	return todo.View{Unified: v.Unified, Split: v.Split, Screen: todo.ScreenBacklog}
 }
 
-// viewStored reports whether storing the view on screen would change nothing
-// this session should: it is the one the session opened on or last stored
-// (baseView), so a view another session stored since is not overwritten, or
-// the list file's view opens on it, so the next session would show it anyway.
-func (m *model) viewStored() bool {
-	on := m.viewOnScreen()
-	return on == m.baseView || on == m.opensOn(m.doc.View)
-}
-
 // viewOnScreen is the view on screen as the list file holds it: the screen and
 // its sprint, unified or not, split or not.
 func (m *model) viewOnScreen() todo.View {
@@ -534,21 +525,28 @@ func (m *model) viewOnScreen() todo.View {
 }
 
 // saveView stores the view on screen in the list file, so the next session
-// opens on it, unless viewStored says that would change nothing: a key that
-// only shows again the view the file opens on writes nothing, not even the
-// lock file. It is a write like any other (see commit): it starts the footer
-// afresh, clearing an earlier failure also when it writes nothing, a failed
-// one shows in the footer, and the view stays as it is on screen. Planning is
-// never stored: the list keeps the view stored before it.
+// opens on it, unless that would change nothing this session should: the
+// list file's view opens on it, so the next session would show it anyway, or
+// it is baseView, so a view another session stored since is not overwritten.
+// A key that only shows again the view the file opens on writes nothing, not
+// even the lock file, and makes that view baseView: the file holds it, so a
+// later change from it is the user's and is stored. It is a write like any
+// other (see commit): it starts the footer afresh, clearing an earlier failure
+// also when it writes nothing, a failed one shows in the footer, and the view
+// stays as it is on screen. Planning is never stored: the list keeps the view
+// stored before it.
 func (m *model) saveView() {
 	if m.view.screen == screenPlan {
 		return
 	}
 	m.err = nil
-	if m.viewStored() {
+	v := m.viewOnScreen()
+	if v == m.opensOn(m.doc.View) {
+		m.baseView = v
+	}
+	if v == m.baseView {
 		return
 	}
-	v := m.viewOnScreen()
 	if m.commit(m.focused().selectedID(), func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
 		return st.SetView(ctx, v)
 	}) {

@@ -91,9 +91,10 @@ type model struct {
 	// lastSprint is the ID of the sprint whose board was shown last, where
 	// "k" goes back to from the other screens.
 	lastSprint string
-	// baseView is the view (as viewOnScreen puts it) the session opened on, or
-	// the last one it stored: saveView stores no view equal to it, so a view
-	// another session stored since is kept unless this one changed its own.
+	// baseView is the view (as viewOnScreen puts it) this session last knows
+	// the list file holds: the one it opened on, last stored, or last found the
+	// file opening on (see saveView). saveView stores no view equal to it, so a
+	// view another session stored since is kept unless this one changed its own.
 	baseView todo.View
 	// plan is Planning's state (see planner), meaningful on screenPlan.
 	plan planner

@@ -204,6 +204,46 @@ func TestLookOnlyQuitKeepsOtherSessionsView(t *testing.T) {
 	}
 }
 
+// A view changed back to after another session stored its view is stored: a
+// key that shows the view the file opens on, and so stores nothing, makes that
+// the view the session knows the file holds, so a later change from it is
+// stored even when it returns to the one the session stored before.
+func TestChangeBackAfterOtherSessionsViewIsStored(t *testing.T) {
+	backlog := todo.View{Screen: todo.ScreenBacklog}
+	sprintA := todo.View{Screen: todo.ScreenSprint, Sprint: "s00000a"}
+	cases := []struct {
+		name   string
+		view   map[string]any
+		before []string // keys pressed before the other session stores its view
+		after  []string // keys pressed after the poll reloaded it
+		want   todo.View
+	}{
+		{"unified, then back to it", nil, []string{"u"}, []string{"u", "u"}, todo.View{Unified: true, Screen: todo.ScreenBacklog}},
+		{"sprint stored, then back to it", nil, []string{"s"}, []string{"b", "s"}, sprintA},
+		{"opened on a sprint, then back to it", map[string]any{"screen": "sprint", "sprint": "s00000a"}, nil, []string{"b", "s"}, sprintA},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m, path := newJSONModel(t, lookOnlyList(t, c.view))
+			m = press(m, c.before...)
+			if _, err := todo.NewStore(path).SetView(context.Background(), backlog); err != nil {
+				t.Fatal(err)
+			}
+			m = pollCmdOnce(m)
+			if m.doc.View != backlog {
+				t.Fatalf("after the reload the file view is %+v, want the other session's %+v", m.doc.View, backlog)
+			}
+			m = press(m, c.after...)
+			if m.err != nil {
+				t.Fatalf("err %v", m.err)
+			}
+			if got := storedView(t, path); got != c.want {
+				t.Errorf("the file holds %+v, want the view on screen %+v", got, c.want)
+			}
+		})
+	}
+}
+
 // A view the user changed without storing it, a sprint browsed to in the
 // Sprints workspace's sidebar, is stored on quit, also when the list's view
 // names a sprint that is gone.
