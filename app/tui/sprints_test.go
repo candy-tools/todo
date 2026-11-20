@@ -308,6 +308,16 @@ func TestSidebarRowsAreTwoLinesAndCut(t *testing.T) {
 	}
 }
 
+func TestSidebarRowWithoutGoalShowsDash(t *testing.T) {
+	m, _ := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}},
+		seedTask{ID: "t000001", Title: "x", Status: "new", Sprint: "s00000a"}))
+	lines := strings.Split(ansi.Strip(m.sprints.view(m.doc, 30, 10)), "\n")
+	if len(lines) != 2 || strings.TrimSpace(lines[1]) != "—" {
+		t.Errorf("lines = %q, want a dim — as the goal of a sprint without one", lines)
+	}
+}
+
 func TestSidebarScrollCountsLines(t *testing.T) {
 	m := manySprints(t, 20)
 	if got := len(strings.Split(m.sprints.view(m.doc, 30, 9), "\n")); got != 8 {

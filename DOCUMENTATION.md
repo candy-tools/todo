@@ -187,8 +187,9 @@ terminal; everything else is in the `?` dialog:
 
 - the Backlog: `?` help, `tab` pane (in the split), `a` assign, `v` split (or
   `v` single tree in the split), `s` sprints, `p` plan, `/` search, `q` quit;
-- a sprint board: `?` help, `/` search, `q` quit, `tab` sprints and `L`
-  columns (or tabs);
+- a sprint board: `?` help, `tab` sprints, `[ ] 1-3` column, `a/A` move task
+  (not on a closed sprint), `L` columns (or tabs; only when the board is wide
+  enough or columns are on), `/` search, `q` quit;
 - the Sprints sidebar: `n` new, `e` edit, `c` close/reopen, `d` delete (on the
   Closed row `←→` fold instead of those three), `tab` board, `?` help, `q`
   quit;

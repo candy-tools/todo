@@ -225,6 +225,9 @@ func (l *sprintList) rowLines(d *todo.Document, r sprintListRow, width int, cur 
 	default:
 		s := r.sprint
 		glyph, name, goal = "●", todo.Printable(s.Name), todo.Printable(s.Goal)
+		if goal == "" {
+			goal = "—" // a sprint without a goal, as the Closed sprints pane shows it
+		}
 		if s.Status == todo.SprintDone {
 			glyph, glyphStyle, nameStyle = "✓", doneStyle, helpTextStyle
 			indent = "  " // nested under the Closed row
