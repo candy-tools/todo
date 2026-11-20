@@ -263,6 +263,9 @@ func TestHelpListsSprintKeys(t *testing.T) {
 			t.Errorf("help should say %q:\n%s", want, all)
 		}
 	}
+	if len(desc["p"]) == 0 {
+		t.Error("help has no row for p")
+	}
 	for _, d := range desc["p"] {
 		if !strings.Contains(d, "Planning") {
 			t.Errorf("p is the Planning screen: %q", d)

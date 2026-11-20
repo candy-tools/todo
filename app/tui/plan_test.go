@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -512,5 +513,27 @@ func TestPlanningFitsShortTerminal(t *testing.T) {
 		if !strings.Contains(v, "❯ ○ task15") {
 			t.Errorf("height %d: the selected task is not on screen:\n%s", h, v)
 		}
+	}
+}
+
+// Entering Planning starts the footer afresh, as b and s do: an earlier
+// failure is not left over Planning, while a failure of the view save made on
+// the way in shows there.
+func TestEnteringPlanningLeavesNoStaleError(t *testing.T) {
+	m, path := threeSprints(t)
+	m = press(m, "s") // A's board, stored
+	m.err = errors.New("save failed: boom")
+	if m = press(m, "p"); m.view.screen != screenPlan || m.err != nil {
+		t.Errorf("p with the view already stored: screen %v err %v, want Planning and no old error", m.view.screen, m.err)
+	}
+
+	m = press(m, "esc", "esc", "down") // A's board, its sidebar, C: the stored view is A's board
+	todotest.HoldWriteLock(t, path)
+	m = press(m, "p")
+	if m.view.screen != screenPlan || m.plan.sprintID != "s00000c" {
+		t.Fatalf("p after browsing: screen %v planned %q, want Planning on C", m.view.screen, m.plan.sprintID)
+	}
+	if got := m.footer(200); !strings.Contains(got, "save failed: list busy") {
+		t.Errorf("footer = %q, want the failed save of the browsed view", got)
 	}
 }

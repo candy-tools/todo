@@ -730,7 +730,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 // sprintTag is the sprint name a row of top-level task it shows next to its
 // state: only in the unified view, which mixes every sprint's tasks, and only
 // for a task in a sprint. The name is made safe to draw and cut to
-// maxNameWidth, as on the Sprint list. It is "" otherwise.
+// maxNameWidth, as in the Sprints workspace's sidebar. It is "" otherwise.
 func (t *tree) sprintTag(it *todo.Item) string {
 	if !t.vs.all || it.IsSubtask() || it.Sprint == "" {
 		return ""

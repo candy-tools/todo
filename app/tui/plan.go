@@ -186,7 +186,11 @@ func taskRowNear(rows []planRow, i, dir int) int {
 // openPlanning is p from the Backlog or the Sprints workspace: it plans the
 // shown sprint when it is open, else the last viewed sprint while it is open,
 // else the first open one, with the keys on the Backlog side. With no open
-// sprint the footer says how to make one. The view is not stored.
+// sprint the footer says how to make one. Planning itself is never stored,
+// but entering it stores the view it leaves when the list holds another (a
+// sprint browsed to in the sidebar), or a quit from Planning would forget it.
+// Like b and s, it starts the footer afresh: an earlier failure is cleared,
+// and only a failure of that save shows over Planning.
 func (m *model) openPlanning() {
 	id := m.view.sprint
 	if s, ok := m.doc.SprintByID(id); !m.view.onBoard() || !ok || s.Status != todo.SprintOpen {
@@ -196,9 +200,8 @@ func (m *model) openPlanning() {
 			return
 		}
 	}
+	m.err = nil
 	if m.viewOnScreen() != m.doc.View {
-		// Planning is never stored, so a sprint browsed to is stored now, or a
-		// quit from Planning would forget it.
 		m.saveView()
 	}
 	m.switchScreen(screenPlan, "")
@@ -349,8 +352,8 @@ func (m model) planBody(width, height int, dim bool) string {
 	lw := width / 2
 	rw := width - lw
 	rows := m.paneRows()
-	left := titledBox(todo.ColBacklog.Title(), m.planPane(false, lw-2, rows, "nothing in the Backlog"), lw, height, !dim && !m.plan.right)
-	right := titledBox(m.planTitle(), m.planPane(true, rw-2, rows, ""), rw, height, !dim && m.plan.right)
+	left := titledBox(todo.ColBacklog.Title(), m.planPane(false, lw-2, rows), lw, height, !dim && !m.plan.right)
+	right := titledBox(m.planTitle(), m.planPane(true, rw-2, rows), rw, height, !dim && m.plan.right)
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 }
 
@@ -368,14 +371,15 @@ func (m model) planTitle() string {
 }
 
 // planPane renders the rows of one side that fit width x height, the
-// selection always among them. A side without a task draws its headers, or the
-// dim empty line when it has no row at all.
-func (m model) planPane(right bool, width, height int, empty string) string {
+// selection always among them. A side without a task draws its headers; the
+// Backlog side, which has none then, a dim line saying it is empty (the sprint
+// side always has its three column headers).
+func (m model) planPane(right bool, width, height int) string {
 	p := m.plan // a copy: rendering never moves the real selection
 	rows := p.rows(m.doc, right)
 	cur := p.sync(rows, right)
 	if len(rows) == 0 {
-		return "  " + helpTextStyle.Render(empty)
+		return "  " + helpTextStyle.Render("nothing in the Backlog")
 	}
 	_, _, off := p.side(right)
 	start := scrollWindow(*off, max(cur, 0), len(rows), height)
