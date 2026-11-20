@@ -141,8 +141,8 @@ func openList(path string, isDefault bool, opts ...todo.Option) (*todo.Store, st
 
 // loadList returns the store of the list file at path and the list it holds,
 // running the automatic import first (see openList) and printing its notice,
-// and the .todo.db notice, to stderr. A missing file is an empty list, and
-// nothing is created unless TODO.md is imported.
+// and the .todo.db notice, to stderr (see printNotice). A missing file is an
+// empty list, and nothing is created unless TODO.md is imported.
 func loadList(cmd *cobra.Command, path string, isDefault bool) (*todo.Store, *todo.Document, error) {
 	s, notice, err := openList(path, isDefault)
 	if err != nil {
@@ -203,11 +203,13 @@ func storeErr(err error) error {
 	return &cliError{code, err.Error()}
 }
 
-// printNotice writes a non-empty notice to stderr.
+// printNotice writes a non-empty notice to stderr, except in JSON mode (see
+// jsonMode), where stderr carries only the JSON error of a failing command.
 func printNotice(cmd *cobra.Command, notice string) {
-	if notice != "" {
-		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
+	if notice == "" || jsonMode(cmd) {
+		return
 	}
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
 }
 
 // storeCtx is the context for store calls.

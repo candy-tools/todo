@@ -18,7 +18,8 @@ is created on the first write.
 **First run with an existing `TODO.md`.** When no path is given (so todo uses
 the default `.todo.json`), `.todo.json` doesn't exist and a `TODO.md` is present in
 the current directory, todo imports it automatically, once, and prints a summary
-(plus a warning for anything it couldn't keep). Naming a file with `-f` or a
+(plus a warning for anything it couldn't keep) on stderr, except under `--json`
+or `--flat`, where stderr is kept for JSON errors. Naming a file with `-f` or a
 positional path disables this automatic import. The markdown file is left
 untouched and can be deleted afterwards; from then on the JSON file is the source
 of truth. Passing a `.md` path where a list file is expected is a usage error
@@ -820,5 +821,5 @@ until you fix them, with an error naming the problem.
 
 **Old `.todo.db` files.** todo no longer reads SQLite files. A `.todo.db` in the
 directory is ignored and left alone. There is no conversion. Until a
-`.todo.json` exists, todo says so on each run: on stderr for the CLI, in the
-footer for the TUI.
+`.todo.json` exists, todo says so on each run: on stderr for the CLI (except
+under `--json` or `--flat`), in the footer for the TUI.

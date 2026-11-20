@@ -46,6 +46,21 @@ func TestLegacyDBNoticeOnRead(t *testing.T) {
 	assertOldDBUntouched(t)
 }
 
+// Under --json a failing command's stderr is its one JSON error line: the
+// .todo.db notice is left out.
+func TestLegacyDBNoticeQuietUnderJSON(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeOldDB(t)
+	code, _, stderr := runExecute("show", "--id", "nope", "--json")
+	if code != exitNotFound {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if je := decodeJSONError(t, stderr); je.Error.Code != "not_found" {
+		t.Errorf("unexpected error object: %+v", je.Error)
+	}
+	assertOldDBUntouched(t)
+}
+
 func TestLegacyDBNoticeOnWriteThenGone(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeOldDB(t)

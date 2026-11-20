@@ -76,6 +76,25 @@ func TestAutoImportOnFirstRun(t *testing.T) {
 	}
 }
 
+// Under --flat the first-run import still happens, but its summary stays off
+// stderr, which carries only JSON errors for agents.
+func TestAutoImportQuietUnderFlat(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(legacyFile, []byte("# Work\n\n- [ ] alpha\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, err := runSplit(t, "list", "--flat")
+	if err != nil {
+		t.Fatalf("list --flat: %v", err)
+	}
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing under --flat", errOut)
+	}
+	if !json.Valid([]byte(out)) || !contains(out, "alpha") {
+		t.Errorf("stdout is not the imported list as JSON:\n%s", out)
+	}
+}
+
 func TestAutoImportOnlyForDefaultPath(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile(legacyFile, []byte("# Work\n\n- [ ] alpha\n"), 0o600); err != nil {
