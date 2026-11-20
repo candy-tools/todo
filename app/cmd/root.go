@@ -51,8 +51,9 @@ func execute(args []string, stdout, stderr io.Writer) int {
 // wantsJSONErrors reports whether err is printed as a jsonError: c ran in JSON
 // mode (see jsonMode), or err is a flag-parse error and args holds --json or
 // --flat, bare or with a true value as strconv.ParseBool reads it (cobra stops
-// at the bad flag, so a later one is never set). Any other error trusts the parsed flags alone, so a --json taken as
-// another flag's value gives a plain error.
+// at the bad flag, so a later one is never set). Any other error trusts the
+// parsed flags alone, so a --json taken as another flag's value gives a plain
+// error.
 func wantsJSONErrors(c *cobra.Command, args []string, err error) bool {
 	if jsonMode(c) {
 		return true
