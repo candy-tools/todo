@@ -188,16 +188,29 @@ func newModel(st *todo.Store, notice string) (model, error) {
 // writes to the store.
 func (m model) Init() tea.Cmd { return pollCmd() }
 
+// fitTrees tells the trees how tall their viewports are for the view on
+// screen, and re-anchors their scroll so the cursor stays visible. It runs on
+// a resize and after every key, since a change of screen or of the unified
+// view changes the height (the board's head takes rows).
+func (m *model) fitTrees() {
+	h := m.treeViewHeight()
+	if m.tree.viewHeight != h {
+		m.tree.viewHeight = h
+		m.tree.reconcileOffset()
+	}
+	if m.side.viewHeight != h {
+		m.side.viewHeight = h
+		m.side.reconcileOffset()
+	}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// Tell the tree how tall its viewport is now, and re-anchor the scroll so
 		// the cursor stays on screen across a resize.
-		m.tree.viewHeight = m.treeViewHeight()
-		m.tree.reconcileOffset()
-		m.side.viewHeight = m.treeViewHeight()
-		m.side.reconcileOffset()
+		m.fitTrees()
 		switch m.mode {
 		case modeForm:
 			m.form.setWidth(msg.Width)

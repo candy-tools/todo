@@ -7,6 +7,7 @@ import (
 
 	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // board has one task in Backlog, In Progress (with a subtask) and Done, an
@@ -185,18 +186,18 @@ func TestTabKeepsOwnSelectionAndFolds(t *testing.T) {
 
 func TestTabBarCounts(t *testing.T) {
 	m, _ := newTestModel(t, board)
-	if h := m.header(100); !strings.Contains(h, "Backlog · 1 tasks") || strings.Contains(h, "[") {
+	if h := m.header(100); !strings.Contains(h, "tasks waiting") || strings.Contains(h, "[In Progress") || strings.Contains(h, "[Next") {
 		t.Errorf("the Backlog has no tab bar: %q", h)
 	}
 	toTab(&m, todo.ColNext)
-	out := m.View()
-	for _, want := range []string{"Imported   [Next 0]", "In Progress 1", "Done 1"} {
+	out := ansi.Strip(m.View())
+	for _, want := range []string{"[Next 0]   In Progress 1   Done 1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("tab bar misses %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(m.header(100), "Backlog") {
-		t.Errorf("a board's tab bar has no Backlog tab: %q", m.header(100))
+	if strings.Contains(m.header(100), "[b Backlog]") {
+		t.Errorf("a board's header must not mark the Backlog: %q", m.header(100))
 	}
 	out = press(m, "2").View()
 	if !strings.Contains(out, "[In Progress 1]") || strings.Contains(out, "[Next 0]") {

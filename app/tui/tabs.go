@@ -67,32 +67,53 @@ func tabKey(key string, current todo.Column) (todo.Column, bool) {
 	return 0, false
 }
 
-// boardBar renders a sprint board's header line: the sprint's name, marked
-// when the sprint is done, and its goal when it has one, then the tab bar —
-// every tab's title and the sprint's task count there, the active one
-// bracketed and accented, e.g.
-// "Sprint 13 · ship sprint support   [Next 3]   In Progress 2   Done 4".
-// When the line is wider than width the goal is cut first, so the tab bar
-// stays whole; the tab bar is cut only when even the name leaves no room.
-func boardBar(name, goal string, done bool, counts map[todo.Column]int, active todo.Column, width int) string {
-	head := todo.Printable(name)
-	if done {
-		head += " ✓ done"
+// boardChrome is how many lines the board pane's head takes above the tree:
+// the goal, the progress and the tab bar.
+const boardChrome = 3
+
+// barCells is the width of the progress bar in the board head.
+const barCells = 20
+
+// boardHead renders the lines above a sprint's tree, exactly boardChrome of
+// them, width wide: its goal, its progress with whether it can be closed, and
+// the tab bar.
+func boardHead(s *todo.Sprint, counts map[todo.Column]int, active todo.Column, width int) []string {
+	total := 0
+	for _, c := range todo.SprintColumns() {
+		total += counts[c]
 	}
-	tabs := tabBar(counts, active)
-	const sep, goalSep = "   ", " · "
-	line := " " + categoryStyle.Render(head)
-	if goal = todo.Printable(goal); goal != "" {
-		room := width - ansi.StringWidth(line) - ansi.StringWidth(goalSep) - ansi.StringWidth(sep) - ansi.StringWidth(tabs)
-		if ansi.StringWidth(goal) > room {
-			goal = ansi.Truncate(goal, room, "…")
-		}
-		// A goal cut to nothing but the ellipsis tells nothing: drop it.
-		if room > 1 {
-			line += headerHintSty.Render(goalSep) + plainStyle.Render(goal)
-		}
+	done := counts[todo.ColDone]
+
+	goal := todo.Printable(s.Goal)
+	if goal == "" {
+		goal = "—"
 	}
-	return ansi.Truncate(line+sep+tabs, width, "")
+	const goalLabel = "  Goal  "
+	goalLine := headerHintSty.Render(goalLabel) + plainStyle.Render(ansi.Truncate(goal, max(width-ansi.StringWidth(goalLabel), 0), "…"))
+
+	filled := 0
+	if total > 0 {
+		filled = done * barCells / total
+	}
+	bar := doneStyle.Render(strings.Repeat("█", filled)) + headerHintSty.Render(strings.Repeat("░", barCells-filled))
+	var ready string
+	switch {
+	case s.Status == todo.SprintDone:
+		ready = headerHintSty.Render("closed — c in the sidebar reopens it")
+	case total == 0:
+		ready = headerHintSty.Render("no tasks yet")
+	case done < total:
+		ready = headerHintSty.Render(fmt.Sprintf("close blocked: %d not done", total-done))
+	default:
+		ready = doneStyle.Render("ready to close (c in the sidebar)")
+	}
+	progress := headerHintSty.Render("  Done  ") + bar + fmt.Sprintf(" %d/%d   ", done, total) + ready
+
+	return []string{
+		ansi.Truncate(goalLine, width, ""),
+		ansi.Truncate(progress, width, ""),
+		ansi.Truncate("  "+tabBar(counts, active), width, ""),
+	}
 }
 
 // tabBar renders a sprint board's tabs: every tab's title and the task count
@@ -111,9 +132,28 @@ func tabBar(counts map[todo.Column]int, active todo.Column) string {
 	return strings.Join(parts, "   ")
 }
 
-// screenBar renders the header line of a screen without tabs, e.g.
-// "Backlog · 12 tasks" or, in the unified view, "All states · 12 tasks", so
-// the header keeps its height.
-func screenBar(label string, width int) string {
-	return ansi.Truncate(" "+selectedRowStyle.Render(label), width, "")
+// switcherBar renders the header's second line: the workspace switcher, the
+// active workspace bracketed and accented, then the breadcrumb, e.g.
+// " b Backlog   [s Sprints]   p Planning   Sprints › A › Next".
+func switcherBar(active screen, crumb string, width int) string {
+	entries := []struct {
+		on         bool
+		key, label string
+	}{
+		{active == screenBacklog, "b", "Backlog"},
+		{active == screenSprint, "s", "Sprints"},
+		{false, "p", "Planning"}, // no Planning screen yet: never the active one
+	}
+	var b strings.Builder
+	b.WriteString(" ")
+	for _, e := range entries {
+		if e.on {
+			b.WriteString(selectedRowStyle.Render("[" + e.key + " " + e.label + "]"))
+		} else {
+			b.WriteString(headerHintSty.Render(e.key + " " + e.label))
+		}
+		b.WriteString("   ")
+	}
+	b.WriteString(plainStyle.Render(crumb))
+	return ansi.Truncate(b.String(), width, "")
 }

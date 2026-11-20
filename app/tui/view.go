@@ -493,6 +493,7 @@ func (m *model) applyView(v todo.View) {
 	if v.Split != m.split {
 		m.toggleSplit()
 	}
+	m.fitTrees()
 }
 
 // viewOnScreen is the view on screen as the list file holds it: the screen and

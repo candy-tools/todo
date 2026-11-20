@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -74,7 +75,7 @@ func TestOpensOnBacklogByDefault(t *testing.T) {
 	if m.view.screen != screenBacklog || m.view.all {
 		t.Fatalf("opened on screen %v (unified %v), want the Backlog", m.view.screen, m.view.all)
 	}
-	if h := m.header(100); !strings.Contains(h, "Backlog · 1 tasks") {
+	if h := m.header(100); !strings.Contains(h, "[b Backlog]") || !strings.Contains(h, "Backlog › C · 1 tasks waiting") {
 		t.Errorf("header = %q, want the Backlog line", h)
 	}
 }
@@ -98,7 +99,7 @@ func TestBSwitchesScreens(t *testing.T) {
 	if m.view.screen != screenSprint || m.view.sprint != "s00000a" {
 		t.Fatalf("s: screen = %v sprint = %q, want the Sprints workspace on A", m.view.screen, m.view.sprint)
 	}
-	if h := m.header(100); !strings.Contains(h, "A · ") {
+	if h := m.header(100); !strings.Contains(h, "[s Sprints]") || !strings.Contains(h, "Sprints › A › Next") {
 		t.Errorf("header = %q, want A's board line", h)
 	}
 	m = press(m, "b")
@@ -116,42 +117,60 @@ func TestBSwitchesScreens(t *testing.T) {
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "cWorking"}) {
 		t.Errorf("C's In Progress rows = %v", got)
 	}
-	if h := m.header(100); !strings.Contains(h, "C · ") || !strings.Contains(h, "[In Progress 1]") || strings.Contains(h, "Backlog") {
-		t.Errorf("header = %q, want C's name and its tab bar", h)
+	if h := m.header(100); !strings.Contains(h, "Sprints › C › In Progress") || strings.Contains(h, "[b Backlog]") {
+		t.Errorf("header = %q, want C's crumb", h)
+	}
+	if v := m.View(); !strings.Contains(v, "[In Progress 1]") {
+		t.Errorf("board head misses C's tab bar:\n%s", v)
 	}
 }
 
 func TestBoardHeaderMarksDoneSprint(t *testing.T) {
 	m, _ := threeSprints(t)
 	openBoard(&m, "s00000b")
+	m = send(m, tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = press(m, "3")
-	if h := m.header(100); !strings.Contains(h, "B ✓ done   ") || strings.Contains(h, "B ✓ done · ") || !strings.Contains(h, "[Done 1]") {
-		t.Errorf("header = %q, want B marked done", h)
+	if h := m.header(100); !strings.Contains(h, "Sprints › B ✓ › Done") {
+		t.Errorf("header = %q, want B marked done in the crumb", h)
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "closed — c in the sidebar reopens it") || !strings.Contains(v, "[Done 1]") {
+		t.Errorf("board head = %s, want B marked closed", v)
 	}
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "bDone"}) {
 		t.Errorf("B's Done rows = %v, want only B's task", got)
 	}
 }
 
-func TestBoardHeaderShowsGoal(t *testing.T) {
+func TestBoardHeadShowsGoal(t *testing.T) {
 	m, _ := threeSprints(t)
 	m.showSprint("s00000c")
-	if h := m.header(100); !strings.Contains(h, "C · goal c") || !strings.Contains(h, "[Next 0]") {
-		t.Errorf("header = %q, want C's name and goal before the tabs", h)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Goal  goal c") || !strings.Contains(v, "[Next 0]") {
+		t.Errorf("view = %s, want C's goal and its tab bar in the board head", v)
 	}
 	long := strings.Repeat("a very long goal ", 20)
 	m, _ = newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Goal: long, Status: "open"}},
 		seedTask{ID: "t000001", Title: "w", Status: "working", Sprint: "s00000a"}))
 	m.showSprint("s00000a")
-	h := m.header(100)
-	line := strings.Split(h, "\n")[1]
-	if w := ansi.StringWidth(line); w > 100 {
-		t.Errorf("the board line is %d wide, want at most 100: %q", w, line)
-	}
-	for _, want := range []string{"A · a very long goal", "…", "[Next 0]", "In Progress 1", "Done 0"} {
-		if !strings.Contains(line, want) {
-			t.Errorf("a long goal must be cut, not the tabs: line %q misses %q", line, want)
+	lines := strings.Split(ansi.Strip(m.View()), "\n")
+	for _, l := range lines {
+		if w := ansi.StringWidth(l); w > 100 {
+			t.Errorf("a line is %d wide, want at most 100: %q", w, l)
 		}
+	}
+	var goal, tabs string
+	for _, l := range lines {
+		if strings.Contains(l, "Goal  a very long goal") {
+			goal = l
+		}
+		if strings.Contains(l, "[Next 0]") {
+			tabs = l
+		}
+	}
+	if !strings.Contains(goal, "…") {
+		t.Errorf("a long goal must be cut with an ellipsis: %q", goal)
+	}
+	if !strings.Contains(tabs, "In Progress 1") || !strings.Contains(tabs, "Done 0") {
+		t.Errorf("the tab bar must stay whole: %q", tabs)
 	}
 }
 

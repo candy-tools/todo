@@ -41,7 +41,7 @@ func TestUnifiedShowsEveryState(t *testing.T) {
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "o", "r", "w", "d"}) {
 		t.Errorf("rows = %v, want every task", got)
 	}
-	if h := m.header(100); !strings.Contains(h, "All states · 4 tasks") || strings.Contains(h, "Backlog") {
+	if h := m.header(100); !strings.Contains(h, "All states · 4 tasks") || strings.Contains(h, "tasks waiting") {
 		t.Errorf("header = %q, want the all-states label instead of the screen's", h)
 	}
 	m = press(m, "u")

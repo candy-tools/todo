@@ -73,18 +73,35 @@ func (m model) boardTitle() string {
 func (m model) boardPane(width int) string {
 	switch {
 	case m.view.sprint != "":
-		return m.tree.view(width, m.treeViewHeight())
+		return m.boardBody(width)
 	case len(m.doc.Sprints) == 0:
 		return "  " + helpTextStyle.Render("no sprints yet — n creates one")
 	}
 	return "  " + helpTextStyle.Render("no open sprints")
 }
 
+// boardBody renders the shown sprint's board, width wide: its head over its
+// tree.
+func (m model) boardBody(width int) string {
+	s, ok := m.doc.SprintByID(m.view.sprint)
+	if !ok {
+		return m.tree.view(width, m.treeViewHeight())
+	}
+	head := boardHead(s, m.doc.ColumnCounts(s.ID), m.view.column, width)
+	return strings.Join(head, "\n") + "\n" + m.tree.view(width, m.treeViewHeight())
+}
+
 // treeViewHeight is how many task rows the tree pane can show at the current
-// terminal size — the height handed to tree.view. WindowSizeMsg stores it on the
+// terminal size — the height handed to tree.view — less the board head on a
+// sprint board. WindowSizeMsg stores it on the
 // tree so its scroll math (reconcileOffset) matches what mainView renders; the
 // two must agree or the viewport clamp would fight the offset.
-func (m model) treeViewHeight() int { return m.paneRows() }
+func (m model) treeViewHeight() int {
+	if m.view.onBoard() {
+		return max(m.paneRows()-boardChrome, 1)
+	}
+	return m.paneRows()
+}
 
 // sprintListHeight is how many rows the Sprints workspace's sidebar can show:
 // the full pane height, whatever the board beside it gives to its own lines.
@@ -127,25 +144,66 @@ func (m model) header(width int) string {
 	return title + "\n" + m.screenLine(width)
 }
 
-// screenLine is the header's second line for the view on screen.
+// screenLine is the header's second line for the view on screen: the
+// workspace switcher and the breadcrumb.
 func (m model) screenLine(width int) string {
+	return switcherBar(m.view.screen, m.crumb(), width)
+}
+
+// crumb is the breadcrumb after the switcher: where the view on screen is.
+func (m model) crumb() string {
 	switch {
 	case m.view.all:
 		total := 0
 		for _, n := range m.doc.ColumnCounts("") {
 			total += n
 		}
-		return screenBar(fmt.Sprintf("All states · %d tasks", total), width)
+		return fmt.Sprintf("All states · %d tasks", total)
 	case m.view.screen == screenBacklog:
-		return screenBar(fmt.Sprintf("Backlog · %d tasks", m.doc.ColumnCounts("")[todo.ColBacklog]), width)
-	case m.view.sprint == "":
-		return screenBar(fmt.Sprintf("Sprints · %d open", len(m.doc.OpenSprints())), width)
+		crumb := "Backlog"
+		if path := categoryPath(m.backlogSelection()); path != "" {
+			crumb += " › " + path
+		}
+		return fmt.Sprintf("%s · %d tasks waiting", crumb, m.doc.ColumnCounts("")[todo.ColBacklog])
+	case m.sprints.onGroup(m.doc):
+		return "Sprints › Closed"
+	case len(m.doc.Sprints) == 0:
+		return "Sprints › no sprints yet"
 	}
-	name, goal, done := m.view.sprint, "", false
-	if s, ok := m.doc.SprintByID(m.view.sprint); ok {
-		name, goal, done = s.Name, s.Goal, s.Status == todo.SprintDone
+	s, ok := m.doc.SprintByID(m.view.sprint)
+	if !ok {
+		return "Sprints › Closed"
 	}
-	return boardBar(name, goal, done, m.doc.ColumnCounts(m.view.sprint), m.view.column, width)
+	name := todo.Printable(s.Name)
+	if s.Status == todo.SprintDone {
+		name += " ✓"
+	}
+	return "Sprints › " + name + " › " + m.view.column.Title()
+}
+
+// backlogSelection is the item the Backlog's crumb is about: the category
+// under the sidebar's cursor in the split view, else the item in the tree.
+func (m model) backlogSelection() *todo.Item {
+	t := &m.tree
+	if m.splitShown() && m.sideFocus {
+		t = &m.side
+	}
+	if t.onPlaceholder() {
+		return nil
+	}
+	return t.selected()
+}
+
+// categoryPath is the path of it's category from the root, e.g.
+// "Work › Reviews", or "" when it is nil or has none.
+func categoryPath(it *todo.Item) string {
+	var path []string
+	for c := it.EnclosingCategory(); c != nil; c = c.Parent {
+		if c.Kind == todo.Category {
+			path = append([]string{todo.Printable(c.Title)}, path...)
+		}
+	}
+	return strings.Join(path, " › ")
 }
 
 func (m model) footer(width int) string {
