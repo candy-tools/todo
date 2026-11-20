@@ -171,15 +171,19 @@ func TestExecuteArgumentErrorIsUsage(t *testing.T) {
 }
 
 // cobra's completion command follows the same contract: a wrong number of
-// arguments is a usage error, and a valid call writes the script to stdout.
+// arguments is a usage error, a valid call writes the script to stdout, and
+// the bare command shows its help.
 func TestExecuteCompletion(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
 		code int
+		want string // on stdout when code is 0
 	}{
-		{"bash extra", []string{"completion", "bash", "extra"}, exitUsage},
-		{"bash", []string{"completion", "bash"}, 0},
+		{"bash extra", []string{"completion", "bash", "extra"}, exitUsage, ""},
+		{"extra", []string{"completion", "extra"}, exitUsage, ""},
+		{"bash", []string{"completion", "bash"}, 0, "bash completion"},
+		{"bare", []string{"completion"}, 0, "Available Commands:"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -187,8 +191,8 @@ func TestExecuteCompletion(t *testing.T) {
 			if code != tt.code {
 				t.Fatalf("code=%d stderr=%q, want exit %d", code, stderr, tt.code)
 			}
-			if tt.code == 0 && !strings.Contains(stdout, "bash completion") {
-				t.Errorf("want a bash completion script on stdout, got %q", stdout)
+			if tt.code == 0 && !strings.Contains(stdout, tt.want) {
+				t.Errorf("want %q on stdout, got %q", tt.want, stdout)
 			}
 		})
 	}

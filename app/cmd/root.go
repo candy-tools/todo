@@ -91,8 +91,10 @@ func jsonMode(c *cobra.Command) bool {
 
 // newRootCommand builds the complete command tree writing to stdout and stderr
 // (nil means os.Stdout and os.Stderr). The writers are set before cobra's
-// completion command is added, since that command captures them, so it gets
-// argsAsUsage too.
+// completion command is added, because that command captures them. It is added
+// before argsAsUsage so it gets usage errors too, and it gets a RunE that shows
+// its help: for a command without one, cobra shows the help before checking
+// the arguments, so `todo completion extra` would exit 0.
 func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "todo [list-file]",
@@ -127,6 +129,11 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
 	cmd.InitDefaultCompletionCmd()
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == "completion" {
+			sub.RunE = func(c *cobra.Command, _ []string) error { return c.Help() }
+		}
+	}
 	argsAsUsage(cmd)
 	return cmd
 }
