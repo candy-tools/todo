@@ -71,20 +71,13 @@ func TestUTogglesUnified(t *testing.T) {
 	}
 }
 
-func TestBracketsSwitchBoardColumnsTabDoesNot(t *testing.T) {
+func TestBracketsSkipEmptySectionsTabDoesNot(t *testing.T) {
 	m, _ := twoSprints(t)
-	m.switchScreen(screenSprint, "s000001")
-	m = press(m, "]")
-	if m.view.column != todo.ColInProgress {
-		t.Fatalf("] → %v, want In Progress", m.view.column)
-	}
-	m = press(m, "[", "[")
-	if m.view.column != todo.ColDone {
-		t.Fatalf("[ [ → %v, want Done (wraps)", m.view.column)
-	}
-	m = press(m, "tab")
-	if m.view.column != todo.ColDone {
-		t.Fatal("tab must not change the column")
+	m.switchScreen(screenSprint, "s000001") // only In Progress holds a task
+	for _, key := range []string{"]", "[", "tab"} {
+		if m = press(m, key); m.boardColumn() != todo.ColInProgress || m.status != "" {
+			t.Fatalf("%s → %v (footer %q), want In Progress, the only section with tasks", key, m.boardColumn(), m.status)
+		}
 	}
 }
 

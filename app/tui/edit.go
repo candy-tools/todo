@@ -221,10 +221,10 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		parentID = parent.ID
 		delete(m.focused().collapsed, parentID) // the new item shows under its parent
 	}
-	// A new task enters the current tab in its column's first state (on a
-	// sprint board, in the board's sprint), so it shows where it was added; a
+	// A new task enters the view in its first state: on a sprint board, the
+	// first state of the cursor's section, in the board's sprint, so it shows where it was added; a
 	// new subtask starts open (subtasks are open or done) and follows its task.
-	st, sprint := m.view.newTaskPlacement()
+	st, sprint := m.view.newTaskPlacement(m.boardColumn())
 	if parent != nil && parent.IsTask() {
 		st, sprint = todo.Open, ""
 	}

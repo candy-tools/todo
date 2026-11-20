@@ -87,7 +87,7 @@ func TestPAssignsBacklogTask(t *testing.T) {
 func TestOSendsToOtherSprintKeepingState(t *testing.T) {
 	m, path := twoSprints(t)
 	m.switchScreen(screenSprint, "s000001")
-	m.setColumn(todo.ColInProgress)
+	toSection(&m, todo.ColInProgress)
 	if !m.tree.selectID("t000002") {
 		t.Fatal("working task not shown")
 	}
@@ -108,7 +108,7 @@ func TestOSendsToOtherSprintKeepingState(t *testing.T) {
 func TestOSendsToBacklogAsOpen(t *testing.T) {
 	m, path := twoSprints(t)
 	m.switchScreen(screenSprint, "s000001")
-	m.setColumn(todo.ColInProgress)
+	toSection(&m, todo.ColInProgress)
 	m.tree.selectID("t000002")
 	m = press(m, "o", "enter")
 	it := find(loadSprintDoc(t, path), "working")

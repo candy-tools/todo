@@ -210,12 +210,14 @@ func (m *model) openPlanning() {
 }
 
 // leavePlanning is esc or p in Planning: it shows the planned sprint's board
-// on its Next tab, the board focused, and stores the view.
+// with the cursor in its Next section, where planning put the tasks (when it
+// holds any), the board focused, and stores the view.
 func (m *model) leavePlanning() {
-	id := m.plan.sprintID
-	m.boardTabs[id] = todo.ColNext
-	m.showSprint(id)
+	m.showSprint(m.plan.sprintID)
 	m.listFocus = false
+	if i, ok := m.tree.sectionStart(todo.ColNext); ok {
+		m.tree.showSectionAt(i)
+	}
 }
 
 // leaveGonePlan leaves Planning for the Sprints workspace, without storing the

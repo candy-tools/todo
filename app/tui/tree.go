@@ -16,7 +16,12 @@ const (
 	rowNewCategory                // the "+ new category" row
 	rowAll                        // the sidebar's "All" row: no category picked
 	rowHeader                     // a category drawn as a group header in a task list
+	rowSection                    // a sprint board's section: its column's title and task count
 )
+
+// heading reports whether rows of kind k are headings — a category header or
+// a board section — which the cursor never rests on.
+func (k rowKind) heading() bool { return k == rowHeader || k == rowSection }
 
 // paneKind is what a tree shows: today's mixed category/task tree, only the
 // categories (the split view's sidebar), or only the tasks of one category
@@ -30,12 +35,15 @@ const (
 )
 
 // treeRow is one visible line of the task tree: an item and its nesting depth,
-// and what kind of row it is. label is a header row's text.
+// and what kind of row it is. label is a header row's text; col and count are
+// a section row's column and how many top-level tasks it shows.
 type treeRow struct {
 	item  *todo.Item
 	depth int
 	kind  rowKind
 	label string
+	col   todo.Column
+	count int
 }
 
 // tree is the left-pane category/task tree: the document, the board column
@@ -172,7 +180,11 @@ func (t *tree) rebuild() {
 		t.rebuildCategories(vis)
 	case paneTasks:
 		t.rebuildTasks(vis)
-	default:
+	case paneMixed:
+		if t.vs.onBoard() && t.vs.sprint != "" {
+			t.rebuildBoard(vis)
+			break
+		}
 		t.shown = vis
 		t.walk(t.doc.Roots, 0, nil)
 		if t.vs.editsCategories() && !t.filtering() {
@@ -257,45 +269,111 @@ func (t *tree) rebuildTasks(vis map[*todo.Item]bool) {
 		}
 	}
 	mark(roots)
-	// The rows keep document order, where a category's subcategories precede
-	// its tasks, so a category's header goes right before its own run of
-	// tasks, labelled with its path from the scope. The scope's own tasks
-	// need their header only after other groups, to tell them apart.
-	var lay func(items []*todo.Item, owner *todo.Item, path []string)
-	lay = func(items []*todo.Item, owner *todo.Item, path []string) {
-		headed := false
-		for _, it := range items {
-			if !t.shown[it] {
-				continue
-			}
-			if it.Kind == todo.Category {
-				lay(it.Children, it, append(path[:len(path):len(path)], it.Title))
-				continue
-			}
-			if !headed && owner != nil && (len(path) > 0 || len(t.rows) > 0) {
-				label := owner.Title
-				if len(path) > 0 {
-					label = strings.Join(path, " › ")
-				}
-				t.rows = append(t.rows, treeRow{item: owner, kind: rowHeader, label: label})
-			}
-			headed = true
-			t.walk([]*todo.Item{it}, 0, nil)
-		}
-	}
-	lay(roots, t.scopeItem(), nil)
+	t.layTasks(roots, t.scopeItem(), nil, nil)
 }
 
-// settle moves the cursor off a header row — headers are never selected —
+// layTasks appends the rows of the shown tasks among items, owned by
+// category owner (nil at the root) at path below the scope, and of those in
+// its subcategories, recursively; keep, when set, limits which top-level
+// tasks get rows. The rows keep document order, where a category's
+// subcategories precede its tasks, so a category's header goes right before
+// its own run of tasks, labelled with its path from the scope. The scope's
+// own tasks need their header only after other rows, to tell them apart. It
+// returns how many top-level tasks it laid out.
+func (t *tree) layTasks(items []*todo.Item, owner *todo.Item, path []string, keep func(*todo.Item) bool) (n int) {
+	headed := false
+	for _, it := range items {
+		if !t.shown[it] {
+			continue
+		}
+		if it.Kind == todo.Category {
+			n += t.layTasks(it.Children, it, append(path[:len(path):len(path)], it.Title), keep)
+			continue
+		}
+		if keep != nil && !keep(it) {
+			continue
+		}
+		if !headed && owner != nil && (len(path) > 0 || len(t.rows) > 0) {
+			label := owner.Title
+			if len(path) > 0 {
+				label = strings.Join(path, " › ")
+			}
+			t.rows = append(t.rows, treeRow{item: owner, kind: rowHeader, label: label})
+		}
+		headed = true
+		n++
+		t.walk([]*todo.Item{it}, 0, nil)
+	}
+	return n
+}
+
+// rebuildBoard lays out a sprint board: for each of its columns, a section
+// row, then that column's top-level tasks of the shown set (with their
+// subtasks) grouped under their category paths, as the split view's task list
+// groups them. Every section shows, an empty one as its row alone, so the
+// board keeps its shape — unless no section holds a task: then there are no
+// rows, and view says the sprint is empty (or that nothing matches). A
+// category can head a run of tasks in several
+// sections, so categories are never rows of their own here: only tasks are
+// selected and folded.
+func (t *tree) rebuildBoard(vis map[*todo.Item]bool) {
+	t.shown = vis
+	tasks := 0
+	for _, c := range todo.SprintColumns() {
+		at := len(t.rows)
+		t.rows = append(t.rows, treeRow{kind: rowSection, col: c})
+		t.rows[at].count = t.layTasks(t.doc.Roots, nil, nil, func(it *todo.Item) bool { return it.Column() == c })
+		tasks += t.rows[at].count
+	}
+	if tasks == 0 {
+		t.rows = t.rows[:0]
+	}
+}
+
+// sectionAt returns the column of the board section holding row i: the
+// nearest section row at or above it. ok is false off a board.
+func (t *tree) sectionAt(i int) (c todo.Column, ok bool) {
+	for i = min(i, len(t.rows)-1); i >= 0; i-- {
+		if t.rows[i].kind == rowSection {
+			return t.rows[i].col, true
+		}
+	}
+	return 0, false
+}
+
+// showSectionAt puts the cursor on row i, the first task of a board section,
+// with the window starting at the section's headings (see reconcileOffset),
+// as far as the rows below fill it.
+func (t *tree) showSectionAt(i int) {
+	t.cursor, t.offset = i, i
+	t.reconcileOffset()
+}
+
+// sectionStart returns the index of the first task row of board section c,
+// or false when the section is empty or the tree shows no board.
+func (t *tree) sectionStart(c todo.Column) (int, bool) {
+	in := false
+	for i, r := range t.rows {
+		switch {
+		case r.kind == rowSection:
+			in = r.col == c
+		case in && !r.kind.heading():
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// settle moves the cursor off a heading row — headings are never selected —
 // onto the nearest other row in direction dir (±1), or the other way when
-// there is none that way.
+// there is none that way. With no other row at all it stays.
 func (t *tree) settle(dir int) {
-	if t.cursor < 0 || t.cursor >= len(t.rows) || t.rows[t.cursor].kind != rowHeader {
+	if t.cursor < 0 || t.cursor >= len(t.rows) || !t.rows[t.cursor].kind.heading() {
 		return
 	}
 	for _, d := range []int{dir, -dir} {
 		for i := t.cursor; i >= 0 && i < len(t.rows); i += d {
-			if t.rows[i].kind != rowHeader {
+			if !t.rows[i].kind.heading() {
 				t.cursor = i
 				return
 			}
@@ -348,12 +426,12 @@ func (t *tree) refreshSidebar() {
 // selected returns the item under the cursor. On the placeholder row it returns
 // the sentinel — callers guard with onPlaceholder before treating it as a real
 // item.
-// The All and header rows have no selectable item: it returns nil there.
+// The All and heading rows have no selectable item: it returns nil there.
 func (t *tree) selected() *todo.Item {
 	if t.cursor < 0 || t.cursor >= len(t.rows) {
 		return nil
 	}
-	if r := t.rows[t.cursor]; r.kind == rowAll || r.kind == rowHeader {
+	if r := t.rows[t.cursor]; r.kind == rowAll || r.kind.heading() {
 		return nil
 	}
 	return t.rows[t.cursor].item
@@ -507,6 +585,11 @@ func (t *tree) reconcileOffset() {
 	if t.offset < 0 {
 		t.offset = 0
 	}
+	// The headings right above the window name what the cursor is in: bring
+	// them into view while the cursor still fits.
+	for t.offset > 0 && t.rows[t.offset-1].kind.heading() && t.cursor < t.offset-1+h {
+		t.offset--
+	}
 }
 
 // toggleFold flips the collapse state of the selected item (no-op on a leaf).
@@ -527,6 +610,10 @@ const msgFoldsOffWhileSearching = "folds are off while searching"
 // whose category headers do not fold.
 const msgFoldInSidebar = "fold categories in the sidebar"
 
+// msgNoFoldOnBoard is the footer hint for z on a sprint board, whose category
+// headers do not fold.
+const msgNoFoldOnBoard = "categories do not fold on the board"
+
 // toggleFoldLevel folds every category at the level of the selection — the
 // selected category and its sibling categories, or for a task those of its
 // category — when any of them is unfolded, and unfolds them all otherwise.
@@ -538,8 +625,11 @@ func (t *tree) toggleFoldLevel() string {
 	if sel == nil {
 		return ""
 	}
-	if t.pane == paneTasks {
+	switch {
+	case t.pane == paneTasks:
 		return msgFoldInSidebar
+	case t.vs.onBoard():
+		return msgNoFoldOnBoard
 	}
 	if t.filtering() {
 		return msgFoldsOffWhileSearching
@@ -645,9 +735,25 @@ func (t *tree) view(width, height int) string {
 		if i > start {
 			b.WriteByte('\n')
 		}
+		if t.rows[i].kind == rowSection {
+			b.WriteString(sectionRow(t.rows[i], width))
+			continue
+		}
 		b.WriteString(t.rowString(t.rows[i], i == t.cursor))
 	}
 	return b.String()
+}
+
+// sectionRow renders a board section's row, width wide: a heavy rule in the
+// column's colour carrying its title and how many top-level tasks it shows,
+// e.g. "━━ In Progress 3 ━━━━━━━━".
+func sectionRow(r treeRow, width int) string {
+	st := columnStyle(r.col)
+	lead, label, count := "━━ ", r.col.Title(), fmt.Sprintf(" %d ", r.count)
+	used := ansi.StringWidth(lead) + ansi.StringWidth(label) + ansi.StringWidth(count)
+	line := st.Render(lead) + st.Bold(true).Render(label) + helpTextStyle.Render(count) +
+		st.Render(strings.Repeat("━", max(width-used, 0)))
+	return ansi.Truncate(line, width, "")
 }
 
 // rowString renders one row. A selected row is drawn wholly in the accent
@@ -692,14 +798,11 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 
 	if r.item.Kind == todo.Category {
 		title := todo.Printable(r.item.Title)
-		// Backlog and the unified view show the category's overall progress;
-		// a sprint board counts the category's tasks of the sprint in the tab.
-		counts := fmt.Sprintf(" (%d)", r.item.CountInColumn(t.vs.scopeSprint(), t.vs.column))
-		if t.vs.editsCategories() {
-			counts = ""
-			if done, total := r.item.TaskCounts(); total > 0 {
-				counts = fmt.Sprintf(" (%d/%d)", done, total)
-			}
+		// The category's overall progress (sprint boards draw no category
+		// rows, see rebuildBoard).
+		counts := ""
+		if done, total := r.item.TaskCounts(); total > 0 {
+			counts = fmt.Sprintf(" (%d/%d)", done, total)
 		}
 		if selected {
 			return selStyle.Render(gutter+indent+fold) +

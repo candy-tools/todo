@@ -50,8 +50,8 @@ func importedID(m model) string {
 }
 
 // newTestModelOn is newTestModel switched to the view for column c: the
-// Backlog for ColBacklog, else that tab of the Imported sprint's board, where
-// the seed's tasks outside the Backlog are. Tests use it to act on working or
+// Backlog for ColBacklog, else the Imported sprint's board with the cursor in
+// c's section, where the seed's tasks outside the Backlog are. Tests use it to act on working or
 // done tasks.
 func newTestModelOn(t *testing.T, src string, c todo.Column) (model, string) {
 	t.Helper()
@@ -60,8 +60,9 @@ func newTestModelOn(t *testing.T, src string, c todo.Column) (model, string) {
 	return m, path
 }
 
-// toTab switches m to the Backlog for ColBacklog, else to the tab for c of
-// the Imported sprint's board, without storing the view.
+// toTab switches m to the Backlog for ColBacklog, else to the Imported
+// sprint's board with the cursor on the first task of c's section (when it
+// holds one), without storing the view.
 func toTab(m *model, c todo.Column) {
 	if c == todo.ColBacklog {
 		m.switchScreen(screenBacklog, "")
@@ -70,13 +71,20 @@ func toTab(m *model, c todo.Column) {
 	if id := importedID(*m); m.view.screen != screenSprint || m.view.sprint != id || m.view.all {
 		m.switchScreen(screenSprint, id)
 	}
-	m.setColumn(c)
+	toSection(m, c)
+}
+
+// toSection puts the board's cursor on the first task of section c, when it
+// holds one.
+func toSection(m *model, c todo.Column) {
+	if i, ok := m.tree.sectionStart(c); ok {
+		m.tree.showSectionAt(i)
+	}
 }
 
 // showOn switches m to the view for column c, as newTestModelOn does, and
 // selects the row titled title, failing the test when that view doesn't show
-// it. Tests use it to follow a task that changed column (and so left the tab
-// it was in).
+// it. Tests use it to follow a task that changed column.
 func showOn(t *testing.T, m model, c todo.Column, title string) model {
 	t.Helper()
 	toTab(&m, c)
@@ -198,4 +206,20 @@ func setTreeFilter(tr *tree, q string) {
 	tr.vs.filter = q
 	tr.cursor = 0
 	tr.rebuild()
+}
+
+// sectionTitles lists the titles of the item rows in board section c of tr,
+// in order: what that section shows.
+func sectionTitles(tr tree, c todo.Column) []string {
+	var out []string
+	in := false
+	for _, r := range tr.rows {
+		switch {
+		case r.kind == rowSection:
+			in = r.col == c
+		case in && r.kind == rowItem:
+			out = append(out, r.item.Title)
+		}
+	}
+	return out
 }

@@ -27,7 +27,7 @@ var helpSections = []helpSection{
 		{"space", "Fold / unfold a category"},
 		{"z", "Fold / unfold every category at this level"},
 		{"/", "Search / filter (esc clears)"},
-		{"f", "Filter the tab by state (esc clears)"},
+		{"f", "Filter the view by state (esc clears)"},
 	}},
 	{"Screens", []helpBinding{
 		{"b", "The Backlog"},
@@ -35,9 +35,8 @@ var helpSections = []helpSection{
 		{"p", "Planning: Backlog beside a sprint"},
 		{"k", "Last viewed open sprint; on a board, the next open one"},
 		{"K", "Pick a sprint to go to"},
-		{"[  ]", "Previous / next column (sprint board)"},
+		{"[  ]", "Previous / next section (sprint board)"},
 		{"1–3", "Jump to Next / In Progress / Done (sprint board)"},
-		{"L", "Board as tabs / three columns"},
 		{"u", "Unified view: every task, any sprint / back"},
 	}},
 	{"Tasks", []helpBinding{

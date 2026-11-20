@@ -98,7 +98,7 @@ func TestBSwitchesScreens(t *testing.T) {
 	if m.view.screen != screenSprint || m.view.sprint != "s00000a" {
 		t.Fatalf("s: screen = %v sprint = %q, want the Sprints workspace on A", m.view.screen, m.view.sprint)
 	}
-	if h := m.header(100); !strings.Contains(h, "[s Sprints]") || !strings.Contains(h, "Sprints › A › Next") {
+	if h := m.header(100); !strings.Contains(h, "[s Sprints]") || !strings.Contains(h, "Sprints › A") {
 		t.Errorf("header = %q, want A's board line", h)
 	}
 	m = press(m, "b")
@@ -109,42 +109,40 @@ func TestBSwitchesScreens(t *testing.T) {
 	if m.view.screen != screenSprint || m.view.sprint != "s00000c" {
 		t.Fatalf("enter: screen = %v sprint = %q, want C's board", m.view.screen, m.view.sprint)
 	}
-	if m.view.column != todo.ColNext {
-		t.Errorf("a board opens on Next, got %v", m.view.column)
+	if sel := m.tree.selected(); sel == nil || sel.Title != "cWorking" || m.boardColumn() != todo.ColInProgress {
+		t.Errorf("a board opens on its first task, got %v in %v", sel, m.boardColumn())
 	}
-	m = press(m, "2")
-	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "cWorking"}) {
+	if got := sectionTitles(m.tree, todo.ColInProgress); !equalStrings(got, []string{"cWorking"}) {
 		t.Errorf("C's In Progress rows = %v", got)
 	}
-	if h := m.header(100); !strings.Contains(h, "Sprints › C › In Progress") || strings.Contains(h, "[b Backlog]") {
+	if h := m.header(100); !strings.Contains(h, "Sprints › C") || strings.Contains(h, "[b Backlog]") {
 		t.Errorf("header = %q, want C's crumb", h)
 	}
-	if v := m.View(); !strings.Contains(v, "[In Progress 1]") {
-		t.Errorf("board head misses C's tab bar:\n%s", v)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "━━ In Progress 1 ━━") {
+		t.Errorf("board misses C's In Progress section:\n%s", v)
 	}
 }
 
 func TestBoardHeaderMarksDoneSprint(t *testing.T) {
 	m, _ := threeSprints(t)
 	openBoard(&m, "s00000b")
-	m = press(m, "3")
-	if h := m.header(100); !strings.Contains(h, "Sprints › B ✓ › Done") {
+	if h := m.header(100); !strings.Contains(h, "Sprints › B ✓") {
 		t.Errorf("header = %q, want B marked done in the crumb", h)
 	}
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "closed — c in the sidebar reopens it") || !strings.Contains(v, "[Done 1]") ||
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "closed — c in the sidebar reopens it") || !strings.Contains(v, "━━ Done 1 ━━") ||
 		!strings.Contains(v, "B ✓ closed") {
 		t.Errorf("board head = %s, want B marked closed", v)
 	}
-	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "bDone"}) {
-		t.Errorf("B's Done rows = %v, want only B's task", got)
+	if got := rowTitles(m.tree); !equalStrings(got, []string{"bDone"}) {
+		t.Errorf("B's rows = %v, want only B's task", got)
 	}
 }
 
 func TestBoardHeadShowsGoal(t *testing.T) {
 	m, _ := threeSprints(t)
 	m.showSprint("s00000c")
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "Goal  goal c") || !strings.Contains(v, "[Next 0]") {
-		t.Errorf("view = %s, want C's goal and its tab bar in the board head", v)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Goal  goal c") || !strings.Contains(v, "━━ Next 0 ━━") {
+		t.Errorf("view = %s, want C's goal in the board head and its sections", v)
 	}
 	long := strings.Repeat("a very long goal ", 20)
 	m, _ = newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Goal: long, Status: "open"}},
@@ -156,20 +154,14 @@ func TestBoardHeadShowsGoal(t *testing.T) {
 			t.Errorf("a line is %d wide, want at most 100: %q", w, l)
 		}
 	}
-	var goal, tabs string
+	var goal string
 	for _, l := range lines {
 		if strings.Contains(l, "Goal  a very long goal") {
 			goal = l
 		}
-		if strings.Contains(l, "[Next 0]") {
-			tabs = l
-		}
 	}
 	if !strings.Contains(goal, "…") {
 		t.Errorf("a long goal must be cut with an ellipsis: %q", goal)
-	}
-	if !strings.Contains(tabs, "In Progress 1") || !strings.Contains(tabs, "Done 0") {
-		t.Errorf("the tab bar must stay whole: %q", tabs)
 	}
 }
 
@@ -278,17 +270,17 @@ func TestKWithoutOpenSprintsHints(t *testing.T) {
 	}
 }
 
-func TestBoardRemembersItsTab(t *testing.T) {
+func TestBoardRemembersItsSelection(t *testing.T) {
 	m, _ := threeSprints(t)
 	openBoard(&m, "s00000a")
 	m = press(m, "3")
 	m.showSprint("s00000c")
-	if m.view.column != todo.ColNext {
-		t.Fatalf("C's board must open on Next, got %v", m.view.column)
+	if sel := m.tree.selected(); sel == nil || sel.Title != "cWorking" {
+		t.Fatalf("C's board must open on its first task, got %v", sel)
 	}
 	m.showSprint("s00000a")
-	if m.view.column != todo.ColDone {
-		t.Errorf("back on A's board the tab = %v, want Done", m.view.column)
+	if sel := m.tree.selected(); sel == nil || sel.Title != "aDone" || m.boardColumn() != todo.ColDone {
+		t.Errorf("back on A's board the selection = %v in %v, want aDone in Done", sel, m.boardColumn())
 	}
 }
 
@@ -316,7 +308,7 @@ func TestUToggleUnifiedOnTopOfScreen(t *testing.T) {
 	}
 }
 
-func TestTabsOnlyOnBoard(t *testing.T) {
+func TestSectionKeysOnlyOnBoard(t *testing.T) {
 	m, _ := threeSprints(t)
 	before := rowTitles(m.tree)
 	for _, key := range []string{"2", "[", "]"} {
@@ -325,24 +317,26 @@ func TestTabsOnlyOnBoard(t *testing.T) {
 			t.Errorf("%q on the Backlog: screen %v rows %v, want nothing changed", key, got.view.screen, rowTitles(got.tree))
 		}
 	}
-	openBoard(&m, "s00000a")
+	openBoard(&m, "s00000a") // aNext in Next, aDone in Done, In Progress empty
 	steps := []struct {
-		key  string
-		want todo.Column
+		key, status string
+		want        todo.Column
 	}{
-		{"2", todo.ColInProgress},
-		{"3", todo.ColDone},
-		{"]", todo.ColNext},
-		{"[", todo.ColDone},
-		{"tab", todo.ColDone}, // tab no longer switches columns
-		{"shift+tab", todo.ColDone},
-		{"1", todo.ColNext},
-		{"4", todo.ColNext}, // no fourth tab
+		{"2", "nothing in In Progress", todo.ColNext}, // an empty section: the cursor stays
+		{"3", "", todo.ColDone},
+		{"]", "", todo.ColNext}, // wraps
+		{"]", "", todo.ColDone}, // skips the empty section
+		{"[", "", todo.ColNext},
+		{"[", "", todo.ColDone},   // wraps the other way
+		{"tab", "", todo.ColDone}, // tab does not switch sections
+		{"shift+tab", "", todo.ColDone},
+		{"1", "", todo.ColNext},
+		{"4", "", todo.ColNext}, // no fourth section
 	}
 	for _, s := range steps {
 		m = press(m, s.key)
-		if m.view.column != s.want {
-			t.Fatalf("after %q column = %v, want %v", s.key, m.view.column, s.want)
+		if m.boardColumn() != s.want || m.status != s.status {
+			t.Fatalf("after %q section = %v status %q, want %v %q", s.key, m.boardColumn(), m.status, s.want, s.status)
 		}
 	}
 }

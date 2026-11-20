@@ -213,7 +213,7 @@ func TestIndentUnderHiddenTaskRefused(t *testing.T) {
 	m = selectTitle(t, m, "w")
 	before := storeFP(t, m)
 	m = press(m, "m", "right")
-	if m.status != "can't nest under a task hidden in this tab" {
+	if m.status != "can't nest under a task in another section" {
 		t.Errorf("status = %q", m.status)
 	}
 	if storeFP(t, m) != before {
@@ -227,23 +227,18 @@ func TestIndentUnderHiddenTaskRefused(t *testing.T) {
 	}
 }
 
-func TestGrabEndsWhenItemLeavesTab(t *testing.T) {
+func TestGrabFollowsItemToAnotherSection(t *testing.T) {
 	// Outdenting an open subtask of a done task makes it a working task, which
-	// leaves the Done tab.
+	// moves from the Done section to In Progress: the board still shows it, so
+	// the cursor and the grab go with it.
 	m, path := newTestModelOn(t, "# C\n- [x] p\n  - [ ] s\n", todo.ColDone)
 	m = selectTitle(t, m, "s")
 	m = press(m, "m", "left")
 	if st := storedItem(t, path, "s").Status; st != todo.Working {
 		t.Fatalf("precondition: the outdented s = %v, want working", st)
 	}
-	if m.tree.grabbed {
-		t.Errorf("grab mode must end once the grabbed item left the tab")
-	}
-	if got := m.tree.selected(); got == nil || got.Title == "s" {
-		t.Errorf("the selection must move to a remaining row, got %v (rows %v)", got, rowTitles(m.tree))
-	}
-	if got := m.footer(200); !strings.Contains(got, "moved to In Progress — working") {
-		t.Errorf("footer = %q", got)
+	if got := m.tree.selected(); got == nil || got.Title != "s" || !m.tree.grabbed || m.boardColumn() != todo.ColInProgress {
+		t.Errorf("selection %v grabbed %v in %v, want s still grabbed in In Progress", got, m.tree.grabbed, m.boardColumn())
 	}
 }
 

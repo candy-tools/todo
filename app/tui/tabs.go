@@ -38,8 +38,8 @@ func (t *tree) selectedID() string {
 	return ""
 }
 
-// stepColumn returns the board tab delta tabs away from c, wrapping around the
-// board in either direction.
+// stepColumn returns the board column delta columns away from c, wrapping
+// around the board in either direction.
 func stepColumn(c todo.Column, delta int) todo.Column {
 	cols := todo.SprintColumns()
 	n := len(cols)
@@ -51,9 +51,9 @@ func stepColumn(c todo.Column, delta int) todo.Column {
 	return todo.ColNext
 }
 
-// tabKey maps a main-view key to the sprint board tab it switches to:
-// ] and [ cycle from the current tab, 1–3 jump to a tab. ok is false for
-// any other key.
+// tabKey maps a main-view key to the sprint board section it jumps to: ]
+// and [ step from current, the section the cursor is in, 1–3 name a section.
+// ok is false for any other key.
 func tabKey(key string, current todo.Column) (todo.Column, bool) {
 	switch key {
 	case "]":
@@ -67,8 +67,36 @@ func tabKey(key string, current todo.Column) (todo.Column, bool) {
 	return 0, false
 }
 
+// jumpSection moves the board's cursor onto the first task of section c (see
+// tabKey), scrolling the section to the top of the pane as far as the board
+// allows; dir is the way ] (1) or [ (-1) steps, 0 for 1–3. A step skips the
+// empty sections, wrapping around the board, and does nothing when every
+// other one is empty; 1–3 on an empty section says so in the footer.
+func (m *model) jumpSection(c todo.Column, dir int) {
+	for range todo.SprintColumns() {
+		if i, ok := m.tree.sectionStart(c); ok {
+			m.tree.showSectionAt(i)
+			return
+		}
+		if dir == 0 {
+			m.status = "nothing in " + c.Title()
+			return
+		}
+		c = stepColumn(c, dir)
+	}
+}
+
+// boardColumn is the column of the board section the cursor is in, where a
+// new task goes (see newTaskPlacement); Next when the tree shows no board.
+func (m *model) boardColumn() todo.Column {
+	if c, ok := m.tree.sectionAt(m.tree.cursor); ok {
+		return c
+	}
+	return todo.ColNext
+}
+
 // boardChrome is how many lines the board pane's head takes above the tree:
-// the goal, the progress and the tab bar.
+// the goal, the progress and the rule that sets them apart from the tasks.
 const boardChrome = 3
 
 // barCells is the width of the progress bar in the board head, and
@@ -78,15 +106,26 @@ const (
 	minBarCells = 8
 )
 
-// boardHead renders the lines above a sprint's tree, exactly boardChrome of
-// them, width wide: its goal, its progress with whether it can be closed, and
-// the tab bar.
-func boardHead(s *todo.Sprint, counts map[todo.Column]int, active todo.Column, width int) []string {
-	return []string{
-		goalLine(s, width),
-		progressLine(s, counts, width),
-		ansi.Truncate("  "+tabBar(counts, active), width, ""),
+// boardHead renders the lines above a sprint's tree, rows of them (at most
+// boardChrome), width wide: its goal, its progress with whether it can be
+// closed, and a rule under them. A short pane gives up the goal first, then
+// the rule: the progress goes last.
+func boardHead(s *todo.Sprint, counts map[todo.Column]int, width, rows int) []string {
+	goal, progress := goalLine(s, width), progressLine(s, counts, width)
+	switch {
+	case rows >= boardChrome:
+		return []string{goal, progress, headRule(width)}
+	case rows == 2:
+		return []string{progress, headRule(width)}
+	case rows == 1:
+		return []string{progress}
 	}
+	return nil
+}
+
+// headRule renders the rule under the board head, width wide.
+func headRule(width int) string {
+	return helpTextStyle.Render(strings.Repeat("─", max(width, 0)))
 }
 
 // goalLine renders the board head's goal line, width wide: the sprint's goal,
@@ -97,7 +136,7 @@ func goalLine(s *todo.Sprint, width int) string {
 		goal = "—"
 	}
 	const goalLabel = "  Goal  "
-	line := headerHintSty.Render(goalLabel) + plainStyle.Render(ansi.Truncate(goal, max(width-ansi.StringWidth(goalLabel), 0), "…"))
+	line := headLabelStyle.Render(goalLabel) + plainStyle.Bold(true).Render(ansi.Truncate(goal, max(width-ansi.StringWidth(goalLabel), 0), "…"))
 	return ansi.Truncate(line, width, "")
 }
 
@@ -140,23 +179,7 @@ func progressLine(s *todo.Sprint, counts map[todo.Column]int, width int) string 
 	bar := doneStyle.Render(strings.Repeat("█", filled)) + headerHintSty.Render(strings.Repeat("░", cells-filled))
 	// What does not fit is the readiness's end (or, on a pane too narrow for
 	// the bar, more): cut it with "…".
-	return ansi.Truncate(headerHintSty.Render(label)+bar+count+readyStyle.Render(ready), width, "…")
-}
-
-// tabBar renders a sprint board's tabs: every tab's title and the task count
-// in counts, the active one bracketed and accented.
-func tabBar(counts map[todo.Column]int, active todo.Column) string {
-	cols := todo.SprintColumns()
-	parts := make([]string, 0, len(cols))
-	for _, c := range cols {
-		label := fmt.Sprintf("%s %d", c.Title(), counts[c])
-		if c == active {
-			parts = append(parts, selectedRowStyle.Render("["+label+"]"))
-		} else {
-			parts = append(parts, headerHintSty.Render(label))
-		}
-	}
-	return strings.Join(parts, "   ")
+	return ansi.Truncate(headLabelStyle.Render(label)+bar+count+readyStyle.Render(ready), width, "…")
 }
 
 // switcherBar renders the header's second line: the workspace switcher, the

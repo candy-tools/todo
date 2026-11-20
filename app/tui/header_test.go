@@ -20,7 +20,7 @@ func TestSwitcherMarksWorkspaceAndCrumb(t *testing.T) {
 	}
 	m = press(m, "s", "tab", "]")
 	h = ansi.Strip(m.header(120))
-	if !strings.Contains(h, "[s Sprints]") || !strings.Contains(h, "Sprints › A › In Progress") {
+	if !strings.Contains(h, "[s Sprints]") || !strings.Contains(h, "Sprints › A") || strings.Contains(h, "Sprints › A ›") {
 		t.Fatalf("sprints header %q", h)
 	}
 }
@@ -36,7 +36,7 @@ func TestCrumbs(t *testing.T) {
 		t.Errorf("Closed row header %q", h)
 	}
 	openBoard(&m, "s00000b")
-	if h := ansi.Strip(m.header(120)); !strings.Contains(h, "Sprints › B ✓ › Next") {
+	if h := ansi.Strip(m.header(120)); !strings.Contains(h, "Sprints › B ✓") {
 		t.Errorf("done sprint header %q", h)
 	}
 
@@ -56,7 +56,7 @@ func TestSwitcherBarTruncates(t *testing.T) {
 
 func TestBoardHeadReadiness(t *testing.T) {
 	open := &todo.Sprint{Name: "A", Goal: "ship it", Status: todo.SprintOpen}
-	lines := boardHead(open, map[todo.Column]int{todo.ColNext: 1, todo.ColDone: 3}, todo.ColNext, 80)
+	lines := boardHead(open, map[todo.Column]int{todo.ColNext: 1, todo.ColDone: 3}, 80, boardChrome)
 	if len(lines) != boardChrome {
 		t.Fatalf("%d lines, want %d", len(lines), boardChrome)
 	}
@@ -66,20 +66,20 @@ func TestBoardHeadReadiness(t *testing.T) {
 	if l := ansi.Strip(lines[1]); !strings.Contains(l, "3/4") || !strings.Contains(l, "close blocked: 1 not done") {
 		t.Errorf("progress line %q", l)
 	}
-	l := ansi.Strip(boardHead(open, map[todo.Column]int{todo.ColDone: 2}, todo.ColNext, 80)[1])
+	l := ansi.Strip(boardHead(open, map[todo.Column]int{todo.ColDone: 2}, 80, boardChrome)[1])
 	if !strings.Contains(l, "ready to close (c in the sidebar)") {
 		t.Errorf("all done: %q", l)
 	}
-	l = ansi.Strip(boardHead(open, map[todo.Column]int{}, todo.ColNext, 80)[1])
+	l = ansi.Strip(boardHead(open, map[todo.Column]int{}, 80, boardChrome)[1])
 	if !strings.Contains(l, "no tasks yet") {
 		t.Errorf("empty: %q", l)
 	}
 	done := &todo.Sprint{Name: "B", Status: todo.SprintDone}
-	l = ansi.Strip(boardHead(done, map[todo.Column]int{todo.ColDone: 2}, todo.ColDone, 80)[1])
+	l = ansi.Strip(boardHead(done, map[todo.Column]int{todo.ColDone: 2}, 80, boardChrome)[1])
 	if !strings.Contains(l, "closed — c in the sidebar reopens it") {
 		t.Errorf("done: %q", l)
 	}
-	if l := ansi.Strip(boardHead(&todo.Sprint{Name: "G"}, nil, todo.ColNext, 80)[0]); !strings.Contains(l, "—") {
+	if l := ansi.Strip(boardHead(&todo.Sprint{Name: "G"}, nil, 80, boardChrome)[0]); !strings.Contains(l, "—") {
 		t.Errorf("no goal: %q", l)
 	}
 }
@@ -177,20 +177,21 @@ func TestBoardUpFromBottomKeepsPage(t *testing.T) {
 }
 
 // On a short terminal the board head gives up its lines, goal first, then
-// progress, then the tab bar, so the cursor's task row stays on screen.
+// the rule, then progress, so the cursor's task row stays on screen.
 func TestBoardHeadYieldsOnShortTerminal(t *testing.T) {
+	rule := "││" + strings.Repeat("─", 20)
 	for _, tc := range []struct {
 		height               int
-		goal, progress, tabs bool
+		goal, progress, rule bool
 	}{
 		{9, true, true, true},
 		{8, false, true, true},
-		{7, false, false, true},
+		{7, false, true, false},
 		{6, false, false, false},
 		{5, false, false, false},
 	} {
 		m := longBoard(t, 5, 100, tc.height)
-		m = press(m, "s", "tab", "down", "down") // task01
+		m = press(m, "s", "tab", "down") // task01
 		checkTreeHeight(t, m, fmt.Sprintf("height %d", tc.height))
 		v := ansi.Strip(m.View())
 		if !strings.Contains(v, "task01") {
@@ -202,8 +203,8 @@ func TestBoardHeadYieldsOnShortTerminal(t *testing.T) {
 		if got := strings.Contains(v, "Done  ░"); got != tc.progress {
 			t.Errorf("height %d: progress shown %v, want %v:\n%s", tc.height, got, tc.progress, v)
 		}
-		if got := strings.Contains(v, "[Next 5]"); got != tc.tabs {
-			t.Errorf("height %d: tab bar shown %v, want %v:\n%s", tc.height, got, tc.tabs, v)
+		if got := strings.Contains(v, rule); got != tc.rule {
+			t.Errorf("height %d: rule shown %v, want %v:\n%s", tc.height, got, tc.rule, v)
 		}
 	}
 }
@@ -219,7 +220,7 @@ func TestBoardHeadFitsReadiness(t *testing.T) {
 	}
 	open := &todo.Sprint{Name: "A", Status: todo.SprintOpen}
 	ready := map[todo.Column]int{todo.ColDone: 2}
-	l := ansi.Strip(boardHead(open, ready, todo.ColNext, 56)[1])
+	l := ansi.Strip(boardHead(open, ready, 56, boardChrome)[1])
 	if !strings.Contains(l, "ready to close (c in the sidebar)") || ansi.StringWidth(l) > 56 {
 		t.Errorf("56 cells: %q", l)
 	}
@@ -227,7 +228,7 @@ func TestBoardHeadFitsReadiness(t *testing.T) {
 		t.Errorf("56 cells: want an 8-cell bar, got %q", l)
 	}
 	for _, w := range []int{40, 24, 23, 10} {
-		l := ansi.Strip(boardHead(open, ready, todo.ColNext, w)[1])
+		l := ansi.Strip(boardHead(open, ready, w, boardChrome)[1])
 		if !strings.HasSuffix(l, "…") || ansi.StringWidth(l) > w {
 			t.Errorf("%d cells: want the line cut with …, got %q", w, l)
 		}
@@ -309,7 +310,7 @@ func TestSidebarKeepsFullHeight(t *testing.T) {
 func TestBoardHeadOnEmptySprint(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Status: "open"}}))
 	m = press(m, "s")
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "no tasks yet") || !strings.Contains(v, "[Next 0]") {
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "no tasks yet") || !strings.Contains(v, "nothing in this sprint") {
 		t.Errorf("empty sprint board:\n%s", v)
 	}
 }
