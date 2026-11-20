@@ -231,8 +231,8 @@ func (m *model) showBacklog() {
 func (m *model) showSprints() { m.showSprint(m.sprintsTarget()) }
 
 // sprintsTarget is the sprint the Sprints workspace opens on from another
-// screen: the last viewed sprint while the list holds it, else the first open
-// sprint (see defaultSprint).
+// screen: the last viewed sprint while the list holds it, else the default one
+// (see defaultSprint).
 func (m *model) sprintsTarget() string {
 	if _, ok := m.doc.SprintByID(m.lastSprint); ok {
 		return m.lastSprint
@@ -254,35 +254,19 @@ func (m *model) openWorkspace(id string) {
 	m.selectInList(id)
 }
 
-// selectInList puts the sidebar's cursor on sprint id (unfolding Closed for a
-// done one), or for "" on the folded Closed group row, as when only closed
-// sprints exist, and keeps it shown.
+// selectInList puts the sidebar's cursor on sprint id, when the list holds it,
+// and keeps it shown.
 func (m *model) selectInList(id string) {
-	if id == "" {
-		m.sprints.closedOpen = false
-		m.sprints.selectGroup(m.doc)
-	} else {
-		m.sprints.selectID(m.doc, id)
-	}
-	m.sprints.reconcile(m.doc, m.sprintListHeight())
-}
-
-// selectRow puts the sidebar's cursor on the row with the given key (a sprint
-// ID or the group row's), and keeps it shown.
-func (m *model) selectRow(key string) {
-	if key == groupKey {
-		m.sprints.selectGroup(m.doc)
-	} else {
-		m.sprints.selectID(m.doc, key)
-	}
+	m.sprints.selectID(m.doc, id)
 	m.sprints.reconcile(m.doc, m.sprintListHeight())
 }
 
 // defaultSprint is the sprint the Sprints workspace shows when it has no
-// other to show: the first open one, or "" when none is open.
+// other to show: the sidebar's first, the first open one or, when every
+// sprint is closed, the newest; "" when the list has none.
 func (m *model) defaultSprint() string {
-	if open := m.doc.OpenSprints(); len(open) > 0 {
-		return open[0].ID
+	if rows := sidebarRows(m.doc); len(rows) > 0 {
+		return rows[0].ID
 	}
 	return ""
 }
@@ -297,12 +281,6 @@ func (m *model) followList() {
 
 // onList reports whether the keys go to the Sprints workspace's sidebar.
 func (m *model) onList() bool { return m.view.onBoard() && m.listFocus }
-
-// onClosedRow reports whether the Sprints workspace's sidebar cursor is on the
-// Closed group row. The pane beside it then lists the closed sprints instead
-// of a board (see closedPane), so the board's keys do nothing, and the stored
-// view keeps the last sprint shown.
-func (m *model) onClosedRow() bool { return m.view.onBoard() && m.sprints.onGroup(m.doc) }
 
 // splitShown reports whether the split view is on screen: it is on, and
 // neither the Sprints workspace, whose sidebar is the sprint list, nor
@@ -370,8 +348,8 @@ func nextOpenAfter(d *todo.Document, id string) (string, bool) {
 // destination shows it, else its cursor goes to the top row. The screen is
 // kept, so turning it off returns to them. The keys go to the
 // trees, not the Sprints workspace's sidebar — unless, back in the workspace,
-// its cursor is on no sprint (the Closed group row, an empty list): no sprint,
-// no board to take them (see focusBoard).
+// its cursor is on no sprint (an empty list): no sprint, no board to take them
+// (see focusBoard).
 func (m *model) setUnified(on bool) {
 	if m.view.all == on {
 		return
@@ -485,24 +463,37 @@ func (m *model) openSplitOnSelection() {
 
 // applyView puts the model in the view v, the one the list file holds, when
 // the app opens: its screen (the Sprints workspace on the stored sprint, or on
-// the first open one when the view names none or a sprint that is gone), the
+// the default one when the view names none or a sprint that is gone), the
 // unified view on top of it, and the split. A later change of the file's
 // view, by another session, is not applied: it would switch the view under
 // the user.
 func (m *model) applyView(v todo.View) {
-	switch v.Screen {
-	case todo.ScreenSprints, todo.ScreenSprint:
-		id := v.Sprint
-		if _, ok := m.doc.SprintByID(id); !ok || v.Screen == todo.ScreenSprints {
-			id = m.defaultSprint()
-		}
-		m.openWorkspace(id)
+	v = m.opensOn(v)
+	if v.Screen != todo.ScreenBacklog {
+		m.openWorkspace(v.Sprint)
 	}
 	m.setUnified(v.Unified)
 	if v.Split != m.split {
 		m.toggleSplit()
 	}
 	m.fitTrees()
+}
+
+// opensOn is the view a session opening on the stored view v shows, as
+// viewOnScreen puts it: the sprint list and a sprint that is gone open on the
+// default sprint (see defaultSprint), and the Backlog names no sprint. saveView stores the view
+// on screen only when the file's view does not open on it, so a list opened
+// only to look at it is not rewritten.
+func (m *model) opensOn(v todo.View) todo.View {
+	switch v.Screen {
+	case todo.ScreenSprints, todo.ScreenSprint:
+		id := v.Sprint
+		if _, ok := m.doc.SprintByID(id); !ok || v.Screen == todo.ScreenSprints {
+			id = m.defaultSprint()
+		}
+		return todo.View{Unified: v.Unified, Split: v.Split, Screen: screenSprint.stored(id), Sprint: id}
+	}
+	return todo.View{Unified: v.Unified, Split: v.Split, Screen: todo.ScreenBacklog}
 }
 
 // viewOnScreen is the view on screen as the list file holds it: the screen and
@@ -512,28 +503,42 @@ func (m *model) viewOnScreen() todo.View {
 }
 
 // saveView stores the view on screen in the list file, so the next session
-// opens on it. It is a write like any other (see commit): a failed one shows
-// in the footer, and the view stays as it is on screen. Planning is never
-// stored: the list keeps the view stored before it.
+// opens on it, unless that would change nothing this session should: the
+// list file's view opens on it, so the next session would show it anyway, or
+// it is baseView, so a view another session stored since is not overwritten.
+// A key that only shows again the view the file opens on writes nothing, not
+// even the lock file, and makes that view baseView: the file holds it, so a
+// later change from it is the user's and is stored. It is a write like any
+// other (see commit): it starts the footer afresh, clearing an earlier failure
+// also when it writes nothing, a failed one shows in the footer, and the view
+// stays as it is on screen. Planning is never stored: the list keeps the view
+// stored before it.
 func (m *model) saveView() {
 	if m.view.screen == screenPlan {
 		return
 	}
+	m.err = nil
 	v := m.viewOnScreen()
-	m.commit(m.focused().selectedID(), func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+	if v == m.opensOn(m.doc.View) {
+		m.baseView = v
+	}
+	if v == m.baseView {
+		return
+	}
+	if m.commit(m.focused().selectedID(), func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
 		return st.SetView(ctx, v)
-	})
+	}) {
+		m.baseView = v
+	}
 }
 
-// quit stores the view on screen when the list file holds another — so a
-// sprint browsed to in the Sprints workspace's sidebar is the one the next
-// session opens on — and quits. Every way out of the app goes through it.
+// quit stores the view on screen (see saveView) — so a sprint browsed to in
+// the Sprints workspace's sidebar is the one the next session opens on — and
+// quits. Every way out of the app goes through it.
 func (m model) quit() (tea.Model, tea.Cmd) {
-	if m.viewOnScreen() != m.doc.View {
-		m.err = nil
-		m.saveView()
-		m.quitErr = m.err
-	}
+	m.err = nil
+	m.saveView()
+	m.quitErr = m.err
 	return m, tea.Quit
 }
 

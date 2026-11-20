@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -136,14 +137,55 @@ func TestMoveByRef(t *testing.T) {
 	wantChildren(t, path, "Other", "o1", "o2", "a")
 }
 
-func TestMoveRefTaskUnderTask(t *testing.T) {
+func TestMoveRefTaskUnderTaskDropsRef(t *testing.T) {
 	path := todotest.Seed(t, moveDoc)
 	if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-ref", "APP-001"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := runCmd(t, "move", "--file", path, "--title", "a", "--parent-title", "b")
-	if codeOf(t, err) != exitUsage {
-		t.Errorf("err = %v, want a usage error", err)
+	out, err := runCmd(t, "move", "--file", path, "--title", "a", "--parent-title", "b")
+	if err != nil {
+		t.Fatalf("move under a task: %v", err)
+	}
+	if !strings.Contains(out, "dropped reference APP-001") {
+		t.Errorf("output = %q, want the dropped-reference note", out)
+	}
+	wantChildren(t, path, "b", "a")
+	if strings.Contains(todotest.Dump(t, path), "APP-001") {
+		t.Errorf("the reference survived the indent:\n%s", todotest.Dump(t, path))
+	}
+}
+
+// Under --json the dropped reference is reported as droppedRef next to the
+// record's fields, and the key is absent when the move drops nothing.
+func TestMoveJSONReportsDroppedRef(t *testing.T) {
+	path := todotest.Seed(t, moveDoc)
+	if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-ref", "APP-001"); err != nil {
+		t.Fatal(err)
+	}
+	moveJSON := func(args ...string) map[string]any {
+		t.Helper()
+		out, _, err := runCmdSplit(t, append([]string{"move", "--file", path, "--json"}, args...)...)
+		if err != nil {
+			t.Fatalf("move %v: %v", args, err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal([]byte(out), &got); err != nil {
+			t.Fatalf("not a JSON object: %v\n%s", err, out)
+		}
+		return got
+	}
+
+	got := moveJSON("--title", "a", "--parent-title", "b")
+	if got["droppedRef"] != "APP-001" || got["title"] != "a" || got["parentTitle"] != "b" {
+		t.Errorf("indent under a task = %v, want the record of a with droppedRef APP-001", got)
+	}
+	if _, ok := got["ref"]; ok {
+		t.Errorf("indent under a task = %v, want no ref", got)
+	}
+
+	got = moveJSON("--title", "a", "--parent-title", "Other")
+	if _, ok := got["droppedRef"]; ok || got["title"] != "a" {
+		t.Errorf("move dropping nothing = %v, want the record of a without droppedRef", got)
 	}
 }
 

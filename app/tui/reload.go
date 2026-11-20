@@ -203,19 +203,19 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 }
 
 // leaveGoneSprint moves the Sprints workspace from a board whose sprint the
-// list no longer holds (it was deleted) to the first open sprint, or to none,
-// with the sidebar focused on it. A workspace that shows no sprint takes the
-// first open one when one appears (unless the unified view is over it). Under
-// the unified view only the hidden sprint falls back: the view stays on. The
-// view is not stored: the list that changed is no write of this session. A
-// cursor on the Closed group row stays there, beside its pane, whatever sprint
-// the workspace falls back to.
+// list no longer holds (it was deleted) to the default sprint (see
+// defaultSprint), or to none, with the sidebar focused on it. A workspace that
+// shows no sprint takes the default one when one appears (unless the unified
+// view is over it). Under the unified view only the hidden sprint falls back:
+// the view stays on. The view is not stored: the list that changed is no write
+// of this session. While the shown sprint stays, the sidebar's cursor stays on
+// it, in whichever section it is now.
 func (m *model) leaveGoneSprint() {
 	if m.view.screen != screenSprint {
 		return
 	}
 	if _, ok := m.doc.SprintByID(m.view.sprint); ok {
-		m.cursorOnShown()
+		m.selectInList(m.view.sprint)
 		return
 	}
 	if m.view.sprint == "" && m.view.all {
@@ -224,40 +224,15 @@ func (m *model) leaveGoneSprint() {
 	id := m.defaultSprint()
 	switch {
 	case id == m.view.sprint:
-		if id == "" {
-			// Still nothing open to show: the cursor rests on the Closed
-			// group row, with the fold as the user left it.
-			m.selectRow(groupKey)
-			return
-		}
+		// Both "": the list still holds no sprint to show.
 	case m.view.all:
 		m.setShownSprint(id)
 	default:
 		m.switchScreen(screenSprint, id)
 		m.listFocus = true
 	}
-	if m.onGroupRow() {
-		m.selectRow(groupKey)
-		return
-	}
 	m.selectInList(id)
 }
-
-// cursorOnShown keeps the sidebar and the board agreeing after a change of the
-// list: the cursor stays on the shown sprint, unfolding Closed when it was
-// closed elsewhere, unless it is on the Closed group row, whose pane lists the
-// closed sprints while the stored view keeps the last sprint shown (and which,
-// when the group is gone, goes to the shown sprint).
-func (m *model) cursorOnShown() {
-	if m.onGroupRow() {
-		return
-	}
-	m.selectInList(m.view.sprint)
-}
-
-// onGroupRow reports whether the sidebar's cursor was on the Closed group row
-// and the list still has that row, before the cursor is synced to the list.
-func (m *model) onGroupRow() bool { return m.sprints.selID == groupKey && doneSprints(m.doc) > 0 }
 
 // noteExternal drops the undo snapshots and says so in the footer, after the
 // model took a list that someone else changed.

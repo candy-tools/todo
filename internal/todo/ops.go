@@ -234,7 +234,9 @@ func (d *Document) addCategory(title, parentID string, at func(parent *Item) (in
 // is ErrNotFound; an afterID that is not a child of the parent, or is a
 // category, is ErrConflict; a title CleanTitle or a reference CleanRef refuses
 // fails it with that error, and a reference another task holds with
-// ErrDuplicateRef. f.Sprint puts a top-level task in that sprint ("" for the
+// ErrDuplicateRef. Where a reference prefix applies (see PrefixFor) a
+// top-level task gets the next reference of it (see nextRef) and one given in
+// f.Ref fails with ErrRefGenerated. f.Sprint puts a top-level task in that sprint ("" for the
 // backlog) and is checked as checkNewMembership says: a state that does not
 // fit it is ErrNeedsSprint or ErrInSprint, a missing sprint ErrSprintNotFound,
 // a closed one ErrSprintClosed; a subtask names none (ErrSprintMembership) and
@@ -277,12 +279,22 @@ func (d *Document) addTask(f Fields, st Status, parentID string, at func(parent 
 	if err := d.checkNewMembership(st, f.Sprint, parent); err != nil {
 		return "", err
 	}
+	prefix := ""
+	if parent.Kind == Category {
+		prefix = d.PrefixFor(parentID, f.Sprint)
+	}
+	if prefix != "" && ref != "" {
+		return "", ErrRefGenerated
+	}
 	if err := d.checkRef(nil, ref, parent.Kind == Task); err != nil {
 		return "", err
 	}
 	pos, err := at(parent)
 	if err != nil {
 		return "", err
+	}
+	if prefix != "" {
+		ref = d.nextRef(prefix)
 	}
 	it := &Item{Kind: Task, Title: title, Status: st, Description: f.Description, Plan: f.Plan, Ref: ref, Sprint: f.Sprint}
 	return d.addNew(parent, pos, it), nil
@@ -350,6 +362,33 @@ func (d *Document) checkState(it *Item, st Status) error {
 	return nil
 }
 
+// cleaned returns c with the title, reference and prefix it names cleaned (see
+// CleanTitle, CleanRef and CleanPrefix), or the error that refuses one.
+func (c Changes) cleaned() (Changes, error) {
+	if c.Title != nil {
+		t, err := CleanTitle(*c.Title)
+		if err != nil {
+			return c, err
+		}
+		c.Title = &t
+	}
+	if c.Ref != nil {
+		r, err := CleanRef(*c.Ref)
+		if err != nil {
+			return c, err
+		}
+		c.Ref = &r
+	}
+	if c.Prefix != nil {
+		p, err := CleanPrefix(*c.Prefix)
+		if err != nil {
+			return c, err
+		}
+		c.Prefix = &p
+	}
+	return c, nil
+}
+
 // Edit sets the fields of item id that c names: its title and, for a task, its
 // description, plan and reference. Fields c leaves nil are kept. changed is
 // false when every field c names already held its value. A missing id is
@@ -357,18 +396,13 @@ func (d *Document) checkState(it *Item, st Status) error {
 // with that error, and a description, plan or reference for a category (even
 // an empty one) fails the whole edit with ErrNotTask. A reference fails it
 // with ErrSubtaskRef on a subtask and ErrDuplicateRef when another task holds
-// it; clearing one ("") always fits.
+// it; clearing one ("") always fits. A prefix (c.Prefix, cleaned as CleanPrefix
+// does; "" clears it) is for a category: ErrInvalidPrefix when it is refused
+// and ErrNotCategory for a task.
 func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
-	var title, ref string
-	if c.Title != nil {
-		if title, err = CleanTitle(*c.Title); err != nil {
-			return false, err
-		}
-	}
-	if c.Ref != nil {
-		if ref, err = CleanRef(*c.Ref); err != nil {
-			return false, err
-		}
+	c, err = c.cleaned()
+	if err != nil {
+		return false, err
 	}
 	it, err := d.lookup(id)
 	if err != nil {
@@ -377,8 +411,11 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 	if it.Kind != Task && (c.Description != nil || c.Plan != nil || c.Ref != nil) {
 		return false, ErrNotTask
 	}
+	if it.Kind != Category && c.Prefix != nil {
+		return false, ErrNotCategory
+	}
 	if c.Ref != nil {
-		if err := d.checkRef(it, ref, it.IsSubtask()); err != nil {
+		if err := d.checkRef(it, *c.Ref, it.IsSubtask()); err != nil {
 			return false, err
 		}
 	}
@@ -388,14 +425,11 @@ func (d *Document) Edit(id string, c Changes) (changed bool, err error) {
 			changed = true
 		}
 	}
-	if c.Title != nil {
-		set(&it.Title, &title)
-	}
+	set(&it.Title, c.Title)
 	set(&it.Description, c.Description)
 	set(&it.Plan, c.Plan)
-	if c.Ref != nil {
-		set(&it.Ref, &ref)
-	}
+	set(&it.Ref, c.Ref)
+	set(&it.Prefix, c.Prefix)
 	return changed, nil
 }
 
@@ -549,7 +583,9 @@ func (d *Document) statuses() DoneStates {
 // child of the parent (the item itself included) ErrConflict. A task that
 // becomes, stays or stops being a subtask takes its status from
 // StatusAfterMove; a task moved between categories keeps its status. A task
-// that has a reference cannot become a subtask (ErrSubtaskRef). A move never
+// that has a reference and becomes a subtask drops it (the per-prefix counter
+// is not rewound, so the number is not reused); a subtask lifted out gets none,
+// and a task moved between categories keeps its reference. A move never
 // changes which sprint a task is in: a task moved between categories keeps
 // its sprint, and nesting and lifting follow renest's rules
 // (ErrSprintMembership, ErrSprintClosed). A moved category's subtree is
@@ -570,9 +606,6 @@ func (d *Document) Move(id, parentID, afterID string) error {
 	if it.Kind == Task && toSubtask && tooDeepUnder(it, parent.IsSubtask()) {
 		return ErrTooDeep
 	}
-	if it.Kind == Task && toSubtask && it.Ref != "" {
-		return ErrSubtaskRef
-	}
 	for p := parent; p != nil; p = p.Parent {
 		if p == it {
 			return ErrInvalidMove
@@ -589,6 +622,9 @@ func (d *Document) Move(id, parentID, afterID string) error {
 		}
 	}
 	it.Status, it.Sprint = st, sprint
+	if it.Kind == Task && toSubtask {
+		it.Ref = "" // a subtask has none; RefLast is not rewound
+	}
 	d.remove(it)
 	d.place(parent, pos, it)
 	return nil

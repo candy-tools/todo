@@ -52,11 +52,10 @@ func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // applyIndent indents the grabbed item under the item just above it among its
 // siblings. When the list refuses it as too deep (a subtask, or a task with
 // subtasks, whether or not anything sits above it: tasks nest one level only),
-// as a task with a reference (a subtask has none), or the new parent is hidden
-// in the tab (the item would vanish into it), nothing moves and the footer
-// says why; so it does for the list's other refusals (see noteRefusedStep),
-// such as a task of another sprint above. A task or category with nothing
-// above to nest under stays silent.
+// or the new parent is hidden in the tab (the item would vanish into it),
+// nothing moves and the footer says why; so it does for the list's other
+// refusals (see noteRefusedStep), such as a task of another sprint above. A
+// task or category with nothing above to nest under stays silent.
 func (m model) applyIndent() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	if it == nil {
@@ -66,9 +65,6 @@ func (m model) applyIndent() (tea.Model, tea.Cmd) {
 	switch {
 	case errors.Is(err, todo.ErrTooDeep):
 		m.status = "subtasks can't have subtasks"
-		return m, nil
-	case errors.Is(err, todo.ErrSubtaskRef):
-		m.status = "a task with a reference can't become a subtask; clear the reference first"
 		return m, nil
 	case err != nil:
 		m.noteRefusedStep(err)
@@ -137,8 +133,13 @@ func (m *model) noteRefusedStep(err error) {
 }
 
 // moveTo moves the grabbed item id under parentID after afterID, as
-// applyMove describes.
+// applyMove describes. When the move drops the item's reference (it became a
+// subtask), the footer says so, after any notice of where the item went.
 func (m model) moveTo(id, parentID, afterID string) (tea.Model, tea.Cmd) {
+	ref := ""
+	if it, ok := m.doc.ByID(id); ok {
+		ref = it.Ref
+	}
 	m.snapshots = map[string]todo.DoneStates{}
 	delete(m.focused().collapsed, parentID) // reveal the item under its (possibly new) parent
 	m.commit(id, func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
@@ -146,6 +147,13 @@ func (m model) moveTo(id, parentID, afterID string) (tea.Model, tea.Cmd) {
 	})
 	if m.noteLeftTab(id) {
 		m.focused().grabbed = false
+	}
+	if now, ok := m.doc.ByID(id); ok && ref != "" && now.Ref == "" && m.err == nil {
+		notice := "dropped reference " + ref
+		if m.status != "" {
+			notice = m.status + "; " + notice
+		}
+		m.status = notice
 	}
 	return m, nil
 }

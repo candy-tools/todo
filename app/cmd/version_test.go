@@ -23,9 +23,8 @@ func TestPrintVersion(t *testing.T) {
 }
 
 func TestVersionCommandRuns(t *testing.T) {
-	c := newRootCommand()
 	var buf bytes.Buffer
-	c.SetOut(&buf)
+	c := newRootCommand(&buf, nil)
 	c.SetArgs([]string{"version"})
 	if err := c.Execute(); err != nil {
 		t.Fatalf("version command failed: %v", err)

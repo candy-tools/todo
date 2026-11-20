@@ -152,6 +152,9 @@ func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Sn
 		if err != nil || !changed {
 			return false, err
 		}
+		if d.Comment == "" { // a file with no note, new or not, gets todo's
+			d.Comment = fileComment
+		}
 		*l = toDisk(d)
 		return true, nil
 	})

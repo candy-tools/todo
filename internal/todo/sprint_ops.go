@@ -12,6 +12,8 @@ import (
 type SprintChanges struct {
 	Name *string
 	Goal *string
+	// Prefix is the sprint's reference prefix; "" clears it.
+	Prefix *string
 }
 
 // sprintNotFound is the ErrSprintNotFound for a missing sprint id.
@@ -56,22 +58,24 @@ func cleanGoal(goal string) string {
 // ErrInvalidTitle, and one another sprint holds (ignoring case)
 // ErrDuplicateSprint.
 func (d *Document) AddSprint(name, goal string) (string, error) {
-	name, err := d.checkSprintName(name, nil)
-	if err != nil {
-		return "", err
-	}
-	id := newID(func(id string) bool { _, ok := d.SprintByID(id); return ok })
-	d.Sprints = append(d.Sprints, &Sprint{ID: id, Name: name, Goal: cleanGoal(goal)})
-	return id, nil
+	return d.AddSprintWith(Fields{Title: name, Description: goal})
 }
 
 // EditSprint sets the fields of sprint id that c names. changed is false when
 // every field c names already held its value. A missing sprint is
-// ErrSprintNotFound; a name is checked, and a goal cleaned, as AddSprint does.
+// ErrSprintNotFound; a name is checked, and a goal cleaned, as AddSprint does,
+// and a prefix is cleaned as CleanPrefix does (ErrInvalidPrefix when it
+// refuses it; "" clears it).
 func (d *Document) EditSprint(id string, c SprintChanges) (changed bool, err error) {
 	s, err := d.sprint(id)
 	if err != nil {
 		return false, err
+	}
+	var prefix string
+	if c.Prefix != nil {
+		if prefix, err = CleanPrefix(*c.Prefix); err != nil {
+			return false, err
+		}
 	}
 	var name string
 	if c.Name != nil {
@@ -85,6 +89,10 @@ func (d *Document) EditSprint(id string, c SprintChanges) (changed bool, err err
 	}
 	if c.Goal != nil && s.Goal != cleanGoal(*c.Goal) {
 		s.Goal = cleanGoal(*c.Goal)
+		changed = true
+	}
+	if c.Prefix != nil && s.Prefix != prefix {
+		s.Prefix = prefix
 		changed = true
 	}
 	return changed, nil

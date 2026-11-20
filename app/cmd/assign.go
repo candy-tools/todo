@@ -30,12 +30,14 @@ func assignCmd() *cobra.Command {
 				if now, ok := res.Doc.ByID(it.ID); ok {
 					it = now
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "assign: [%s] %s  (%s)\n", it.Status.String(), todo.Printable(it.DisplayTitle()), todo.Printable(sp.Name))
-				return nil
+				return echoItem(cmd, res.Doc, it.ID, func() {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "assign: [%s] %s  (%s)\n", it.Status.String(), todo.Printable(it.DisplayTitle()), todo.Printable(sp.Name))
+				})
 			})
 		},
 	}
 	addSelectorFlags(c, "")
+	addJSONFlag(c)
 	c.Flags().String("sprint", "", "the sprint, by id or name (required)")
 	return c
 }
@@ -58,11 +60,13 @@ func unassignCmd() *cobra.Command {
 				if now, ok := res.Doc.ByID(it.ID); ok {
 					it = now
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "unassign: [%s] %s\n", it.Status.String(), todo.Printable(it.DisplayTitle()))
-				return nil
+				return echoItem(cmd, res.Doc, it.ID, func() {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "unassign: [%s] %s\n", it.Status.String(), todo.Printable(it.DisplayTitle()))
+				})
 			})
 		},
 	}
 	addSelectorFlags(c, "")
+	addJSONFlag(c)
 	return c
 }

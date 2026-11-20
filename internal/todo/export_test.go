@@ -13,7 +13,11 @@ type (
 	DiskSprint   = diskSprint
 	DiskTask     = diskTask
 	DiskSubtask  = diskSubtask
+	DiskRefs     = diskRefs
 )
+
+// FileComment is the "_comment" note every write puts at the top of the file.
+const FileComment = fileComment
 
 // ValidateDisk runs the validation of l.
 func ValidateDisk(l *DiskList) error { return l.validate() }

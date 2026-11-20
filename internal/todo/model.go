@@ -7,6 +7,7 @@ package todo
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -225,6 +226,10 @@ type Item struct {
 	// before its title (see DisplayTitle); "" when it has none. No two tasks
 	// of a list hold the same one, ignoring case; a subtask holds none.
 	Ref string
+	// Prefix is a category's reference prefix, "" for none: the tasks created
+	// in it, and in its subcategories without one, get references from it (see
+	// Document.PrefixFor).
+	Prefix string
 	// Sprint is a top-level task's sprint ID, "" for the backlog. A subtask
 	// follows its task (see SprintID) and holds none.
 	Sprint   string
@@ -241,6 +246,15 @@ type Document struct {
 	// View is how the list is shown, kept in the list file so every TUI
 	// session opens on it.
 	View View
+	// Comment is the file's "_comment" note, kept as the file holds it ("" for
+	// none). A write to a file with no note sets todo's own (fileComment).
+	Comment string
+	// RefPrefix is the list's reference prefix, "" for none: the last resort
+	// of Document.PrefixFor.
+	RefPrefix string
+	// RefLast is the last number handed out per reference prefix, so a number
+	// is never reused after its task goes; nil when none was.
+	RefLast map[string]int
 }
 
 // View is how the TUI shows the list. The zero View is the default: the
@@ -347,7 +361,7 @@ func (it *Item) AppendChild(c *Item) {
 // Clone returns a deep copy of the document: every item is copied, with its
 // Parent pointing into the copy, so changing one never shows in the other.
 func (d *Document) Clone() *Document {
-	c := &Document{Roots: make([]*Item, len(d.Roots)), View: d.View}
+	c := &Document{Roots: make([]*Item, len(d.Roots)), View: d.View, Comment: d.Comment, RefPrefix: d.RefPrefix, RefLast: maps.Clone(d.RefLast)}
 	for i, it := range d.Roots {
 		c.Roots[i] = it.clone(nil)
 	}

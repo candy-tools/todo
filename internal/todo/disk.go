@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -13,8 +14,23 @@ import (
 )
 
 // fileVersion is the version of the JSON list file format. Version 4 added
-// the task "ref" field, version 5 the "view" section, version 6 the sprints.
-const fileVersion = 6
+// the task "ref" field, version 5 the "view" section, version 6 the sprints,
+// version 7 the "_comment" note, the "refs" section and the category and
+// sprint "prefix" fields.
+const fileVersion = 7
+
+// fileComment is the note todo puts at the top of the file, under "_comment",
+// for whoever opens the file instead of running todo: mostly coding agents,
+// which otherwise edit it in place and can leave it invalid (an id outside the
+// alphabet, a dangling reference), so that every todo write fails until
+// someone repairs it. Every write puts it in a file that has no note, a new
+// one included, and keeps a different note the file holds. Reading never
+// writes it: a list only looked at stays as it is.
+const fileComment = "This file is managed by the todo CLI. Do not edit it directly, by hand or with a script. " +
+	"Read it with todo: `todo next --json` (what to work on), `todo show --id <id|ref> --json` (one task), " +
+	"`todo list --flat` (every item as flat JSON records). " +
+	"Change it with todo commands (add, edit, move, status, assign, rm, ...; see `todo --help`), " +
+	"which keep its ids and rules valid."
 
 // oldestFileVersion is the oldest format version this todo reads. Every
 // version from it up to fileVersion only adds fields, so such a file reads as
@@ -25,13 +41,25 @@ const oldestFileVersion = 3
 // diskList is the JSON form of the whole list. Categories and tasks are flat
 // arrays that refer to each other by ID; field order is key order.
 type diskList struct {
-	Version int `json:"version"`
+	// Comment is the note for readers of the file (see fileComment), written
+	// first and left out when empty. Any string is accepted.
+	Comment string `json:"_comment,omitempty"`
+	Version int    `json:"version"`
+	// Refs holds the reference settings; nil, and left out, when there are none.
+	Refs *diskRefs `json:"refs,omitempty"`
 	// View is the view the TUI opens on; nil, and left out, for the default.
 	View *diskView `json:"view,omitempty"`
 	// Sprints are the sprints in creation order; always written.
 	Sprints    []diskSprint   `json:"sprints"`
 	Categories []diskCategory `json:"categories"`
 	Tasks      []diskTask     `json:"tasks"`
+}
+
+// diskRefs is the refs section: the list's reference prefix and, per prefix,
+// the last number a reference took, so a deleted task's number is not reused.
+type diskRefs struct {
+	Prefix string         `json:"prefix,omitempty"`
+	Last   map[string]int `json:"last,omitempty"`
 }
 
 // diskView is the view section; a false or empty field is left out.
@@ -47,6 +75,7 @@ type diskSprint struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Goal   string `json:"goal,omitempty"`
+	Prefix string `json:"prefix,omitempty"`
 	Status string `json:"status"`
 }
 
@@ -62,6 +91,7 @@ const ImportedSprintName = "Imported"
 type diskCategory struct {
 	ID     string `json:"id"`
 	Title  string `json:"title"`
+	Prefix string `json:"prefix,omitempty"`
 	Parent string `json:"parent,omitempty"`
 }
 
@@ -94,9 +124,12 @@ type diskSubtask struct {
 // todos wrote (which listed a category's tasks before its subcategories) and
 // a write changes only the lines that changed. A task's subtasks are its task
 // children; a category's description and plan are not stored. The default
-// view is left out.
+// view and empty reference settings are left out.
 func toDisk(d *Document) diskList {
-	l := diskList{Version: fileVersion, Sprints: []diskSprint{}, Categories: []diskCategory{}, Tasks: []diskTask{}}
+	l := diskList{Comment: d.Comment, Version: fileVersion, Sprints: []diskSprint{}, Categories: []diskCategory{}, Tasks: []diskTask{}}
+	if d.RefPrefix != "" || len(d.RefLast) > 0 {
+		l.Refs = &diskRefs{Prefix: d.RefPrefix, Last: maps.Clone(d.RefLast)}
+	}
 	if d.View != (View{}) {
 		v := &diskView{Unified: d.View.Unified, Split: d.View.Split, Sprint: d.View.Sprint}
 		if d.View.Screen != ScreenBacklog {
@@ -105,13 +138,13 @@ func toDisk(d *Document) diskList {
 		l.View = v
 	}
 	for _, s := range d.Sprints {
-		l.Sprints = append(l.Sprints, diskSprint{ID: s.ID, Name: s.Name, Goal: s.Goal, Status: s.Status.String()})
+		l.Sprints = append(l.Sprints, diskSprint{ID: s.ID, Name: s.Name, Goal: s.Goal, Prefix: s.Prefix, Status: s.Status.String()})
 	}
 	for _, cat := range d.Enumerate() {
 		if cat.Kind != Category {
 			continue
 		}
-		c := diskCategory{ID: cat.ID, Title: cat.Title}
+		c := diskCategory{ID: cat.ID, Title: cat.Title, Prefix: cat.Prefix}
 		if cat.Parent != nil {
 			c.Parent = cat.Parent.ID
 		}
@@ -144,19 +177,25 @@ func toDisk(d *Document) diskList {
 // Categories keep array order under their parent; a category's subcategories
 // come before its tasks. Every item gets Parent, Kind, Level and Status.
 func fromDisk(l diskList) *Document {
-	d := &Document{}
+	d := &Document{Comment: l.Comment}
+	if l.Refs != nil {
+		d.RefPrefix = l.Refs.Prefix
+		if len(l.Refs.Last) > 0 {
+			d.RefLast = maps.Clone(l.Refs.Last)
+		}
+	}
 	if l.View != nil {
 		d.View = View{Unified: l.View.Unified, Split: l.View.Split, Sprint: l.View.Sprint}
 		d.View.Screen, _ = screenFromName(l.View.Screen)
 	}
 	for _, s := range l.Sprints {
-		sp := &Sprint{ID: s.ID, Name: s.Name, Goal: s.Goal}
+		sp := &Sprint{ID: s.ID, Name: s.Name, Goal: s.Goal, Prefix: s.Prefix}
 		sp.Status, _ = SprintStatusFromName(s.Status)
 		d.Sprints = append(d.Sprints, sp)
 	}
 	cats := make(map[string]*Item, len(l.Categories))
 	for _, c := range l.Categories {
-		cats[c.ID] = &Item{ID: c.ID, Kind: Category, Title: c.Title}
+		cats[c.ID] = &Item{ID: c.ID, Kind: Category, Title: c.Title, Prefix: c.Prefix}
 	}
 	var setLevel func(it *Item, level int)
 	setLevel = func(it *Item, level int) {
@@ -466,17 +505,18 @@ func wantKind(t reflect.Type) string {
 
 // The fields each object of the file may hold.
 var (
-	listFields     = []string{"version", "view", "sprints", "categories", "tasks"}
+	listFields     = []string{"_comment", "version", "refs", "view", "sprints", "categories", "tasks"}
+	refsFields     = []string{"prefix", "last"}
 	viewFields     = []string{"unified", "split", "screen", "sprint"}
-	sprintFields   = []string{"id", "name", "goal", "status"}
-	categoryFields = []string{"id", "title", "parent"}
+	sprintFields   = []string{"id", "name", "goal", "prefix", "status"}
+	categoryFields = []string{"id", "title", "prefix", "parent"}
 	taskFields     = []string{"id", "category", "sprint", "ref", "title", "status", "plan", "description", "subtasks"}
 	subtaskFields  = []string{"id", "title", "done", "description", "plan"}
 )
 
 // unknownFieldOwner returns the item of the list file b that holds the
 // unknown field name, as "task bbbbbbb: " (or by its JSON path when it has no
-// valid ID) or "view: " for the view section, "sprint aaaaaaa: " for a sprint, and "" for
+// valid ID) or "view: " or "refs: " for those sections, "sprint aaaaaaa: " for a sprint, and "" for
 // the top level or when it cannot tell. It looks through the view, the
 // sprints, the categories and the
 // tasks in the order the file has them, so it names
@@ -490,6 +530,7 @@ func unknownFieldOwner(b []byte, name string) string {
 		return !slices.ContainsFunc(fields, func(f string) bool { return strings.EqualFold(f, name) })
 	}
 	var doc struct {
+		Refs       object   `json:"refs"`
 		View       object   `json:"view"`
 		Sprints    []object `json:"sprints"`
 		Categories []object `json:"categories"`
@@ -536,22 +577,26 @@ func unknownFieldOwner(b []byte, name string) string {
 		}
 		return ""
 	}
-	for _, key := range topKeys(b) {
-		var owner string
-		switch {
-		case strings.EqualFold(key, "view"):
-			if unknown(doc.View, viewFields) {
-				owner = "view: "
+	section := func(o object, fields []string, owner string) func() string {
+		return func() string {
+			if unknown(o, fields) {
+				return owner
 			}
-		case strings.EqualFold(key, "sprints"):
-			owner = inSprints()
-		case strings.EqualFold(key, "categories"):
-			owner = inCategories()
-		case strings.EqualFold(key, "tasks"):
-			owner = inTasks()
+			return ""
 		}
-		if owner != "" {
-			return owner
+	}
+	owners := map[string]func() string{
+		"refs":       section(doc.Refs, refsFields, "refs: "),
+		"view":       section(doc.View, viewFields, "view: "),
+		"sprints":    inSprints,
+		"categories": inCategories,
+		"tasks":      inTasks,
+	}
+	for _, key := range topKeys(b) {
+		if find := owners[strings.ToLower(key)]; find != nil {
+			if owner := find(); owner != "" {
+				return owner
+			}
 		}
 	}
 	return ""

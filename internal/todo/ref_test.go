@@ -121,20 +121,65 @@ func TestOpEditRefOnSubtaskOrCategory(t *testing.T) {
 	wantErr(t, err, todo.ErrNotTask)
 }
 
-// A task holding a reference cannot become a subtask; one without can.
-func TestOpMoveRefTaskUnderTask(t *testing.T) {
-	d := opDoc(t, "# A\n\n- [ ] t\n- [ ] u\n")
-	ref := "APP-001"
-	_, err := d.Edit(idOf(t, d, "u"), todo.Changes{Ref: &ref})
-	wantNoErr(t, err)
-	before := structure(d)
-	wantErr(t, d.Move(idOf(t, d, "u"), idOf(t, d, "t"), ""), todo.ErrSubtaskRef)
-	if got := structure(d); got != before {
-		t.Errorf("a refused move changed the document:\n%s", got)
+// workDoc returns a document with a WORK category holding tasks a (WORK-001)
+// and b (WORK-002), and the ids of the category, a and b.
+func workDoc(t *testing.T) (d *todo.Document, cat, a, b string) {
+	t.Helper()
+	d = &todo.Document{}
+	cat = must(d.AppendCategoryWith(todo.Fields{Title: "Work", Prefix: "WORK"}, ""))
+	a = must(d.AppendTask(todo.Fields{Title: "a"}, todo.Open, cat))
+	b = must(d.AppendTask(todo.Fields{Title: "b"}, todo.Open, cat))
+	return d, cat, a, b
+}
+
+// Indenting a task drops its reference instead of refusing, and the number is
+// not reused.
+func TestMoveUnderTaskDropsRef(t *testing.T) {
+	d, cat, a, b := workDoc(t)
+	if got := refOf(t, d, a); got != "WORK-001" {
+		t.Fatalf("ref = %q, want WORK-001", got)
 	}
-	_, _, err = d.StepPlacement(idOf(t, d, "u"), todo.StepIn, nil)
-	wantErr(t, err, todo.ErrSubtaskRef)
-	wantNoErr(t, d.Move(idOf(t, d, "t"), idOf(t, d, "u"), ""))
+	wantNoErr(t, d.Move(a, b, ""))
+	if got := refOf(t, d, a); got != "" {
+		t.Errorf("ref after indent = %q, want none", got)
+	}
+	if _, ok := d.ByRef("WORK-001"); ok {
+		t.Error("WORK-001 is still found")
+	}
+	c := must(d.AppendTask(todo.Fields{Title: "c"}, todo.Open, cat))
+	if got := refOf(t, d, c); got != "WORK-003" {
+		t.Errorf("next ref = %q, want WORK-003 (the counter is not rewound)", got)
+	}
+}
+
+// Lifting a subtask back out does not give it a reference.
+func TestMoveLiftKeepsNoRef(t *testing.T) {
+	d, cat, a, b := workDoc(t)
+	wantNoErr(t, d.Move(a, b, ""))
+	wantNoErr(t, d.Move(a, cat, ""))
+	if got := refOf(t, d, a); got != "" {
+		t.Errorf("ref after lift = %q, want none", got)
+	}
+}
+
+// A task moved between categories keeps its reference.
+func TestMoveBetweenCategoriesKeepsRef(t *testing.T) {
+	d, _, a, _ := workDoc(t)
+	other := must(d.AppendCategoryWith(todo.Fields{Title: "Other"}, ""))
+	wantNoErr(t, d.Move(a, other, ""))
+	if got := refOf(t, d, a); got != "WORK-001" {
+		t.Errorf("ref after move = %q, want WORK-001", got)
+	}
+}
+
+// A refused indent leaves the reference alone.
+func TestMoveRefKeptWhenRefused(t *testing.T) {
+	d, _, a, b := workDoc(t)
+	s := must(d.AppendTask(todo.Fields{Title: "s"}, todo.Open, b))
+	wantErr(t, d.Move(a, s, ""), todo.ErrTooDeep)
+	if got := refOf(t, d, a); got != "WORK-001" {
+		t.Errorf("ref after refused move = %q, want WORK-001", got)
+	}
 }
 
 func TestMatchesRef(t *testing.T) {
@@ -155,8 +200,8 @@ func TestDiskVersion3Loads(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := readFile(t, path)
-	if !strings.Contains(file, `"version": 6`) || !strings.Contains(file, `"ref": "APP-001"`) {
-		t.Errorf("file =\n%s\nwant version 6 with the ref", file)
+	if !strings.Contains(file, `"version": 7`) || !strings.Contains(file, `"ref": "APP-001"`) {
+		t.Errorf("file =\n%s\nwant version 7 with the ref", file)
 	}
 }
 

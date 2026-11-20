@@ -65,9 +65,13 @@ func TestDiskRoundTripExample(t *testing.T) {
 	}
 }
 
-// The store writes the list in one fixed form: two-space indented, keys in
-// field order, categories before tasks, subtasks inline, empty optional
-// fields left out and a trailing newline.
+// commentLine is the line todo's "_comment" note takes, first in the file.
+const commentLine = `  "_comment": "` + todo.FileComment + "\",\n"
+
+// The store writes the list in one fixed form: two-space indented, todo's
+// note first (the seed has none), keys in field order, categories before
+// tasks, subtasks inline, empty optional fields left out and a trailing
+// newline.
 func TestDiskFileFormat(t *testing.T) {
 	path := todotest.SeedJSON(t, `{"version":4,"categories":[{"id":"c000000","title":"A"},`+
 		`{"id":"c000001","title":"B","parent":"c000000"}],"tasks":[{"id":"t000001","category":"c000000","ref":"APP-001",`+
@@ -76,8 +80,7 @@ func TestDiskFileFormat(t *testing.T) {
 	if _, err := s.Edit(context.Background(), "c000001", todo.Changes{Title: new("B2")}); err != nil {
 		t.Fatal(err)
 	}
-	const want = `{
-  "version": 6,
+	const want = "{\n" + commentLine + `  "version": 7,
   "sprints": [
     {
       "id": "0000000",
@@ -145,8 +148,85 @@ func TestDiskEmptyListArrays(t *testing.T) {
 	if _, err := s.Delete(context.Background(), find(loadList(t, path), "A").ID); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := readFile(t, path), "{\n  \"version\": 6,\n  \"sprints\": [],\n  \"categories\": [],\n  \"tasks\": []\n}\n"; got != want {
+	if got, want := readFile(t, path), "{\n"+commentLine+"  \"version\": 7,\n  \"sprints\": [],\n  \"categories\": [],\n  \"tasks\": []\n}\n"; got != want {
 		t.Errorf("file = %q, want %q", got, want)
+	}
+}
+
+// noteFile is a version 7 list file with note (a whole "_comment" line, or
+// "") and one category, aaaaaaa, in the form the store writes.
+func noteFile(note string) string {
+	return "{\n" + note + `  "version": 7,
+  "sprints": [],
+  "categories": [
+    {
+      "id": "aaaaaaa",
+      "title": "A"
+    }
+  ],
+  "tasks": []
+}
+`
+}
+
+// A save puts todo's note in a file that has none, and keeps a different note
+// the file holds; the rest of the file is written as it was.
+func TestDiskSaveNote(t *testing.T) {
+	edited := `  "_comment": "edited",` + "\n"
+	for name, tc := range map[string]struct{ note, want string }{
+		"missing": {"", commentLine},
+		"changed": {edited, edited},
+		"todo's":  {commentLine, commentLine},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := todotest.SeedJSON(t, noteFile(tc.note))
+			s := todo.NewStore(path)
+			for _, title := range []string{"B", "A"} {
+				if _, err := s.Edit(context.Background(), "aaaaaaa", todo.Changes{Title: new(title)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := readFile(t, path); got != noteFile(tc.want) {
+				t.Errorf("file =\n%s\nwant\n%s", got, noteFile(tc.want))
+			}
+		})
+	}
+}
+
+// Loading a list writes nothing: a file without todo's note, in an older
+// version, keeps its bytes, and no lock file is made beside it.
+func TestDiskLoadLeavesFileAlone(t *testing.T) {
+	const v6 = `{"version": 6, "sprints": [], "categories": [{"id": "aaaaaaa", "title": "A"}], "tasks": []}`
+	path := todotest.SeedJSON(t, v6)
+	loadList(t, path)
+	if got := readFile(t, path); got != v6 {
+		t.Errorf("file =\n%s\nwant it as it was\n%s", got, v6)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(path)); len(entries) != 1 {
+		t.Errorf("the directory holds %d files after a load, want only the list", len(entries))
+	}
+}
+
+// A file that a save creates starts with todo's note.
+func TestDiskNewFileGetsNote(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	if _, _, err := todo.NewStore(path).AppendCategory(context.Background(), "A", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); !strings.HasPrefix(got, "{\n"+commentLine) {
+		t.Errorf("file does not start with todo's note:\n%s", got)
+	}
+}
+
+// A note that is not a string is refused like any field of the wrong type.
+func TestDiskCommentNotAString(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	if err := os.WriteFile(path, []byte(`{"_comment": 1, "version": 7, "sprints": [], "categories": [], "tasks": []}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := todo.NewStore(path).Load(context.Background())
+	if !errors.Is(err, todo.ErrInvalidList) || !strings.Contains(err.Error(), "_comment must be a string") {
+		t.Errorf("Load = %v, want an ErrInvalidList saying _comment must be a string", err)
 	}
 }
 
@@ -205,7 +285,7 @@ func TestDiskTaskOrderBeforeSubcategories(t *testing.T) {
 
 func TestUnmarshalNewerVersion(t *testing.T) {
 	var l todo.DiskList
-	err := json.Unmarshal([]byte(`{"version":7,"extra":1}`), &l)
+	err := json.Unmarshal([]byte(`{"version":8,"extra":1}`), &l)
 	if !errors.Is(err, todo.ErrNewerFormat) {
 		t.Errorf("err = %v, want ErrNewerFormat", err)
 	}
@@ -272,15 +352,15 @@ func TestListFileErrorMessages(t *testing.T) {
 		{"version a fraction", `{"version": 3.5, "categories": [], "tasks": []}`,
 			`invalid list file: "version" must be a whole number, not 3.5`},
 		{"version missing", `{"categories": [], "tasks": []}`,
-			`invalid list file: no "version" field; this todo reads format version 6`},
+			`invalid list file: no "version" field; this todo reads format version 7`},
 		{"version null", `{"version": null, "categories": [], "tasks": []}`,
-			`invalid list file: no "version" field; this todo reads format version 6`},
+			`invalid list file: no "version" field; this todo reads format version 7`},
 		{"older version", `{"version": 2, "categories": [], "tasks": []}`,
 			"invalid list file: unsupported format version 2"},
 		{"older version with other fields", `{"version": 2, "items": []}`,
 			"invalid list file: unsupported format version 2"},
-		{"newer version", `{"version": 7, "categories": [], "tasks": [], "tags": []}`,
-			"list was written by a newer todo (format version 7); upgrade todo"},
+		{"newer version", `{"version": 8, "categories": [], "tasks": [], "tags": []}`,
+			"list was written by a newer todo (format version 8); upgrade todo"},
 		{"unknown top-level field", strings.Replace(good, `{"version": 3,`, `{"version": 3, "tags": [],`, 1),
 			`invalid list file: unknown field "tags"`},
 		{"unknown category field", strings.Replace(good, `"title": "C"`, `"title": "C", "color": "red"`, 1),
@@ -315,5 +395,75 @@ func TestListFileErrorMessages(t *testing.T) {
 				t.Errorf("Load error\n got %q\nwant %q", err, want)
 			}
 		})
+	}
+}
+
+// refsFile is a list file in the form the store writes, with the reference
+// settings: a list prefix and counters, a category prefix and a sprint prefix.
+const refsFile = "{\n" + commentLine + `  "version": 7,
+  "refs": {
+    "prefix": "TODO",
+    "last": {
+      "TODO": 3,
+      "WORK": 5
+    }
+  },
+  "sprints": [
+    {
+      "id": "sssssss",
+      "name": "S1",
+      "goal": "g",
+      "prefix": "SPR",
+      "status": "open"
+    }
+  ],
+  "categories": [
+    {
+      "id": "aaaaaaa",
+      "title": "A",
+      "prefix": "WORK"
+    }
+  ],
+  "tasks": []
+}
+`
+
+// The reference settings survive a load and a write unchanged.
+func TestDiskRefsRoundTrip(t *testing.T) {
+	path := todotest.SeedJSON(t, refsFile)
+	s := todo.NewStore(path)
+	before := readFile(t, path)
+	for _, title := range []string{"B", "A"} {
+		if _, err := s.Edit(context.Background(), "aaaaaaa", todo.Changes{Title: new(title)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if after := readFile(t, path); after != before {
+		t.Errorf("rewritten file =\n%s\nwant\n%s", after, before)
+	}
+	doc := loadList(t, path)
+	if doc.RefPrefix != "TODO" || doc.RefLast["WORK"] != 5 || doc.Roots[0].Prefix != "WORK" || doc.Sprints[0].Prefix != "SPR" {
+		t.Errorf("loaded refs = %q %v, category %q, sprint %q", doc.RefPrefix, doc.RefLast, doc.Roots[0].Prefix, doc.Sprints[0].Prefix)
+	}
+}
+
+// A list with no prefixes and no counters has no "refs" and no "prefix" keys.
+func TestDiskRefsLeftOut(t *testing.T) {
+	path := todotest.Seed(t, "# A\n\n- [ ] one\n")
+	got := readFile(t, path)
+	if strings.Contains(got, `"refs"`) || strings.Contains(got, `"prefix"`) {
+		t.Errorf("file =\n%s\nwant no refs and no prefix keys", got)
+	}
+}
+
+// A refs section holds only a prefix and counters.
+func TestUnknownFieldInRefs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	if err := os.WriteFile(path, []byte(`{"version": 7, "refs": {"prefix": "A", "x": 1}, "categories": [], "tasks": []}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := todo.NewStore(path).Load(context.Background())
+	if !errors.Is(err, todo.ErrInvalidList) || !strings.HasSuffix(err.Error(), `refs: unknown field "x"`) {
+		t.Errorf("Load = %v, want an invalid list ending refs: unknown field \"x\"", err)
 	}
 }

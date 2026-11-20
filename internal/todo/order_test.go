@@ -111,8 +111,7 @@ func TestOpMoveLast(t *testing.T) {
 // subcategories' tasks; a write that changes nothing else keeps that tasks
 // array order, so the file stays byte for byte as it was.
 func TestDiskOldTaskOrderKept(t *testing.T) {
-	const old = `{
-  "version": 6,
+	const old = "{\n" + commentLine + `  "version": 7,
   "sprints": [],
   "categories": [
     {

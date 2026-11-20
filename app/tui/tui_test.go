@@ -34,7 +34,7 @@ func TestEnterOpensEditDialog(t *testing.T) {
 	if m.mode != modeForm {
 		t.Fatalf("enter should open the edit dialog, mode = %v", m.mode)
 	}
-	if out := m.View(); !strings.Contains(out, "Rename category") || !strings.Contains(out, "Category") {
+	if out := m.View(); !strings.Contains(out, "Edit category") || !strings.Contains(out, "Category") {
 		t.Errorf("the category dialog should show the rename form and the Category label:\n%s", out)
 	}
 	m = press(m, "esc")

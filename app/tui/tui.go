@@ -42,8 +42,8 @@ const (
 //     only on the focused tree, m.focused().
 //   - sideFocus implies split.
 //   - listFocus means something only in the Sprints workspace (view.onBoard),
-//     and holds there while the sidebar's cursor is on no sprint (the Closed
-//     group row, an empty list): there is no board to take the keys.
+//     and holds there while the sidebar's cursor is on no sprint (an empty
+//     list): there is no board to take the keys.
 //   - On screenPlan the unified view is off and the trees show nothing.
 //   - An external reload is applied in modeMain and modeSearch, and deferred
 //     in the modal modes and while an item is grabbed (see handleReload).
@@ -91,6 +91,11 @@ type model struct {
 	// lastSprint is the ID of the sprint whose board was shown last, where
 	// "k" goes back to from the other screens.
 	lastSprint string
+	// baseView is the view (as viewOnScreen puts it) this session last knows
+	// the list file holds: the one it opened on, last stored, or last found the
+	// file opening on (see saveView). saveView stores no view equal to it, so a
+	// view another session stored since is kept unless this one changed its own.
+	baseView todo.View
 	// plan is Planning's state (see planner), meaningful on screenPlan.
 	plan planner
 	// tree is the main pane: the category/task tree, or — in the split view —
@@ -188,7 +193,8 @@ func quitWarning(m model) string {
 // snapshots) with notice as the initial footer status. A multi-line notice (an
 // import summary followed by its warnings) is joined onto the single footer
 // line. Split out from Run so tests can drive the model without starting a real
-// terminal program.
+// terminal program. It is all of Run's startup, and it only reads: opening a
+// list to look at it leaves the file as it is.
 func newModel(st *todo.Store, notice string) (model, error) {
 	doc, fp, err := st.Load(context.Background())
 	if err != nil {
@@ -208,6 +214,7 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		status:    strings.ReplaceAll(notice, "\n", " · "),
 	}
 	m.applyView(doc.View)
+	m.baseView = m.viewOnScreen()
 	return m, nil
 }
 
@@ -372,8 +379,9 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateScreenKey handles the keys that work on every screen but Planning
-// (which takes b, s, q and ? from here): q (quit), esc, ? and the screen
-// jumps b, s, p, k and K. The bool reports whether the key was one of them.
+// (which takes b, s, q, ? and S from here): q (quit), esc, ?, S (settings) and
+// the screen jumps b, s, p, k and K. The bool reports whether the key was one
+// of them.
 func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "q":
@@ -385,6 +393,9 @@ func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "?":
 		m.mode, m.helpOffset = modeHelp, 0
 		return m, nil, true
+	case "S":
+		next, cmd := m.openSettings()
+		return next, cmd, true
 	case "b":
 		m.showBacklog()
 		return m, nil, true
@@ -411,13 +422,9 @@ func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 // updateViewKey handles the keys that change how the trees show the list,
 // from the Sprints workspace's sidebar too, where they act on the board: /
 // (search), f (state filter), u (unified view) and v (split view, which the
-// Sprints workspace does not show). On the Closed group row, which shows no
-// board, / and f do nothing. The bool reports whether the key was one of
-// them.
+// Sprints workspace does not show). The bool reports whether the key was one
+// of them.
 func (m model) updateViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
-	if k := msg.String(); m.onClosedRow() && (k == "/" || k == "f") {
-		return m, nil, true // the Closed row shows no board to search or filter
-	}
 	switch msg.String() {
 	case "/":
 		next, cmd := m.openSearch()
@@ -448,9 +455,10 @@ func (m model) updateViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 // updateSprintList handles the keys of the Sprints workspace's sidebar: the
-// arrows move the selection and show its sprint's board, enter and tab focus
-// the board, n adds a sprint, e edits the selected one, c closes or reopens it
-// and d deletes it. Every other key does nothing there.
+// arrows move the selection and [ ] 1 2 jump it to a section's first sprint,
+// showing its sprint's board; enter and tab focus the board, n adds a sprint,
+// e edits the selected one, c closes or reopens it and d deletes it. Every
+// other key does nothing there.
 func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "n":
@@ -471,35 +479,18 @@ func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveSprints(-navStep)
 	case "pgdown":
 		m.moveSprints(navStep)
-	case "right", "left":
-		m.foldClosed(msg.String() == "right")
-	case "enter":
-		if m.sprints.onGroup(m.doc) {
-			m.sprints.closedOpen = !m.sprints.closedOpen
-			m.sprints.reconcile(m.doc, m.sprintListHeight())
-			return m, nil
+	case "enter", "tab", "shift+tab":
+		m.focusBoard()
+	default:
+		if sec, dir, ok := sidebarSectionKey(msg.String(), m.sprints.section(m.doc)); ok {
+			m.jumpSprintSection(sec, dir)
 		}
-		m.focusBoard()
-	case "tab", "shift+tab":
-		m.focusBoard()
 	}
 	return m, nil
 }
 
-// foldClosed handles → (unfold) and ← (fold) on the sidebar: on the Closed
-// group row they unfold and fold it; ← on a done sprint goes to the group row.
-func (m *model) foldClosed(unfold bool) {
-	switch s := m.sprints.selected(m.doc); {
-	case m.sprints.onGroup(m.doc):
-		m.sprints.closedOpen = unfold
-	case s != nil && s.Status == todo.SprintDone && !unfold:
-		m.sprints.selectGroup(m.doc)
-	}
-	m.sprints.reconcile(m.doc, m.sprintListHeight())
-}
-
 // focusBoard moves the keys from the sidebar to the board of the selected
-// sprint. Nothing on the Closed group row or an empty list: no sprint, no board.
+// sprint. Nothing on an empty list: no sprint, no board.
 func (m *model) focusBoard() {
 	if m.sprints.selected(m.doc) == nil {
 		return

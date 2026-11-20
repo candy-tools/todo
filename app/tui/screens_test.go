@@ -355,33 +355,18 @@ func TestSprintListRowsOrderAndCounts(t *testing.T) {
 		seedTask{ID: "t000004", Title: "a4", Status: "done", Sprint: "s00000a"},
 		seedTask{ID: "t000005", Title: "b1", Status: "done", Sprint: "s00000b"},
 	))
-	keys := func(m model) (k []string) {
-		for _, r := range m.sprints.rows(m.doc) {
-			if r.group {
-				k = append(k, "Closed")
-			} else {
-				k = append(k, r.sprint.Name)
-			}
-		}
-		return k
-	}
-	if want := []string{"Alpha", "Gamma", "Closed"}; !equalStrings(keys(m), want) {
-		t.Fatalf("rows = %v, want %v (open in creation order, then the folded Closed group)", keys(m), want)
-	}
-	m = press(m, "s", "down", "down", "right") // on the Closed row, unfolded
-	if want := []string{"Alpha", "Gamma", "Closed", "Delta", "Beta"}; !equalStrings(keys(m), want) {
-		t.Fatalf("unfolded rows = %v, want %v (done newest first)", keys(m), want)
-	}
+	m = press(m, "s", "down") // on Gamma
 	lines := strings.Split(ansi.Strip(m.sprints.view(m.doc, 100, 20)), "\n")
 	if len(lines) != 10 {
-		t.Fatalf("want 5 two-line rows, got %d lines", len(lines))
+		t.Fatalf("want 2 rules and 4 two-line rows, got %d lines", len(lines))
 	}
 	wants := [][]string{
+		{"━━ Open 2 ━"},
 		{"● Alpha", "2·1·1"}, {"first goal"},
 		{"● Gamma", "0·0·0"}, {"third goal"},
-		{"▾", "Closed", "2"}, {},
-		{"✓ Delta", "0·0·0"}, {},
-		{"✓ Beta", "0·0·1"}, {},
+		{"━━ Done 2 ━"},
+		{"✓ Delta", "0·0·0"}, {"—"},
+		{"✓ Beta", "0·0·1"}, {"—"},
 	}
 	for i, want := range wants {
 		for _, w := range want {

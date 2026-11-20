@@ -187,8 +187,8 @@ func taskRowNear(rows []planRow, i, dir int) int {
 // shown sprint when it is open, else the last viewed sprint while it is open,
 // else the first open one, with the keys on the Backlog side. With no open
 // sprint the footer says how to make one. Planning itself is never stored,
-// but entering it stores the view it leaves when the list holds another (a
-// sprint browsed to in the sidebar), or a quit from Planning would forget it.
+// but entering it stores the view it leaves (see saveView: a sprint browsed
+// to in the sidebar), or a quit from Planning would forget it.
 // Like b and s, it starts the footer afresh: an earlier failure is cleared,
 // and only a failure of that save shows over Planning.
 func (m *model) openPlanning() {
@@ -200,10 +200,7 @@ func (m *model) openPlanning() {
 			return
 		}
 	}
-	m.err = nil
-	if m.viewOnScreen() != m.doc.View {
-		m.saveView()
-	}
+	m.saveView()
 	m.switchScreen(screenPlan, "")
 	m.plan.plan(id)
 	m.plan.right = false
@@ -247,11 +244,11 @@ func (m *model) afterPlanWrite() {
 // updatePlan handles the keys of Planning: the arrows move the focused side's
 // selection, tab switches side, → or a pulls the Backlog side's task into the
 // sprint, ← or A sends the sprint side's Next task back, r toggles it between
-// new and ready, k and K change the planned sprint, esc and p leave. b, s, q
-// and ? work as everywhere; every other key does nothing.
+// new and ready, k and K change the planned sprint, esc and p leave. b, s, q,
+// ? and S work as everywhere; every other key does nothing.
 func (m model) updatePlan(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key := msg.String(); key {
-	case "b", "s", "q", "?":
+	case "b", "s", "q", "?", "S":
 		next, cmd, _ := m.updateScreenKey(msg)
 		return next, cmd
 	case "esc", "p":

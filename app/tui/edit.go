@@ -31,6 +31,8 @@ const (
 	targetAddSprint
 	// targetEditSprint renames or re-words the goal of the sprint in m.editingSprint.
 	targetEditSprint
+	// targetSettings sets the list's settings (its reference prefix), from S.
+	targetSettings
 )
 
 // msgPickCategory is the footer hint for adding a task in the split view with
@@ -82,6 +84,7 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 		m.form = newForm(todo.Fields{
 			Title: todo.Printable(sel.Title), Ref: todo.Printable(sel.Ref),
 			Description: todo.PrintableLines(sel.Description), Plan: todo.Printable(sel.Plan),
+			Prefix: todo.Printable(sel.Prefix),
 		}, formKindOf(sel), true)
 		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
@@ -127,10 +130,12 @@ func (m model) prepareAddForm(t formTarget) (model, bool) {
 		m.status = "subtasks can't have subtasks"
 		return m, false
 	}
-	// A new subtask has no reference, so its form shows none.
+	// A new subtask has no reference, so its form shows none; a new task's
+	// reference is generated where a prefix applies, so its form shows that.
 	kind := formTask
 	m.target = t
-	if p := m.addParent(sel); p != nil && p.IsTask() {
+	p := m.addParent(sel)
+	if p != nil && p.IsTask() {
 		if m.sprintClosed(p.SprintID()) { // under a closed sprint's task, from the unified view
 			m.status = todo.ErrSprintClosed.Error()
 			return m, false
@@ -138,6 +143,10 @@ func (m model) prepareAddForm(t formTarget) (model, bool) {
 		kind = formSubtask
 	}
 	m.form = newForm(todo.Fields{}, kind, false)
+	if kind == formTask && p != nil {
+		_, sprint := m.view.newTaskPlacement(m.boardColumn())
+		m.form.autoRef = m.doc.PrefixFor(p.ID, sprint)
+	}
 	return m, true
 }
 
@@ -182,14 +191,20 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // new task/subtask/category under the parent the selection gives (see
 // addParent); the store appends it there, a task after its parent's last
 // task. An empty title is ignored (the dialog stays open), and an edit that
-// changed nothing closes it without a write. Any structural or content change
-// clears the undo snapshots — the accidental-complete window is meant to be
-// immediate. A failed write (the store busy with another process's write,
-// say) reopens the form with what was typed, the error in the footer, so
-// saving again retries it: an edit goes to the same item, found again by ID in
-// the reloaded list (the form stays closed when the item is gone), and an add
-// goes next to or under the same item.
+// changed nothing closes it without a write; the settings form has no title
+// and an empty prefix clears it (see submitSettings). Any structural or
+// content change clears the undo snapshots — the accidental-complete window
+// is meant to be immediate. A failed write (the store busy with another
+// process's write, say) reopens the form with what was typed, the error in the
+// footer, so saving again retries it: an edit goes to the same item, found
+// again by ID in the reloaded list (the form stays closed when the item is
+// gone), and an add goes next to or under the same item.
 func (m model) submitForm() (tea.Model, tea.Cmd) {
+	if m.target == targetSettings {
+		m.mode = modeMain
+		m.submitSettings()
+		return m, nil
+	}
 	v := m.form.values()
 	if v.Title == "" {
 		return m, nil
@@ -236,7 +251,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	var newID string
 	if !m.commit("", func(ctx context.Context, s *todo.Store) (res todo.WriteResult, err error) {
 		if m.target == targetAddCategory {
-			newID, res, err = s.AppendCategory(ctx, v.Title, parentID)
+			newID, res, err = s.AppendCategoryWith(ctx, v, parentID)
 		} else {
 			newID, res, err = s.AppendTask(ctx, v, st, parentID)
 		}

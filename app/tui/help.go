@@ -58,11 +58,12 @@ var helpSections = []helpSection{
 	}},
 	{"Sprints sidebar", []helpBinding{
 		{"n", "New sprint"},
-		{"e", "Edit the sprint's name and goal"},
+		{"e", "Edit the sprint's name, reference prefix and goal"},
 		{"c", "Close / reopen the sprint"},
 		{"d", "Delete the sprint"},
 		{"enter  tab", "Focus the board (tab on the board: back to the list)"},
-		{"→  ←  enter", "On the Closed row: unfold / fold the closed sprints"},
+		{"[  ]", "Previous / next section of sprints"},
+		{"1 2", "Jump to the Open / Done sprints"},
 	}},
 	{"Planning", []helpBinding{
 		{"p", "Open Planning / leave it for the sprint's board (also esc)"},
@@ -78,6 +79,7 @@ var helpSections = []helpSection{
 	}},
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},
+		{"S", "Settings: the list's reference prefix"},
 		{"q", "Quit (asks first: enter yes, esc no)"},
 		{"esc", "Clear search / state filter; else focus the sidebar; else ask to quit"},
 	}},

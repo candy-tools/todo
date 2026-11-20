@@ -37,6 +37,7 @@ func moveCmd() *cobra.Command {
 				if parent != nil {
 					parentID = parent.ID
 				}
+				oldRef := it.Ref
 				var res todo.WriteResult
 				switch {
 				case after != nil:
@@ -54,7 +55,26 @@ func moveCmd() *cobra.Command {
 				if now, ok := res.Doc.ByID(it.ID); ok {
 					it = now
 				}
+				dropped := ""
+				if oldRef != "" && it.Ref == "" {
+					dropped = oldRef
+				}
+				if wantJSON(cmd) {
+					r, err := writtenDetail(res.Doc, it.ID)
+					if err != nil {
+						return err
+					}
+					// The record plus the reference a task indented under
+					// another task lost, omitted when nothing was dropped.
+					return writeJSON(cmd.OutOrStdout(), struct {
+						record
+						DroppedRef string `json:"droppedRef,omitempty"`
+					}{r, dropped})
+				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "move: %s  (%s)\n", todo.Printable(it.DisplayTitle()), placeName(it.Parent))
+				if dropped != "" {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "dropped reference %s\n", dropped)
+				}
 				return nil
 			})
 		},
@@ -64,6 +84,7 @@ func moveCmd() *cobra.Command {
 	c.Flags().Bool("root", false, "move a category to the top level")
 	c.Flags().Bool("first", false, "place it first among its kind under the parent")
 	addSelectorFlags(c, "after-")
+	addJSONFlag(c)
 	return c
 }
 

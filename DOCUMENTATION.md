@@ -18,7 +18,8 @@ is created on the first write.
 **First run with an existing `TODO.md`.** When no path is given (so todo uses
 the default `.todo.json`), `.todo.json` doesn't exist and a `TODO.md` is present in
 the current directory, todo imports it automatically, once, and prints a summary
-(plus a warning for anything it couldn't keep). Naming a file with `-f` or a
+(plus a warning for anything it couldn't keep) on stderr, except under `--json`
+or `--flat`, where stderr is kept for JSON errors. Naming a file with `-f` or a
 positional path disables this automatic import. The markdown file is left
 untouched and can be deleted afterwards; from then on the JSON file is the source
 of truth. Passing a `.md` path where a list file is expected is a usage error
@@ -139,8 +140,26 @@ Other rules, as before:
   shown before its title as `[APP-001] Ship it`. It is free-form text (one
   line, up to 50 characters), but no two tasks in a list may share one —
   compared ignoring case, so `app-001` and `APP-001` clash. Subtasks have no
-  reference, so a task holding one cannot be indented under another task;
-  clear the reference first. Search matches the reference too.
+  reference, so indenting a task under another task drops its reference (its
+  number is not reused, and lifting the subtask back out does not restore it);
+  `todo move --json` reports it as `droppedRef`. Search matches the
+  reference too.
+- **Reference prefix.** A task created without a reference gets one generated
+  from a prefix, `<PREFIX>-<n>` with `n` counted per prefix and padded to three
+  digits (`WORK-001`, `WORK-002`, ..., `WORK-999`, `WORK-1000`). The prefix is the
+  one of the sprint the task is created in, else of the nearest category above it
+  that has one, else the list's; with none, the task gets no reference. A prefix
+  is a letter and up to 9 letters or digits, stored in upper case. Set the
+  list's with `todo settings --ref-prefix`, a category's with `todo add-category
+  --prefix` or `todo edit --set-prefix`, a sprint's with `todo sprint add
+  --prefix` or `todo sprint edit --set-prefix` (in the TUI: `S` for the list's,
+  the category and sprint dialogs for theirs); an empty value clears it. A
+  reference typed for a new task where a prefix applies is refused, since it is
+  generated: create the task, then change it with `edit --set-ref`. Subtasks never
+  get a reference, an import assigns none, and existing references are never
+  changed or backfilled when a prefix is set. Numbering continues after the
+  highest existing `<PREFIX>-<n>` (hand-typed ones included), and numbers are
+  never reused.
 
 Moving a task between columns and sprints:
 
@@ -181,7 +200,7 @@ breadcrumb that says where you are:
 
 The breadcrumb reads `Backlog › Work › Reviews · N tasks waiting` (the category
 under the cursor), `Sprints › Sprint 14 › Next` (a closed sprint is marked `✓`),
-`Sprints › Closed`, `All states · N tasks` in the unified view, or, in Planning,
+`All states · N tasks` in the unified view, or, in Planning,
 `Sprint 14 · N in Next · N in the Backlog`. The footer shows a few keys of
 where you are, most important first, and drops the last ones whole on a narrow
 terminal; everything else is in the `?` dialog:
@@ -190,9 +209,8 @@ terminal; everything else is in the `?` dialog:
   `v` single tree in the split), `s` sprints, `p` plan, `/` search, `q` quit;
 - a sprint board: `?` help, `tab` sprints, `[ ] 1-3` section, `a/A` move task
   (not on a closed sprint), `/` search, `q` quit;
-- the Sprints sidebar: `n` new, `e` edit, `c` close/reopen, `d` delete (on the
-  Closed row `←→` fold instead of those three), `tab` board, `?` help, `q`
-  quit;
+- the Sprints sidebar: `?` help, `n` new, `e` edit, `c` close/reopen, `d`
+  delete, `tab` board, `q` quit;
 - Planning: the focused side's keys (`→/a` pull in on the Backlog side, `←/A`
   back and `r` ready on the sprint side; `tab` the other side, `k` other
   sprint, `esc` done) and `?` help;
@@ -211,19 +229,34 @@ opens Planning to pull several in.
 
 A sidebar of sprints on the left, the selected sprint's board on the right.
 Each sidebar row shows the sprint's name, its task counts (Next · In Progress ·
-Done) and its goal; names and goals are cut with `…`, never wrapped. Open
-sprints come first in creation order, then a folded **Closed** group holding
-the done sprints. `→` / `enter` unfold the group on its row and `←` folds it
-(`←` on a done sprint jumps to the group row). The arrows move the selection
-and show that sprint's board at once.
+Done) and its goal (`—` without one); names and goals are cut with `…`, never
+wrapped. The sidebar has two sections, each opened by a coloured rule with its
+title and how many sprints it holds, like the board's: `━━ Open 2 ━━━━` (cyan,
+the board's Next colour) over the open sprints in creation order, then
+`━━ Done 2 ━━━━` (green) over the closed ones, newest first. An empty section
+shows as its rule alone.
 
-On the **Closed** row the right pane is **Closed sprints** instead of a board:
-each closed sprint, newest first, as `── ✓ Sprint 12` over its goal and its
-task count (`… N more` when they do not all fit; `no open sprints` above them
-when every sprint is closed). It is read only: the board keys (`[` `]`,
-`1`–`3`, `a`/`A`, `/`, `f`, …) do nothing there, `tab` does nothing, and
-`enter`, `→` and `←` fold or unfold the group. todo still reopens on the last
-sprint whose board you saw.
+```text
+━━ Open 2 ━━━━━━━━━━
+❯ ● Sprint 15   3·1·0
+    Ship the importer
+  ● Sprint 16   0·0·0
+    —
+━━ Done 2 ━━━━━━━━━━
+  ✓ Sprint 14   0·0·7
+    Refs and prefixes
+  ✓ Sprint 13   0·0·5
+    Board sections
+```
+
+The rules are never selected: the arrows move the selection from sprint to
+sprint, across both sections, and show that sprint's board at once — a closed
+sprint's too, frozen (see Sprint rules). `[` / `]` jump to the first sprint of
+the previous / next section that holds sprints, and `1` / `2` to the first
+open / closed one (`nothing in Done` when it is empty), scrolling the section
+as close to the top as the sidebar allows. With every sprint closed the
+workspace opens on the newest. todo reopens on the last sprint whose board you
+saw.
 
 The keys start on the sidebar: `n` creates a sprint (a form with Name and
 Goal), `e` edits its name and goal, `c` closes an open sprint or reopens a
@@ -274,7 +307,7 @@ sidebar).
 | `k` / `K` | Plan the next open sprint / pick a sprint: an open one becomes the planned sprint, a closed one leaves Planning for its board |
 | `p` / `esc` | Leave Planning for the planned sprint's board, on Next |
 
-`b`, `s`, `q` and `?` work as everywhere. If another session deletes or closes
+`b`, `s`, `q`, `?` and `S` work as everywhere. If another session deletes or closes
 the planned sprint, Planning closes on the Sprints workspace and the footer
 says `the planned sprint is gone or closed`.
 
@@ -358,11 +391,88 @@ Every interactive action is also a non-interactive subcommand, so an agent (or a
 script) can edit the list without opening the TUI. All commands take
 `-f/--file` (default `.todo.json`).
 
+### Quick start for agents
+
+Do not edit the list file by hand and do not walk the nested tree: ask todo.
+
+```sh
+todo next --json                       # what to work on, per open sprint
+todo show --id APP-001 --json          # one item (--number, --id, --title; --id takes a reference)
+todo list --flat [--kind task] [--status working,review] [--sprint "…"] [--column …] [--filter …]
+```
+
+`todo next [--sprint <id|name>] [--json]` prints
+`{"sprints":[{id, name, goal, prefix, status, counts, inProgress, next}]}`: for
+each open sprint (or the one named, open or closed) its reference `prefix` (left
+out when it has none), its `status` (`open` or `done`; the
+text header adds `(closed)` for a done sprint), its `counts` (`next`,
+`progress`, `done`), the tasks `inProgress`, and the tasks `next` (`ready`
+before `new`), each a record. `inProgress` and `next` hold top-level tasks only;
+subtasks show through `doneCount`/`totalCount`. `todo show` prints one record
+with `subtasks`. `todo list --flat` prints a JSON array of records in list order
+(it implies `--json`). With `--column`, `--sprint` or `--backlog` it returns
+tasks only (subtasks included); `--filter` also returns the categories on the
+path to each match. `--kind task|category` and
+`--status <states, comma-separated>` need `--flat` (a usage error without it);
+`--status` takes state names (`progress` is accepted for `working`).
+
+**The record.** Every item printed as JSON here has this shape, and so does
+every node of `todo list --json`, which adds its `children` (camelCase; fields
+marked optional are left out when empty):
+
+- `number`: the `#` of `todo list`; `id`: the 7-character id; `kind`: `task` or
+  `category`.
+- `ref` (optional, tasks): the reference, e.g. `APP-001`; `title` never
+  includes it.
+- `prefix` (optional, categories): the category's reference prefix.
+- `title`: the raw title.
+- `status` (tasks): the state name; `column` (tasks): `backlog`, `next`,
+  `progress` or `done`.
+- `sprint` (optional, tasks): the sprint's id (a subtask shows its parent's);
+  `sprintName` (optional).
+- `path`: the titles of the ancestors, root first, excluding the item itself
+  (`[]` at the top).
+- `parentId`, `parentTitle` (optional): the parent item.
+- `level` (optional, categories): the category depth.
+- `description`, `plan` (optional, tasks).
+- `doneCount`, `totalCount`: done and total tasks below the item
+  (subtasks for a task).
+- `subtasks` (optional): only in `show` and in the results of changes; one
+  `{number, id, title, status}` per direct child task.
+
+**`--json` on changes.** Add `--json` to any command that changes an item or a
+sprint (`import` has none) and it prints the result instead of the text line:
+`add`, `add-category`, `status`, `done`, `progress`, `defer`, `reopen`, `edit`,
+`move`, `assign` and `unassign` print the record of the item (with
+`subtasks`), and `move` adds `droppedRef` with the reference a task indented
+under another task lost (left out when none was dropped); `rm` prints
+`{"removed": <record>}`; `prune` prints `{"removed": <count>}`; `sprint add`,
+`sprint edit`, `sprint close` and `sprint reopen` print the sprint object
+(`{id, name, goal, prefix (optional), status, counts}`); `sprint rm` prints
+`{"removed": <sprint>}`.
+
+**Errors.** Under `--json` or `--flat`, a failing command prints one line on
+stderr, `{"error":{"code":"not_found","exit":3,"message":"…"}}`, and exits with
+that code. Without those flags the message stays plain text. A successful
+command can still write plain-text notes to stderr, such as `done`'s
+open-subtasks hint; parse stderr as JSON only when the exit code is non-zero.
+
+| exit | `code`       | meaning |
+|------|--------------|---------|
+| 1    | `error`      | any other failure |
+| 2    | `usage`      | bad flags or arguments |
+| 3    | `not_found`  | no such item or sprint |
+| 4    | `ambiguous`  | more than one item matches |
+| 5    | `wrong_kind` | the action does not fit the item's kind |
+| 6    | `conflict`   | the change conflicts with the list's state |
+
+### The nested view and other reading commands
+
 Read the list — with numbers, ids, and JSON for the read-then-act loop:
 
 ```sh
 todo list                 # aligned table: # · id · state · item
-todo list --json          # nested tree with number/id/ref/title/status/column/plan/path
+todo list --json          # the nested view: a tree of records, each with children
 todo list --filter build  # only matching items and their path
 todo list --column next   # only tasks in one column: backlog|next|progress|done
 todo list --sprint "Sprint 13"  # only that sprint's tasks (by id or name)
@@ -371,16 +481,18 @@ todo sprint list [--all] [--json]  # open sprints with their task counts
 ```
 
 The `state` column of `todo list` shows the task's state name (`open`, `ready`,
-`working`, …), and `--` for a category. In JSON, `status` is the state name,
-`column` is the task's column (`backlog`, `next`, `progress` or `done`; a
-subtask reports its parent's column), `plan` is the plan link and `ref` the
-task's reference (left out when it has none; `title` never includes it).
-`sprint` is the id of the sprint a top-level task is in (left out for a backlog
-task). `--column` without `--sprint` covers that column across every sprint;
-`--column backlog` with `--sprint` is a usage error.
-`todo sprint list --json` is an array of `{id, name, goal, status, counts}`,
-where `status` is `open` or `done` and `counts` has the `next`, `progress` and
-`done` task counts. `--all` includes closed sprints.
+`working`, …), and `--` for a category. `todo list --json` is a tree of records
+(see **The record** above), each with its `children`. In JSON, `status` is the
+state name, `column` is the task's column (`backlog`, `next`, `progress` or
+`done`; a subtask reports its parent's column), `plan` is the plan link and
+`ref` the task's reference (left out when it has none; `title` never includes
+it). `sprint` is the id of the sprint the task is in (a subtask shows its
+parent's; left out for a backlog task). `--column` without `--sprint` covers
+that column across every sprint; `--column backlog` with `--sprint` is a usage
+error. `todo sprint list --json` is an array of
+`{id, name, goal, prefix (optional), status, counts}`, where `status` is `open`
+or `done` and `counts` has the `next`, `progress` and `done` task counts.
+`--all` includes closed sprints.
 
 **Breaking change:** JSON `status` now says `"working"` where it used to say
 `"progress"`. On input, `progress` is still accepted as an alias of `working`.
@@ -397,21 +509,23 @@ Common actions:
 
 ```sh
 todo add --title "Cut the tag" --parent-title "Ship v1.0" [--ref APP-001] [--desc "…"] [--plan docs/plan.md] [--sprint "Sprint 13"] [--status open|working|deferred|done|new|ready|review|followup|wontdo]
-todo add-category --title "Backend" [--parent-title "Work"]
+todo add-category --title "Backend" [--parent-title "Work"] [--prefix BACK]
 todo status   --number 4 --to ready
 todo done     --title "Cut the tag" [--cascade]
 todo progress --number 4   # shortcut: status --to working
 todo defer    --id k3f9qw2 # shortcut: status --to deferred
 todo reopen   --title "Cut the tag" [--cascade]
 todo edit     --number 4 --set-title "…" --set-desc "…" --set-plan "docs/plan.md" --set-ref APP-002
+todo edit     --title "Backend" --set-prefix BACK   # a category's reference prefix
+todo settings [--ref-prefix TODO] [--json]            # show or set the list's reference prefix
 todo move     --title "Cut the tag" --parent-title "Backend" [--first | --after-title "…"]
 todo move     --title "Backend" --root
 todo rm       --number 4
 todo prune --sprint "Sprint 13"  # drop that sprint's fully-completed tasks
 todo prune --all                 # drop them in every sprint and the backlog
 
-todo sprint add    --name "Sprint 13" [--goal "ship sprint support"]   # prints the new id
-todo sprint edit   --sprint "Sprint 13" [--set-name "…"] [--set-goal "…"]
+todo sprint add    --name "Sprint 13" [--goal "ship sprint support"] [--prefix S13]   # prints the new id
+todo sprint edit   --sprint "Sprint 13" [--set-name "…"] [--set-goal "…"] [--set-prefix S13]
 todo sprint close  --sprint "Sprint 13"
 todo sprint reopen --sprint "Sprint 13"
 todo sprint rm     --sprint "Sprint 13"
@@ -425,7 +539,14 @@ todo unassign      --number 4
 without `--sprint`, or `--sprint` with a backlog state, is a usage error (exit
 code `2`). `edit --set-plan ""` clears a task's plan,
 and `edit --set-ref ""` its reference. A reference another task already holds,
-or one given to a subtask, is refused as a usage error (exit code `2`).
+or one given to a subtask, is refused as a usage error (exit code `2`), and so
+is `add --ref` where a reference prefix applies (see Reference prefix): the
+reference is generated and `add` prints it before the title. `edit --set-prefix`
+on a task is refused with exit code `5`. `todo settings` prints
+`ref-prefix: TODO` (or `ref-prefix: (none)`), `--json` prints
+`{"refPrefix":"TODO"}`, and an invalid prefix is a usage error. `list --json`
+shows a category's `prefix`, and `sprint list --json` a sprint's, each left out
+when empty.
 `move` places an item, with its subtree, under the parent named by
 `--parent-number`, `--parent-id` or `--parent-title` (or at the top level with
 `--root`, for a category): last among its kind there by default, first with
@@ -433,8 +554,10 @@ or one given to a subtask, is refused as a usage error (exit code `2`).
 `--after-title`, which must sit directly under that parent (exit code `2`
 otherwise). Subcategories always stay ahead of tasks. The move rules match the
 TUI's: a task never goes to the top level and a category never under a task
-(exit code `5`); a task with subtasks, or with a reference, cannot become a
-subtask; a moved subtask becomes a task and takes its state from its old parent.
+(exit code `5`); a task with subtasks cannot become a subtask, and one with a
+reference loses it (`move` prints `dropped reference <ref>`, or under `--json`
+reports it as `droppedRef`); a moved subtask becomes a task and takes its state
+from its old parent.
 `reopen` takes a done task back to `working` (a subtask to `open`); a task that
 is not done keeps its state and nothing is written (with `--cascade` its
 subtasks are reopened). `--cascade` on `done` / `reopen` applies the change to
@@ -499,8 +622,8 @@ Errors go to stderr.
 | `K` | Pick a sprint to go to |
 | `q` | Quit, from every screen — a dialog asks first, on Yes: `enter` quits, `esc` stays (`ctrl+c` quits at once) |
 | `tab` / `shift+tab` | Switch pane: Backlog split panes, Sprints sidebar / board, Planning sides |
-| `[` / `]` | Previous / next section (sprint board) |
-| `1`–`3` | Jump to Next / In Progress / Done (sprint board) |
+| `[` / `]` | Previous / next section (sprint board); on the Sprints sidebar, the first sprint of the previous / next section |
+| `1`–`3` | Jump to Next / In Progress / Done (sprint board); on the Sprints sidebar, `1` / `2` jump to the first Open / Done sprint |
 | `u` | Unified view: every task, any sprint / back — see Views |
 | `a` / `A` | Move the task to the next / previous column (it takes that column's first state) |
 | `a` | On a backlog task: assign it to a sprint (picker of open sprints); on a Backlog category it says to select a task |
@@ -509,7 +632,7 @@ Errors go to stderr.
 | `t` | Open the state dialog to set the task's state, including done (`↑`/`↓`, `enter` sets, `esc` cancels) |
 | `m` | Grab the task to reorder it (arrows move it, `enter`/`esc`/`m` drops it) |
 | `y` | Copy the selected item to the clipboard — a task's title and full (multi-line) description as plain text |
-| `enter` / `e` | Open / edit the selected item's dialog — its column/state/progress plus its editable title, reference, description & plan |
+| `enter` / `e` | Open / edit the selected item's dialog — its column/state/progress plus its editable title, reference, description & plan (a category's or sprint's reference prefix) |
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it); on a sprint board, in that sprint |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
 | `c` | Add a category (a subcategory when a category is selected) — Backlog and unified view only; on the Sprints sidebar, `c` closes / reopens the sprint |
@@ -517,11 +640,14 @@ Errors go to stderr.
 | `D` | On a sprint board, remove that sprint's completed tasks (keeping any with unfinished sub-tasks) — asks to confirm |
 | `v` | Backlog split view: categories sidebar + task list / back to the single tree — see Views |
 | `?` | Show the shortcuts dialog (`↑`/`↓` scroll it on a short terminal; `?`, `esc`, `q` or `enter` closes it) |
+| `S` | Settings: the list's reference prefix (see Reference prefix), from every screen; an empty value clears it |
 | `esc` | Clear an active search, then the state filter; when there is neither, on a sprint board back to the sprint sidebar, in a split's task list back to the categories, else ask to quit, like `q` |
 
-On the **Sprints sidebar**: `n` creates a sprint, `e` edits its name and goal,
-`c` closes or reopens it, `d` deletes it, and `enter` or `tab` focuses its
-board.
+On the **Sprints sidebar**: `n` creates a sprint, `e` edits its name,
+reference prefix and goal, `c` closes or reopens it, `d` deletes it, `[` / `]`
+and `1` / `2` jump between the Open and Done sections, and `enter` or `tab`
+focuses its board. A sprint's reference prefix is the one its
+new tasks get their references from, ahead of any category's.
 
 Tasks always live under a category — there are no root-level tasks. In the
 Backlog the tree always ends with a **`+ new category`** row: select it and
@@ -531,7 +657,12 @@ subcategory instead.
 In the add/edit dialog: `tab` moves between fields (title, reference,
 description, plan; a subtask has no reference),
 `enter` saves (it inserts a newline while you're in the description box), `esc`
-cancels.
+cancels. Where a reference prefix applies to a new task (see Reference prefix),
+the add dialog shows its reference as `WORK-… (automatic)` instead of a field:
+it is generated when the task is saved, and the edit dialog can change it
+afterwards. The category dialog (`c`, and `e` on a category) has a **Reference
+prefix** field after the title, and the sprint dialog one between the name and
+the goal; it is stored in upper case, and emptying it clears the prefix.
 
 Grab mode (`m`) is refused while a search or state filter is active.
 
@@ -588,7 +719,15 @@ changes only the lines that changed.
 
 ```json
 {
-  "version": 6,
+  "_comment": "This file is managed by the todo CLI. Do not edit it directly, …",
+  "version": 7,
+  "refs": {
+    "prefix": "TODO",
+    "last": {
+      "BACK": 3,
+      "S13": 12
+    }
+  },
   "view": {
     "screen": "sprint",
     "sprint": "a1b2c3d",
@@ -599,6 +738,7 @@ changes only the lines that changed.
       "id": "a1b2c3d",
       "name": "Sprint 13",
       "goal": "ship sprint support",
+      "prefix": "S13",
       "status": "open"
     }
   ],
@@ -610,6 +750,7 @@ changes only the lines that changed.
     {
       "id": "s85fd4v",
       "title": "Backend",
+      "prefix": "BACK",
       "parent": "8v1wyaa"
     }
   ],
@@ -635,16 +776,29 @@ changes only the lines that changed.
 }
 ```
 
-- `version` is the format version (now `6`). A file with a higher version is
-  refused: `list was written by a newer todo`. A version `3`, `4` or `5` file
-  (from before sprints) loads as it is and is written back as version `6` on
-  the next change, after which todo versions older than this one refuse it.
-  **Upgrade:** those files have tasks in Next, In Progress or Done with no
-  sprint, which version `6` forbids. On load, todo puts every such top-level
+- `_comment` is a note for whoever opens the file instead of running todo,
+  mostly coding agents: it says the file is managed by the todo CLI, should not
+  be edited directly, points readers at `todo next --json`,
+  `todo show --id <id|ref> --json` and `todo list --flat`, and says to change
+  it with todo commands. Every change, from a CLI command or the TUI, writes
+  todo's note first in a file that has none, and a new file starts with it. A
+  file with a different note keeps it. Opening or reading a list never writes
+  it. A file with a different note, or none, loads as usual.
+- `version` is the format version (now `7`). A file with a higher version is
+  refused: `list was written by a newer todo`. A version `3` to `6` file loads
+  as it is and is written back as version `7` on the next change (opening it
+  in the TUI alone does not), after which todo versions older than this one
+  refuse it.
+  **Upgrade:** version `3`, `4` and `5` files (from before sprints) have tasks
+  in Next, In Progress or Done with no sprint, which version `6` and later
+  forbid. On load, todo puts every such top-level
   task into one open sprint named `Imported`, keeping its state, so nothing
   changes column and nothing disappears. Backlog tasks stay out of any sprint,
   and a file with no such task gets no `Imported` sprint. A markdown import
   follows the same rule for its `[/]`, `[>]` and `[x]` tasks.
+- `refs` holds the reference-prefix state and is left out when empty: `prefix`
+  is the list's prefix, and `last` is the last number handed out for each
+  prefix, so a number is never reused after a task is deleted.
 - `view` is the screen and view the list opens on: `screen` is `backlog`
   (default), `sprints` or `sprint`, with `sprint` the id of the board shown for
   `screen: sprint`; `unified` is the unified view (`u`) and `split` the Backlog's
@@ -653,9 +807,11 @@ changes only the lines that changed.
   exists, opens the Sprints workspace on the first open sprint.
 - `sprints` is always written, possibly empty, in creation order (which is the
   `k` rotation order). A sprint has an `id`, a `name` (unique, ignoring case),
-  a `goal` (optional) and a `status`, `open` or `done`.
+  a `goal` (optional), a `prefix` (optional, its reference prefix) and a
+  `status`, `open` or `done`.
 - `categories` have an `id`, a `title` and, for a nested one, the `parent`
-  category's id. Array order is the order among siblings.
+  category's id, and an optional `prefix`, the reference prefix for tasks
+  created in it. Array order is the order among siblings.
 - `tasks` have an `id`, the `category` they sit under, a `title` and a `status`
   (`open`, `working`, `deferred`, `done`, `new`, `ready`, `review`, `followup`
   or `wontdo`). `sprint` (the id of the sprint the task is in), `ref`, `plan`,
@@ -677,7 +833,9 @@ more than 5 seconds for the lock fails as a conflict (exit code `6`); the TUI
 waits only 750 ms, so it never freezes, and shows the save as failed. Reading
 needs no lock. todo only creates the lock file when it writes.
 
-**Hand edits.** You can edit `.todo.json` by hand. Two things to know:
+**Hand edits.** Change the list with todo, not by editing `.todo.json`; the
+file's `_comment` says so to agents and scripts. You can still edit it by hand,
+for example to repair it. Two things to know:
 
 - An editor does not take the lock, and saving writes back its whole buffer:
   the file as it was when the editor loaded it, plus your edits. Every todo
@@ -695,5 +853,5 @@ until you fix them, with an error naming the problem.
 
 **Old `.todo.db` files.** todo no longer reads SQLite files. A `.todo.db` in the
 directory is ignored and left alone. There is no conversion. Until a
-`.todo.json` exists, todo says so on each run: on stderr for the CLI, in the
-footer for the TUI.
+`.todo.json` exists, todo says so on each run: on stderr for the CLI (except
+under `--json` or `--flat`), in the footer for the TUI.

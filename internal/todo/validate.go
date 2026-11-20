@@ -1,6 +1,10 @@
 package todo
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+	"slices"
+)
 
 // invalidf returns an ErrInvalidList with the message format makes of args.
 func invalidf(format string, args ...any) error {
@@ -10,7 +14,8 @@ func invalidf(format string, args ...any) error {
 // validate checks l against the format's rules and returns the first failure,
 // in this order: version, malformed IDs, duplicate IDs, sprints, missing
 // category parents, parent cycles, missing task categories, unknown statuses,
-// missing task sprints, sprint membership, titles, references. A file older
+// missing task sprints, sprint membership, titles, references, reference
+// prefixes. A file older
 // than version 6 is upgraded before (see upgradeSprints), so its tasks in a
 // sprint state pass the membership checks.
 func (l *diskList) validate() error {
@@ -51,7 +56,10 @@ func (l *diskList) validate() error {
 	if err := l.validateTitles(); err != nil {
 		return err
 	}
-	return l.validateRefs()
+	if err := l.validateRefs(); err != nil {
+		return err
+	}
+	return l.validatePrefixes()
 }
 
 // validateSprints checks every sprint: a well formed ID that no other sprint
@@ -155,6 +163,60 @@ func (l *diskList) validateRefs() error {
 			return invalidf("task %s: reference %q is already used by task %s", t.ID, t.Ref, other)
 		}
 		seen[refKey(t.Ref)] = t.ID
+	}
+	return nil
+}
+
+// validatePrefixes checks every stored reference prefix, the list's, the
+// sprints' and the categories', is one CleanPrefix returns unchanged and not
+// empty, and every counter is at least 1 under such a prefix. Counters are
+// checked in prefix order.
+func (l *diskList) validatePrefixes() error {
+	check := func(owner, p string) error {
+		if clean, err := CleanPrefix(p); err != nil || clean != p || p == "" {
+			return invalidf("%s: invalid reference prefix %q", owner, p)
+		}
+		return nil
+	}
+	if err := l.Refs.validate(check); err != nil {
+		return err
+	}
+	for _, s := range l.Sprints {
+		if s.Prefix != "" {
+			if err := check("sprint "+s.ID, s.Prefix); err != nil {
+				return err
+			}
+		}
+	}
+	for _, c := range l.Categories {
+		if c.Prefix != "" {
+			if err := check("category "+c.ID, c.Prefix); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validate checks the prefix and the counters of the refs section with check,
+// which words a bad prefix for its owner; r may be nil. Counters are checked in
+// prefix order.
+func (r *diskRefs) validate(check func(owner, p string) error) error {
+	if r == nil {
+		return nil
+	}
+	if r.Prefix != "" {
+		if err := check("refs", r.Prefix); err != nil {
+			return err
+		}
+	}
+	for _, p := range slices.Sorted(maps.Keys(r.Last)) {
+		if err := check("refs", p); err != nil {
+			return err
+		}
+		if r.Last[p] < 1 {
+			return invalidf("refs: counter for %s must be at least 1", p)
+		}
 	}
 	return nil
 }

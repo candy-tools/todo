@@ -64,20 +64,22 @@ func addCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if task, ok := res.Doc.ByID(id); ok {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), todo.Printable(task.DisplayTitle()), categoryPath(task))
-				}
-				return nil
+				return echoItem(cmd, res.Doc, id, func() {
+					if task, ok := res.Doc.ByID(id); ok {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), todo.Printable(task.DisplayTitle()), categoryPath(task))
+					}
+				})
 			})
 		},
 	}
 	c.Flags().String("title", "", "the new task's title (required)")
 	c.Flags().String("desc", "", "the new task's description")
 	c.Flags().String("plan", "", "a path or reference to the task's plan")
-	c.Flags().String("ref", "", "the new task's reference, such as APP-001; unique in the list (not for a subtask)")
+	c.Flags().String("ref", "", "the new task's reference, such as APP-001; unique in the list (not for a subtask; refused where a reference prefix applies, as it is generated)")
 	c.Flags().String("status", "open", "initial state: "+statusNames+" (default open; new with --sprint)")
 	c.Flags().String("sprint", "", "put the new task in this sprint, by id or name (top-level tasks only)")
 	addSelectorFlags(c, "parent-")
+	addJSONFlag(c)
 	return c
 }
 
@@ -119,21 +121,25 @@ func addCategoryCmd() *cobra.Command {
 				if parent != nil {
 					parentID = parent.ID
 				}
-				id, res, err := s.AppendCategory(ctx, title, parentID)
+				prefix, _ := cmd.Flags().GetString("prefix")
+				id, res, err := s.AppendCategoryWith(ctx, todo.Fields{Title: title, Prefix: prefix}, parentID)
 				if err != nil {
 					if parent != nil {
 						return wrongKindIn(err, "nest a category under", parent)
 					}
 					return err
 				}
-				if cat, ok := res.Doc.ByID(id); ok {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add-category: %s %s\n", strings.Repeat("#", depthOf(cat)+1), title)
-				}
-				return nil
+				return echoItem(cmd, res.Doc, id, func() {
+					if cat, ok := res.Doc.ByID(id); ok {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add-category: %s %s\n", strings.Repeat("#", depthOf(cat)+1), title)
+					}
+				})
 			})
 		},
 	}
 	c.Flags().String("title", "", "the category title (required)")
+	c.Flags().String("prefix", "", "the reference prefix for tasks created in this category, such as WORK (a letter and up to 9 letters or digits)")
 	addSelectorFlags(c, "parent-")
+	addJSONFlag(c)
 	return c
 }

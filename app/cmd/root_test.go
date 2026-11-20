@@ -1,12 +1,17 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
 func TestRootArgs(t *testing.T) {
-	c := newRootCommand()
+	c := newRootCommand(nil, nil)
 	if err := c.Args(c, nil); err != nil {
 		t.Errorf("no argument should be valid (defaults to .todo.json): %v", err)
 	}
@@ -19,7 +24,7 @@ func TestRootArgs(t *testing.T) {
 }
 
 func TestResolvePath(t *testing.T) {
-	c := newRootCommand()
+	c := newRootCommand(nil, nil)
 	if p, def, err := resolvePath(c, nil); err != nil || p != defaultFile || !def {
 		t.Errorf("default = %q, %v, %v", p, def, err)
 	}
@@ -38,7 +43,7 @@ func TestResolvePath(t *testing.T) {
 }
 
 func TestRootMeta(t *testing.T) {
-	c := newRootCommand()
+	c := newRootCommand(nil, nil)
 	if c.Use != "todo [list-file]" || c.Short != "A minimalistic terminal TODO manager" {
 		t.Errorf("unexpected Use/Short: %q / %q", c.Use, c.Short)
 	}
@@ -52,5 +57,213 @@ func TestMarkdownPathIsUsageError(t *testing.T) {
 	_, err := runCmd(t, "list", "-f", "TODO.md")
 	if codeOf(t, err) != exitUsage || err.Error() == "" || !contains(err.Error(), "todo import") {
 		t.Errorf("want a usage error mentioning todo import, got %v", err)
+	}
+}
+
+// runExecute runs execute and returns the exit code with stdout and stderr.
+func runExecute(args ...string) (code int, stdout, stderr string) {
+	var out, errb bytes.Buffer
+	code = execute(args, &out, &errb)
+	return code, out.String(), errb.String()
+}
+
+// decodeJSONError parses the single-line JSON error object from stderr.
+func decodeJSONError(t *testing.T, stderr string) jsonError {
+	t.Helper()
+	if strings.Count(stderr, "\n") != 1 || !strings.HasSuffix(stderr, "\n") {
+		t.Fatalf("want exactly one line on stderr, got %q", stderr)
+	}
+	var je jsonError
+	if err := json.Unmarshal([]byte(stderr), &je); err != nil {
+		t.Fatalf("stderr is not a JSON error: %v: %q", err, stderr)
+	}
+	return je
+}
+
+func TestExecuteJSONErrorNotFound(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	code, stdout, stderr := runExecute("show", "--file", p, "--id", "zzzzzzz", "--json")
+	if code != exitNotFound || stdout != "" {
+		t.Fatalf("code=%d stdout=%q", code, stdout)
+	}
+	je := decodeJSONError(t, stderr)
+	if je.Error.Code != "not_found" || je.Error.Exit != 3 || je.Error.Message != "no item with --id zzzzzzz" {
+		t.Errorf("unexpected error object: %+v", je.Error)
+	}
+}
+
+func TestExecuteJSONErrorAmbiguous(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] x\n- [ ] x\n")
+	code, _, stderr := runExecute("done", "--file", p, "--title", "x", "--json")
+	if code != exitAmbiguous {
+		t.Fatalf("code=%d", code)
+	}
+	je := decodeJSONError(t, stderr)
+	if je.Error.Code != "ambiguous" || je.Error.Exit != 4 ||
+		!strings.Contains(je.Error.Message, "--number 2") || !strings.Contains(je.Error.Message, "--number 3") {
+		t.Errorf("unexpected error object: %+v", je.Error)
+	}
+}
+
+func TestExecuteJSONErrorOnFlagError(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	code, _, stderr := runExecute("list", "--file", p, "--json", "--bogus")
+	if code != exitUsage {
+		t.Fatalf("code=%d", code)
+	}
+	if je := decodeJSONError(t, stderr); je.Error.Code != "usage" || je.Error.Exit != 2 {
+		t.Errorf("unexpected error object: %+v", je.Error)
+	}
+}
+
+func TestExecuteJSONFalseGivesPlainError(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	code, _, stderr := runExecute("show", "--file", p, "--id", "zzzzzzz", "--json=false")
+	if code != exitNotFound || stderr != "no item with --id zzzzzzz\n" {
+		t.Errorf("code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestExecuteJSONTrueOnFlagError(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	code, _, stderr := runExecute("list", "--file", p, "--bogus", "--json=true")
+	if code != exitUsage {
+		t.Fatalf("code=%d", code)
+	}
+	if je := decodeJSONError(t, stderr); je.Error.Code != "usage" || je.Error.Exit != 2 {
+		t.Errorf("unexpected error object: %+v", je.Error)
+	}
+}
+
+// A wrong number of positional arguments is a usage error (exit 2), printed as
+// JSON when the command's --json is set and as plain text otherwise.
+func TestExecuteArgumentErrorIsUsage(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	tests := []struct {
+		name string
+		args []string
+		json bool
+	}{
+		{"list json extra", []string{"list", "--file", p, "--json", "extra"}, true},
+		{"sprint list json extra", []string{"sprint", "list", "--file", p, "--json", "x"}, true},
+		{"list extra", []string{"list", "--file", p, "extra"}, false},
+		{"sprint bogus", []string{"sprint", "--file", p, "bogus"}, false},
+		{"import no argument", []string{"import", "--file", p}, false},
+		{"root two arguments", []string{"a", "b"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, stdout, stderr := runExecute(tt.args...)
+			if code != exitUsage || stdout != "" {
+				t.Fatalf("code=%d stdout=%q stderr=%q, want exit %d", code, stdout, stderr, exitUsage)
+			}
+			if tt.json {
+				if je := decodeJSONError(t, stderr); je.Error.Code != "usage" || je.Error.Exit != exitUsage {
+					t.Errorf("unexpected error object: %+v", je.Error)
+				}
+				return
+			}
+			if strings.HasPrefix(stderr, "{") || strings.Count(stderr, "\n") != 1 {
+				t.Errorf("want one plain-text line, got %q", stderr)
+			}
+		})
+	}
+}
+
+// cobra's completion command follows the same contract: a wrong number of
+// arguments is a usage error, a valid call writes the script to stdout, and
+// the bare command shows its help.
+func TestExecuteCompletion(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		code int
+		want string // on stdout when code is 0
+	}{
+		{"bash extra", []string{"completion", "bash", "extra"}, exitUsage, ""},
+		{"extra", []string{"completion", "extra"}, exitUsage, ""},
+		{"bash", []string{"completion", "bash"}, 0, "bash completion"},
+		{"bare", []string{"completion"}, 0, "Available Commands:"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, stdout, stderr := runExecute(tt.args...)
+			if code != tt.code {
+				t.Fatalf("code=%d stderr=%q, want exit %d", code, stderr, tt.code)
+			}
+			if tt.code == 0 && !strings.Contains(stdout, tt.want) {
+				t.Errorf("want %q on stdout, got %q", tt.want, stdout)
+			}
+		})
+	}
+}
+
+// --json=<bool> before a bad flag counts by its parsed value, as cobra would
+// read it: 1 turns JSON errors on, 0 leaves them off.
+func TestExecuteJSONBoolValueOnFlagError(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	tests := []struct {
+		flag string
+		json bool
+	}{
+		{"--json=1", true},
+		{"--json=0", false},
+		{"--flat=1", true},
+		{"--flat=0", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.flag, func(t *testing.T) {
+			code, _, stderr := runExecute("list", "--file", p, "--bogus", tt.flag)
+			if code != exitUsage {
+				t.Fatalf("code=%d stderr=%q", code, stderr)
+			}
+			if tt.json {
+				if je := decodeJSONError(t, stderr); je.Error.Code != "usage" || je.Error.Exit != exitUsage {
+					t.Errorf("unexpected error object: %+v", je.Error)
+				}
+				return
+			}
+			if strings.HasPrefix(stderr, "{") {
+				t.Errorf("want a plain error, got %q", stderr)
+			}
+		})
+	}
+}
+
+// --json taken as --set-title's value does not turn JSON errors on: the
+// error comes after flag parsing, so only the parsed flags count.
+func TestExecuteJSONAsFlagValueGivesPlainError(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	code, _, stderr := runExecute("edit", "--file", p, "--set-title", "--json")
+	want := "specify one of --number, --id or --title\n"
+	if code != exitUsage || stderr != want {
+		t.Errorf("code=%d stderr=%q, want %q", code, stderr, want)
+	}
+}
+
+func TestExecutePlainErrorWithoutJSON(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	code, _, stderr := runExecute("show", "--file", p, "--id", "zzzzzzz")
+	if code != exitNotFound || stderr != "no item with --id zzzzzzz\n" {
+		t.Errorf("code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestExecuteSuccess(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	if code, _, stderr := runExecute("list", "--file", p); code != 0 || stderr != "" {
+		t.Errorf("code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestErrorCodeNames(t *testing.T) {
+	want := map[int]string{1: "error", 2: "usage", 3: "not_found", 4: "ambiguous", 5: "wrong_kind", 6: "conflict"}
+	for exit, name := range want {
+		if got, n := errorCode(&cliError{exit, "m"}); got != exit || n != name {
+			t.Errorf("exit %d: got %d %q, want %q", exit, got, n, name)
+		}
+	}
+	if got, n := errorCode(os.ErrNotExist); got != 1 || n != "error" {
+		t.Errorf("plain error: %d %q", got, n)
 	}
 }

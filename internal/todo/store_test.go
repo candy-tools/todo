@@ -333,7 +333,7 @@ func everyWrite(s *Store, cat, task string) map[string]func() error {
 func TestStoreNewerVersion(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	content := `{"version": 7, "categories": [], "tasks": [], "tags": []}`
+	content := `{"version": 8, "categories": [], "tasks": [], "tags": []}`
 	if err := os.WriteFile(s.Path(), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -380,5 +380,73 @@ func TestStoreDirectoryPathFails(t *testing.T) {
 	}
 	if _, _, err := s.AppendCategory(context.Background(), "A", ""); err == nil {
 		t.Fatal("a write to a directory succeeded; want an error")
+	}
+}
+
+func TestStoreSetRefPrefix(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	res, err := s.SetRefPrefix(ctx, " todo ")
+	if err != nil || !res.Written {
+		t.Fatalf("SetRefPrefix(todo) = %v, %v; want a write", res.Written, err)
+	}
+	if got := string(fileBytes(t, s.Path())); !strings.Contains(got, `"prefix": "TODO"`) {
+		t.Fatalf("file =\n%s\nwant the prefix TODO", got)
+	}
+	if res, err = s.SetRefPrefix(ctx, "TODO"); err != nil || res.Written {
+		t.Fatalf("SetRefPrefix(TODO) again = %v, %v; want no write", res.Written, err)
+	}
+	if _, err = s.SetRefPrefix(ctx, "1a"); !errors.Is(err, ErrInvalidPrefix) {
+		t.Fatalf("SetRefPrefix(1a) = %v, want ErrInvalidPrefix", err)
+	}
+	if res, err = s.SetRefPrefix(ctx, ""); err != nil || !res.Written {
+		t.Fatalf("SetRefPrefix(\"\") = %v, %v; want a write", res.Written, err)
+	}
+	if got := string(fileBytes(t, s.Path())); strings.Contains(got, `"refs"`) {
+		t.Fatalf("file =\n%s\nwant no refs section", got)
+	}
+}
+
+func TestStoreAppendCategoryWithAndAddSprintWith(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	cat, _, err := s.AppendCategoryWith(ctx, Fields{Title: "A", Prefix: "work"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp, _, err := s.AddSprintWith(ctx, Fields{Title: "S1", Description: "goal", Prefix: "spr"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := load(t, s)
+	if c, _ := doc.ByID(cat); c.Prefix != "WORK" {
+		t.Errorf("category prefix = %q, want WORK", c.Prefix)
+	}
+	if sprint, _ := doc.SprintByID(sp); sprint.Prefix != "SPR" || sprint.Goal != "goal" {
+		t.Errorf("sprint = %+v, want prefix SPR and goal", sprint)
+	}
+}
+
+// Two stores on one file number references from one counter: it is read under
+// the lock.
+func TestStoreAddRefsAcrossProcesses(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), ".todo.json")
+	a, b := NewStore(path), NewStore(path)
+	cat, _, err := a.AppendCategoryWith(ctx, Fields{Title: "A", Prefix: "WORK"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refs []string
+	for _, s := range []*Store{a, b} {
+		id, _, err := s.AppendTask(ctx, Fields{Title: "t"}, Open, cat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		it, _ := load(t, s).ByID(id)
+		refs = append(refs, it.Ref)
+	}
+	if refs[0] != "WORK-001" || refs[1] != "WORK-002" {
+		t.Errorf("refs = %v, want WORK-001 and WORK-002", refs)
 	}
 }

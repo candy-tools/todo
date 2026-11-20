@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,8 +24,12 @@ func TestFormRing(t *testing.T) {
 		t.Errorf("subtask form should have 5 focus stops (no reference), got %d", len(sub.ring()))
 	}
 	cat := newForm(todo.Fields{}, formCategory, false)
-	if len(cat.ring()) != 3 {
-		t.Errorf("category form should have 3 focus stops (no description), got %d", len(cat.ring()))
+	if len(cat.ring()) != 4 {
+		t.Errorf("category form should have 4 focus stops (title, prefix, Save, Cancel), got %d", len(cat.ring()))
+	}
+	settings := newForm(todo.Fields{}, formSettings, true)
+	if len(settings.ring()) != 3 {
+		t.Errorf("settings form should have 3 focus stops (the prefix, Save, Cancel), got %d", len(settings.ring()))
 	}
 }
 
@@ -69,8 +74,8 @@ func TestFormPlanFieldInRing(t *testing.T) {
 	}
 	cat := newForm(todo.Fields{}, formCategory, false)
 	for _, x := range cat.ring() {
-		if x == focusPlan || x == focusRef {
-			t.Error("category form must have no plan or reference field")
+		if x == focusPlan || x == focusDesc {
+			t.Error("category form must have no plan or description field")
 		}
 	}
 }
@@ -94,8 +99,8 @@ func TestFormViewTitles(t *testing.T) {
 	}
 	cat := newForm(todo.Fields{}, formCategory, true)
 	cat.setWidth(100)
-	if !strings.Contains(cat.view(), "Rename category") {
-		t.Errorf("category edit form should be titled 'Rename category'")
+	if !strings.Contains(cat.view(), "Edit category") {
+		t.Errorf("category edit form should be titled 'Edit category'")
 	}
 	if strings.Contains(cat.view(), "Description") {
 		t.Errorf("category form should not show a Description field")
@@ -303,5 +308,141 @@ func TestEditSaveOfDeletedItemClosesForm(t *testing.T) {
 	}
 	if got := m.footer(200); !strings.Contains(got, "save failed: "+todo.ErrNotFound.Error()) {
 		t.Errorf("footer = %q, want the not-found error", got)
+	}
+}
+
+// The category form has a Reference prefix field after the title: adding a
+// category stores it upper-cased, and the edit form shows it and writes only
+// the prefix when only it changed.
+func TestCategoryFormPrefix(t *testing.T) {
+	m, path := newTestModel(t, "# B\n- [ ] a\n")
+	m = press(selectTitle(t, m, "B"), "c")
+	if m.mode != modeForm || m.form.kind != formCategory {
+		t.Fatalf("c: mode %v kind %v, want the category form", m.mode, m.form.kind)
+	}
+	if want := []formFocus{focusTitle, focusRef, focusSave, focusCancel}; !slices.Equal(m.form.ring(), want) {
+		t.Errorf("category ring = %v, want %v", m.form.ring(), want)
+	}
+	if !strings.Contains(m.form.view(), "Reference prefix") {
+		t.Errorf("the category form should show a Reference prefix field:\n%s", m.form.view())
+	}
+	m = typeText(m, "Work")
+	m = typeText(press(m, "tab"), "work")
+	m = press(m, "enter")
+	if m.mode != modeMain || m.err != nil || m.status != "" {
+		t.Fatalf("after enter: mode %v err %v status %q", m.mode, m.err, m.status)
+	}
+	if p := storedItem(t, path, "Work").Prefix; p != "WORK" {
+		t.Fatalf("stored prefix = %q, want WORK", p)
+	}
+
+	m = press(selectTitle(t, m, "Work"), "e")
+	if m.mode != modeForm || m.form.ref.Value() != "WORK" {
+		t.Fatalf("e: mode %v prefix %q, want WORK", m.mode, m.form.ref.Value())
+	}
+	m = press(m, "tab")
+	m = typeText(clearInput(m, 4), "ops")
+	ch := m.form.changes()
+	if ch.Prefix == nil || *ch.Prefix != "ops" || ch.Title != nil || ch.Ref != nil || ch.Description != nil || ch.Plan != nil {
+		t.Errorf("changes = %+v, want the prefix only", ch)
+	}
+	m = press(m, "enter")
+	if m.mode != modeMain || m.err != nil {
+		t.Fatalf("after the edit: mode %v err %v status %q", m.mode, m.err, m.status)
+	}
+	if p := storedItem(t, path, "Work").Prefix; p != "OPS" {
+		t.Errorf("stored prefix after the edit = %q, want OPS", p)
+	}
+}
+
+// The sprint form has a Reference prefix field between the name and the goal.
+func TestSprintFormPrefix(t *testing.T) {
+	m, path := threeSprints(t)
+	m = press(m, "s", "n")
+	if want := []formFocus{focusTitle, focusRef, focusDesc, focusSave, focusCancel}; !slices.Equal(m.form.ring(), want) {
+		t.Errorf("sprint ring = %v, want %v", m.form.ring(), want)
+	}
+	m = typeText(m, "S")
+	m = typeText(press(m, "tab"), "spr")
+	m = press(m, "enter")
+	if m.mode != modeMain || m.err != nil || m.status != "" {
+		t.Fatalf("after enter: mode %v err %v status %q", m.mode, m.err, m.status)
+	}
+	s, ok := loadSprintDoc(t, path).SprintByName("S")
+	if !ok || s.Prefix != "SPR" {
+		t.Fatalf("stored sprint = %+v (found %v), want prefix SPR", s, ok)
+	}
+
+	m = press(m, "e")
+	if m.form.ref.Value() != "SPR" {
+		t.Fatalf("e shows prefix %q, want SPR", m.form.ref.Value())
+	}
+	m = clearInput(press(m, "tab"), 3)
+	if ch := m.form.sprintChanges(); ch.Prefix == nil || *ch.Prefix != "" || ch.Name != nil || ch.Goal != nil {
+		t.Errorf("sprintChanges = %+v, want the prefix cleared only", ch)
+	}
+	m = press(m, "enter")
+	if s, _ := loadSprintDoc(t, path).SprintByName("S"); s.Prefix != "" {
+		t.Errorf("stored prefix after clearing = %q, want none", s.Prefix)
+	}
+}
+
+// Where a reference prefix applies, the add-task form shows the reference it
+// will get instead of an input, and the task gets the generated one; without
+// one the reference stays a field to fill in.
+func TestAddTaskFormAutoRef(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n- [ ] a\n# Home\n- [ ] b\n")
+	work := find(m.doc, "Work")
+	if _, err := m.store.Edit(context.Background(), work.ID, todo.Changes{Prefix: new("work")}); err != nil {
+		t.Fatal(err)
+	}
+	m = pollOnce(t, m)
+
+	m = press(selectTitle(t, m, "Work"), "n")
+	if m.mode != modeForm || m.form.kind != formTask {
+		t.Fatalf("n: mode %v kind %v, want the add-task form", m.mode, m.form.kind)
+	}
+	if slices.Contains(m.form.ring(), focusRef) {
+		t.Errorf("ring = %v, want no reference stop", m.form.ring())
+	}
+	if v := m.form.view(); !strings.Contains(v, "WORK-… (automatic)") {
+		t.Errorf("the form should show the automatic reference:\n%s", v)
+	}
+	m = press(typeText(m, "t"), "enter")
+	if m.mode != modeMain || m.err != nil || m.status != "" {
+		t.Fatalf("after enter: mode %v err %v status %q", m.mode, m.err, m.status)
+	}
+	if ref := storedItem(t, path, "t").Ref; ref != "WORK-001" {
+		t.Errorf("the new task's ref = %q, want WORK-001", ref)
+	}
+
+	// The edit form keeps the reference editable.
+	m = press(selectTitle(t, m, "t"), "e")
+	if !slices.Contains(m.form.ring(), focusRef) || m.form.ref.Value() != "WORK-001" {
+		t.Errorf("edit: ring %v ref %q, want an editable WORK-001", m.form.ring(), m.form.ref.Value())
+	}
+
+	m = press(m, "esc")
+	m = press(selectTitle(t, m, "Home"), "n")
+	if !slices.Contains(m.form.ring(), focusRef) || strings.Contains(m.form.view(), "(automatic)") {
+		t.Errorf("without a prefix: ring %v, want the reference field", m.form.ring())
+	}
+}
+
+// On a sprint board a new task joins the board's sprint, so the sprint's
+// prefix is the one its form shows and its reference comes from.
+func TestAddTaskFormAutoRefFromSprint(t *testing.T) {
+	m, path := threeSprints(t)
+	if _, err := m.store.EditSprint(context.Background(), "s00000a", todo.SprintChanges{Prefix: new("sa")}); err != nil {
+		t.Fatal(err)
+	}
+	m = pollOnce(t, m)
+	m = press(m, "s", "tab", "n")
+	if m.mode != modeForm || m.form.autoRef != "SA" {
+		t.Fatalf("n on A's board: mode %v autoRef %q, want SA (status %q)", m.mode, m.form.autoRef, m.status)
+	}
+	m = press(typeText(m, "t"), "enter")
+	if ref := storedItem(t, path, "t").Ref; ref != "SA-001" {
+		t.Errorf("the new task's ref = %q, want SA-001", ref)
 	}
 }

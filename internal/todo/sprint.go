@@ -45,6 +45,9 @@ type Sprint struct {
 	Name   string
 	Goal   string
 	Status SprintStatus
+	// Prefix is the reference prefix of the tasks created in the sprint (see
+	// Document.PrefixFor); "" for none.
+	Prefix string
 }
 
 // InSprint reports whether a task in this state belongs to a sprint: every
@@ -113,6 +116,24 @@ func (d *Document) SprintTasks(id string) []*Item {
 		}
 	}
 	return out
+}
+
+// WorkQueue returns the sprint's top-level tasks to work on: those in progress,
+// in tree order, and those next, Ready before New and in tree order within each
+// state. Done tasks, and tasks in a backlog state, are left out.
+func (d *Document) WorkQueue(id string) (inProgress, next []*Item) {
+	var fresh []*Item
+	for _, it := range d.SprintTasks(id) {
+		switch {
+		case it.Status.Column() == ColInProgress:
+			inProgress = append(inProgress, it)
+		case it.Status == Ready:
+			next = append(next, it)
+		case it.Status.Column() == ColNext:
+			fresh = append(fresh, it)
+		}
+	}
+	return inProgress, append(next, fresh...)
 }
 
 // Unfinished returns how many tasks and subtasks of the sprint are not done.

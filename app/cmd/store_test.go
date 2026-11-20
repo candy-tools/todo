@@ -17,10 +17,8 @@ import (
 // runSplit runs the root command capturing stdout and stderr separately.
 func runSplit(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
-	c := newRootCommand()
 	var out, errb bytes.Buffer
-	c.SetOut(&out)
-	c.SetErr(&errb)
+	c := newRootCommand(&out, &errb)
 	c.SetArgs(args)
 	err = c.Execute()
 	return out.String(), errb.String(), err
@@ -73,6 +71,25 @@ func TestAutoImportOnFirstRun(t *testing.T) {
 	_, errOut, err = runSplit(t, "list")
 	if err != nil || errOut != "" {
 		t.Errorf("second run: err=%v stderr=%q, want no notice", err, errOut)
+	}
+}
+
+// Under --flat the first-run import still happens, but its summary stays off
+// stderr, which carries only JSON errors for agents.
+func TestAutoImportQuietUnderFlat(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(legacyFile, []byte("# Work\n\n- [ ] alpha\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, err := runSplit(t, "list", "--flat")
+	if err != nil {
+		t.Fatalf("list --flat: %v", err)
+	}
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing under --flat", errOut)
+	}
+	if !json.Valid([]byte(out)) || !contains(out, "alpha") {
+		t.Errorf("stdout is not the imported list as JSON:\n%s", out)
 	}
 }
 
@@ -187,7 +204,7 @@ func TestAutoImportWritesJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := bytesOf(t, ".todo.json")
-	if !contains(string(raw), `"version": 6`) || !contains(string(raw), `"title": "alpha"`) {
+	if !contains(string(raw), `"version": 7`) || !contains(string(raw), `"title": "alpha"`) {
 		t.Errorf(".todo.json is not the JSON list:\n%s", raw)
 	}
 	if _, err := os.Stat(".todo.db"); !os.IsNotExist(err) {
@@ -275,7 +292,7 @@ func TestStoreErrorsMapByClass(t *testing.T) {
 	} {
 		t.Run(c.err.Error(), func(t *testing.T) {
 			t.Chdir(t.TempDir())
-			err := withStore(newRootCommand(), func(context.Context, *todo.Store, *todo.Document) error { return c.err })
+			err := withStore(newRootCommand(nil, nil), func(context.Context, *todo.Store, *todo.Document) error { return c.err })
 			if codeOf(t, err) != c.code || err.Error() != c.msg {
 				t.Errorf("withStore with %v = %v (exit %d), want exit %d with %q", c.err, err, codeOf(t, err), c.code, c.msg)
 			}
