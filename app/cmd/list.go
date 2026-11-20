@@ -62,6 +62,19 @@ func listCmd() *cobra.Command {
 				// Search within the columns and sprint, as the TUI tab does.
 				visible = doc.ColumnMatches(filter, sprintID, cols...)
 			}
+			flat, _ := cmd.Flags().GetBool("flat")
+			kind, _ := cmd.Flags().GetString("kind")
+			statusCSV, _ := cmd.Flags().GetString("status")
+			if !flat && (kind != "" || statusCSV != "") {
+				return usageErr("--kind and --status need --flat")
+			}
+			if flat {
+				keep, err := listKeep(kind, statusCSV)
+				if err != nil {
+					return err
+				}
+				return writeListFlat(cmd.OutOrStdout(), doc, visible, keep)
+			}
 			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
 				return writeListJSON(cmd.OutOrStdout(), doc, visible)
 			}
@@ -73,7 +86,63 @@ func listCmd() *cobra.Command {
 	c.Flags().String("column", "", "only show tasks in this board column: "+columnNames)
 	c.Flags().String("sprint", "", "only show this sprint's tasks, by id or name")
 	c.Flags().Bool("backlog", false, "only show tasks not in a sprint (same as --column backlog)")
+	c.Flags().Bool("flat", false, "output a flat JSON array of records, one per item, in list order; implies --json")
+	c.Flags().String("kind", "", "with --flat, only this kind: task|category")
+	c.Flags().String("status", "", "with --flat, only tasks in these states (comma-separated): "+statusNames)
 	return c
+}
+
+// listKeep builds the --flat predicate from the --kind and --status values. A
+// status filter keeps tasks only, by their own state.
+func listKeep(kind, statusCSV string) (func(*todo.Item) bool, error) {
+	if kind != "" && kind != "task" && kind != "category" {
+		return nil, usageErr(fmt.Sprintf("invalid --kind %q (task|category)", kind))
+	}
+	statuses, err := parseStatuses(statusCSV)
+	if err != nil {
+		return nil, err
+	}
+	return func(it *todo.Item) bool {
+		if kind == "task" && !it.IsTask() || kind == "category" && it.IsTask() {
+			return false
+		}
+		return len(statuses) == 0 || it.IsTask() && statuses[it.Status]
+	}, nil
+}
+
+// parseStatuses parses a comma-separated list of state names into a set; empty
+// parts are skipped and an unknown name is a usage error.
+func parseStatuses(csv string) (map[todo.Status]bool, error) {
+	set := map[todo.Status]bool{}
+	for _, name := range strings.Split(csv, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		st, ok := todo.StatusFromName(name)
+		if !ok {
+			return nil, usageErr(fmt.Sprintf("invalid --status %q (%s)", name, statusNames))
+		}
+		set[st] = true
+	}
+	return set, nil
+}
+
+// writeListFlat prints every visible (nil = all) item that keep accepts as a
+// record, in list order, as a JSON array ([] when none).
+func writeListFlat(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool, keep func(*todo.Item) bool) error {
+	nums := numberMap(doc)
+	recs := []record{}
+	for _, it := range doc.Enumerate() {
+		if visible != nil && !visible[it] {
+			continue
+		}
+		if keep != nil && !keep(it) {
+			continue
+		}
+		recs = append(recs, toRecord(doc, it, nums))
+	}
+	return writeJSON(w, recs)
 }
 
 // depthOf is the item's nesting depth from the roots (0 = top level), used to
@@ -103,8 +172,8 @@ func writeListTable(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool
 	return nil
 }
 
-// jsonItem is the shape emitted by `list --json` and by mutating commands under
-// --json.
+// jsonItem is the nested shape emitted by `list --json`. The commands that
+// print single items as JSON use record instead.
 type jsonItem struct {
 	Number      int        `json:"number"`
 	ID          string     `json:"id"`

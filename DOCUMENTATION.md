@@ -374,11 +374,72 @@ Every interactive action is also a non-interactive subcommand, so an agent (or a
 script) can edit the list without opening the TUI. All commands take
 `-f/--file` (default `.todo.json`).
 
+### Quick start for agents
+
+Do not edit the list file by hand and do not walk the nested tree: ask todo.
+
+```sh
+todo next --json                       # what to work on, per open sprint
+todo show --id APP-001 --json          # one item (--number, --id, --title; --id takes a reference)
+todo list --flat [--kind task] [--status working,review] [--sprint "…"] [--column …] [--filter …]
+```
+
+`todo next [--sprint <id|name>] [--json]` prints
+`{"sprints":[{id, name, goal, status, counts, inProgress, next}]}`: for each open
+sprint (or the one named, open or closed) its `status` (`open` or `done`; the
+text header adds `(closed)` for a done sprint), its `counts` (`next`,
+`progress`, `done`), the tasks `inProgress`, and the tasks `next` (`ready`
+before `new`), each a record. `inProgress` and `next` hold top-level tasks only;
+subtasks show through `doneCount`/`totalCount`. `todo show` prints one record with `subtasks`. `todo list --flat` prints
+a JSON array of records in list order (it implies `--json`). `--kind task|category`
+and `--status <states, comma-separated>` need `--flat` (a usage error without
+it); `--status` takes state names (`progress` is accepted for `working`).
+
+**The record.** Every item printed as JSON here has this shape (camelCase;
+fields marked optional are left out when empty):
+
+- `number`: the `#` of `todo list`; `id`: the 7-character id; `kind`: `task` or `category`.
+- `ref` (optional, tasks): the reference, e.g. `APP-001`; `title` never includes it.
+- `prefix` (optional, categories): the category's reference prefix.
+- `title`: the raw title.
+- `status` (tasks): the state name; `column` (tasks): `backlog`, `next`, `progress` or `done`.
+- `sprint` (optional, tasks): the sprint's id (a subtask shows its parent's); `sprintName` (optional).
+- `path`: the titles of the ancestors, root first, excluding the item itself (`[]` at the top).
+- `parentId`, `parentTitle` (optional): the parent item.
+- `level` (optional, categories): the category depth.
+- `description`, `plan` (optional, tasks).
+- `doneCount`, `totalCount`: done and total tasks below the item (subtasks for a task).
+- `subtasks` (optional): only in `show` and in the results of changes; one
+  `{number, id, title, status}` per direct child task.
+
+**`--json` on changes.** Add `--json` to any command that changes an item or a
+sprint (`import` has none) and it prints the result instead of the text line: `add`, `add-category`, `status`, `done`, `progress`,
+`defer`, `reopen`, `edit`, `move`, `assign` and `unassign` print the record of
+the item (with `subtasks`); `rm` prints `{"removed": <record>}`; `prune` prints
+`{"removed": <count>}`; `sprint add`, `sprint edit`, `sprint close` and
+`sprint reopen` print the sprint object (`{id, name, goal, prefix (optional),
+status, counts}`); `sprint rm` prints `{"removed": <sprint>}`.
+
+**Errors.** Under `--json` or `--flat`, a failing command prints one line on
+stderr, `{"error":{"code":"not_found","exit":3,"message":"…"}}`, and exits with
+that code. Without those flags the message stays plain text.
+
+| exit | `code`       | meaning |
+|------|--------------|---------|
+| 1    | `error`      | any other failure |
+| 2    | `usage`      | bad flags or arguments |
+| 3    | `not_found`  | no such item or sprint |
+| 4    | `ambiguous`  | more than one item matches |
+| 5    | `wrong_kind` | the action does not fit the item's kind |
+| 6    | `conflict`   | the change conflicts with the list's state |
+
+### The nested view and other reading commands
+
 Read the list — with numbers, ids, and JSON for the read-then-act loop:
 
 ```sh
 todo list                 # aligned table: # · id · state · item
-todo list --json          # nested tree with number/id/ref/title/status/column/plan/path
+todo list --json          # the nested view: a tree with number/id/ref/title/status/column/plan/path
 todo list --filter build  # only matching items and their path
 todo list --column next   # only tasks in one column: backlog|next|progress|done
 todo list --sprint "Sprint 13"  # only that sprint's tasks (by id or name)
@@ -680,8 +741,9 @@ changes only the lines that changed.
 
 - `_comment` is a note for whoever opens the file instead of running todo,
   mostly coding agents: it says the file is managed by the todo CLI, should not
-  be edited directly, and is read with `todo list --json` and changed with todo
-  commands. Opening the TUI writes todo's note, first in the file, when the
+  be edited directly, points readers at `todo next --json`,
+  `todo show --id <id|ref> --json` and `todo list --flat`, and says to change
+  it with todo commands. Opening the TUI writes todo's note, first in the file, when the
   file has none or a different one, and a new file starts with it. Other
   writes, and every CLI command, keep whatever note the file holds. A file
   with a different note, or none, loads as usual.

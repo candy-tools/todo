@@ -64,10 +64,11 @@ func addCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if task, ok := res.Doc.ByID(id); ok {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), todo.Printable(task.DisplayTitle()), categoryPath(task))
-				}
-				return nil
+				return echoItem(cmd, res.Doc, id, func() {
+					if task, ok := res.Doc.ByID(id); ok {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add: [%s] %s  (%s)\n", task.Status.String(), todo.Printable(task.DisplayTitle()), categoryPath(task))
+					}
+				})
 			})
 		},
 	}
@@ -78,6 +79,7 @@ func addCmd() *cobra.Command {
 	c.Flags().String("status", "open", "initial state: "+statusNames+" (default open; new with --sprint)")
 	c.Flags().String("sprint", "", "put the new task in this sprint, by id or name (top-level tasks only)")
 	addSelectorFlags(c, "parent-")
+	addJSONFlag(c)
 	return c
 }
 
@@ -127,15 +129,17 @@ func addCategoryCmd() *cobra.Command {
 					}
 					return err
 				}
-				if cat, ok := res.Doc.ByID(id); ok {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add-category: %s %s\n", strings.Repeat("#", depthOf(cat)+1), title)
-				}
-				return nil
+				return echoItem(cmd, res.Doc, id, func() {
+					if cat, ok := res.Doc.ByID(id); ok {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "add-category: %s %s\n", strings.Repeat("#", depthOf(cat)+1), title)
+					}
+				})
 			})
 		},
 	}
 	c.Flags().String("title", "", "the category title (required)")
 	c.Flags().String("prefix", "", "the reference prefix for tasks created in this category, such as WORK (a letter and up to 9 letters or digits)")
 	addSelectorFlags(c, "parent-")
+	addJSONFlag(c)
 	return c
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/candy-tools/todo/internal/todo"
 	"github.com/candy-tools/todo/internal/todo/todotest"
 )
 
@@ -19,6 +20,18 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 	c.SetArgs(args)
 	err := c.Execute()
 	return buf.String(), err
+}
+
+// runCmdSplit runs the CLI with args and returns stdout and stderr apart.
+func runCmdSplit(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	c := newRootCommand()
+	var out, errb bytes.Buffer
+	c.SetOut(&out)
+	c.SetErr(&errb)
+	c.SetArgs(args)
+	err = c.Execute()
+	return out.String(), errb.String(), err
 }
 
 func TestListTable(t *testing.T) {
@@ -221,5 +234,110 @@ func TestListRefusesStoredControlCharacters(t *testing.T) {
 	}
 	if strings.ContainsAny(out, "\x1b\x07") {
 		t.Errorf("list output carries stored control characters:\n%q", out)
+	}
+}
+
+// flatRecords runs `list` with args and decodes the flat records it prints.
+func flatRecords(t *testing.T, args ...string) []record {
+	t.Helper()
+	out, err := runCmd(t, append([]string{"list"}, args...)...)
+	if err != nil {
+		t.Fatalf("list %v: %v", args, err)
+	}
+	var recs []record
+	if err := json.Unmarshal([]byte(out), &recs); err != nil {
+		t.Fatalf("bad JSON: %v\n%s", err, out)
+	}
+	return recs
+}
+
+// titlesOf returns the titles of recs in order.
+func titlesOf(recs []record) []string {
+	out := []string{}
+	for _, r := range recs {
+		out = append(out, r.Title)
+	}
+	return out
+}
+
+func TestListFlat(t *testing.T) {
+	path := boardFixture(t)
+	recs := flatRecords(t, "--file", path, "--flat")
+	if len(recs) != 7 {
+		t.Fatalf("want 7 records, got %d: %v", len(recs), titlesOf(recs))
+	}
+	for i, r := range recs {
+		if r.Number != i+1 {
+			t.Errorf("record %d has number %d", i, r.Number)
+		}
+		if r.Title == "sub" && strings.Join(r.Path, "/") != "Work/busy" {
+			t.Errorf("sub path = %v", r.Path)
+		}
+	}
+	a, _ := runCmd(t, "list", "--file", path, "--flat")
+	b, _ := runCmd(t, "list", "--file", path, "--flat", "--json")
+	if a != b {
+		t.Errorf("--flat and --flat --json differ:\n%s\n%s", a, b)
+	}
+}
+
+func TestListFlatKindTask(t *testing.T) {
+	recs := flatRecords(t, "--file", boardFixture(t), "--flat", "--kind", "task")
+	want := "backlogged busy sub finished elsewhere"
+	if got := strings.Join(titlesOf(recs), " "); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestListFlatStatus(t *testing.T) {
+	path := boardFixture(t)
+	for args, want := range map[string]string{"working,done": "busy finished", "progress": "busy"} {
+		recs := flatRecords(t, "--file", path, "--flat", "--status", args)
+		if got := strings.Join(titlesOf(recs), " "); got != want {
+			t.Errorf("--status %s: got %q, want %q", args, got, want)
+		}
+	}
+}
+
+func TestListFlatFilterKindTask(t *testing.T) {
+	path := boardFixture(t)
+	recs := flatRecords(t, "--file", path, "--flat", "--filter", "busy")
+	if got := strings.Join(titlesOf(recs), " "); got != "Work busy sub" {
+		t.Errorf("got %q", got)
+	}
+	recs = flatRecords(t, "--file", path, "--flat", "--filter", "busy", "--kind", "task")
+	if got := strings.Join(titlesOf(recs), " "); got != "busy sub" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestListFlatWithColumnAndSprint(t *testing.T) {
+	path := todotest.Seed(t, "")
+	id := addSprint(t, path, "S1")
+	sprintTask(t, path, "ready one", id, todo.Ready)
+	sprintTask(t, path, "working one", id, todo.Working)
+	recs := flatRecords(t, "--file", path, "--flat", "--sprint", id, "--column", "next", "--kind", "task")
+	if len(recs) != 1 || recs[0].Title != "ready one" || recs[0].SprintName != "S1" {
+		t.Errorf("got %+v", recs)
+	}
+}
+
+func TestListKindStatusNeedFlat(t *testing.T) {
+	path := boardFixture(t)
+	for _, args := range [][]string{{"--kind", "task"}, {"--status", "open"}} {
+		_, err := runCmd(t, append([]string{"list", "--file", path}, args...)...)
+		if codeOf(t, err) != exitUsage || !strings.Contains(err.Error(), "need --flat") {
+			t.Errorf("%v: got %v", args, err)
+		}
+	}
+}
+
+func TestListFlatBadValues(t *testing.T) {
+	path := boardFixture(t)
+	for _, args := range [][]string{{"--kind", "foo"}, {"--status", "foo"}} {
+		_, err := runCmd(t, append([]string{"list", "--file", path, "--flat"}, args...)...)
+		if codeOf(t, err) != exitUsage {
+			t.Errorf("%v: got %v", args, err)
+		}
 	}
 }

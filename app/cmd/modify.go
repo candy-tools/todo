@@ -22,12 +22,16 @@ func rmCmd() *cobra.Command {
 				if _, err := s.Delete(ctx, it.ID); err != nil {
 					return err
 				}
+				if wantJSON(cmd) {
+					return writeJSON(cmd.OutOrStdout(), map[string]record{"removed": toDetail(doc, it, numberMap(doc))})
+				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "rm: %s\n", todo.Printable(it.DisplayTitle()))
 				return nil
 			})
 		},
 	}
 	addSelectorFlags(c, "")
+	addJSONFlag(c)
 	return c
 }
 
@@ -60,6 +64,9 @@ func pruneCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if wantJSON(cmd) {
+					return writeJSON(cmd.OutOrStdout(), map[string]int{"removed": n})
+				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "prune: removed %d task(s)\n", n)
 				return nil
 			})
@@ -67,6 +74,7 @@ func pruneCmd() *cobra.Command {
 	}
 	c.Flags().String("sprint", "", "prune only this sprint's done tasks, by id or name")
 	c.Flags().Bool("all", false, "prune every done task in the list, in all sprints and the backlog")
+	addJSONFlag(c)
 	return c
 }
 
@@ -126,16 +134,18 @@ func editCmd() *cobra.Command {
 				if err != nil {
 					return wrongKindIn(err, "edit", it)
 				}
-				shown := title
-				if now, ok := res.Doc.ByID(it.ID); ok {
-					shown = now.DisplayTitle()
-				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", todo.Printable(shown))
-				return nil
+				return echoItem(cmd, res.Doc, it.ID, func() {
+					shown := title
+					if now, ok := res.Doc.ByID(it.ID); ok {
+						shown = now.DisplayTitle()
+					}
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edit: %s\n", todo.Printable(shown))
+				})
 			})
 		},
 	}
 	addSelectorFlags(c, "")
+	addJSONFlag(c)
 	c.Flags().String("set-title", "", "the new title")
 	c.Flags().String("set-desc", "", "the new description (tasks only)")
 	c.Flags().String("set-plan", "", "the new plan path or reference; empty clears it (tasks only)")

@@ -55,11 +55,12 @@ func moveCmd() *cobra.Command {
 				if now, ok := res.Doc.ByID(it.ID); ok {
 					it = now
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "move: %s  (%s)\n", todo.Printable(it.DisplayTitle()), placeName(it.Parent))
-				if oldRef != "" && it.Ref == "" {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "dropped reference %s\n", oldRef)
-				}
-				return nil
+				return echoItem(cmd, res.Doc, it.ID, func() {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "move: %s  (%s)\n", todo.Printable(it.DisplayTitle()), placeName(it.Parent))
+					if oldRef != "" && it.Ref == "" {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "dropped reference %s\n", oldRef)
+					}
+				})
 			})
 		},
 	}
@@ -68,6 +69,7 @@ func moveCmd() *cobra.Command {
 	c.Flags().Bool("root", false, "move a category to the top level")
 	c.Flags().Bool("first", false, "place it first among its kind under the parent")
 	addSelectorFlags(c, "after-")
+	addJSONFlag(c)
 	return c
 }
 

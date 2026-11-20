@@ -15,7 +15,7 @@ type statusWrite func(ctx context.Context, s *todo.Store, it *todo.Item) (todo.W
 
 // setStatus resolves the selector to an item, writes its new state through
 // write (the store refuses a category), and prints a confirmation with the
-// state the write left.
+// state the write left, or under --json the task's record.
 func setStatus(cmd *cobra.Command, verb string, write statusWrite) error {
 	return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 		it, err := resolveSelector(cmd, doc, "")
@@ -29,8 +29,9 @@ func setStatus(cmd *cobra.Command, verb string, write statusWrite) error {
 		if now, ok := res.Doc.ByID(it.ID); ok {
 			it = now
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, it.Status.String(), todo.Printable(it.DisplayTitle()), categoryPath(it))
-		return nil
+		return echoItem(cmd, res.Doc, it.ID, func() {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: [%s] %s  (%s)\n", verb, it.Status.String(), todo.Printable(it.DisplayTitle()), categoryPath(it))
+		})
 	})
 }
 
@@ -61,6 +62,7 @@ func statusCmd() *cobra.Command {
 		},
 	}
 	addSelectorFlags(c, "")
+	addJSONFlag(c)
 	c.Flags().String("to", "", "the new state: "+statusNames+" (progress = working)")
 	return c
 }
@@ -85,6 +87,7 @@ func doneCmd() *cobra.Command {
 		},
 	}
 	addSelectorFlags(c, "")
+	addJSONFlag(c)
 	c.Flags().Bool("cascade", false, "also complete the whole subtree")
 	return c
 }
@@ -117,6 +120,7 @@ func progressCmd() *cobra.Command {
 		},
 	}
 	addSelectorFlags(c, "")
+	addJSONFlag(c)
 	return c
 }
 
@@ -130,6 +134,7 @@ func deferCmd() *cobra.Command {
 		},
 	}
 	addSelectorFlags(c, "")
+	addJSONFlag(c)
 	return c
 }
 
@@ -151,6 +156,7 @@ func reopenCmd() *cobra.Command {
 		},
 	}
 	addSelectorFlags(c, "")
+	addJSONFlag(c)
 	c.Flags().Bool("cascade", false, "also open the subtasks (also on a task that is not done)")
 	return c
 }

@@ -24,9 +24,11 @@ const fileVersion = 7
 // alphabet, a dangling reference), so that every todo write fails until
 // someone repairs it. A new file gets it, and the TUI writes it at startup
 // (Store.WriteNote); other writes keep the note the file holds.
-const fileComment = "This file is managed by the todo CLI. Do not edit it directly, by hand or " +
-	"with a script: read it with `todo list --json` and change it with todo commands " +
-	"(add, edit, move, status, assign, rm, ...; see `todo --help`), which keep its ids and rules valid."
+const fileComment = "This file is managed by the todo CLI. Do not edit it directly, by hand or with a script. " +
+	"Read it with todo: `todo next --json` (what to work on), `todo show --id <id|ref> --json` (one task), " +
+	"`todo list --flat` (every item as flat JSON records). " +
+	"Change it with todo commands (add, edit, move, status, assign, rm, ...; see `todo --help`), " +
+	"which keep its ids and rules valid."
 
 // oldestFileVersion is the oldest format version this todo reads. Every
 // version from it up to fileVersion only adds fields, so such a file reads as

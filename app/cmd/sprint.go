@@ -59,18 +59,30 @@ func writeSprintJSON(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) er
 }
 
 // sprintWrite applies one write to the sprint sp.
-type sprintWrite func(ctx context.Context, s *todo.Store, sp *todo.Sprint) error
+type sprintWrite func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error)
 
 // withSprint resolves --sprint and runs write on it, then prints
-// "<verb>: <name>".
+// "<verb>: <name>", or under --json the sprint as the written list has it (for
+// rm, as it was before the write, wrapped in {"removed": ...}).
 func withSprint(cmd *cobra.Command, verb string, write sprintWrite) error {
 	return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 		sp, err := resolveSprint(cmd, doc)
 		if err != nil {
 			return err
 		}
-		if err := write(ctx, s, sp); err != nil {
+		res, err := write(ctx, s, sp)
+		if err != nil {
 			return err
+		}
+		if wantJSON(cmd) {
+			if verb == "rm" {
+				return writeJSON(cmd.OutOrStdout(), map[string]jsonSprint{"removed": sprintOf(doc, sp)})
+			}
+			now, ok := res.Doc.SprintByID(sp.ID)
+			if !ok {
+				return fmt.Errorf("sprint %s is missing from the written list", sp.ID)
+			}
+			return writeJSON(cmd.OutOrStdout(), sprintOf(res.Doc, now))
 		}
 		name := sp.Name
 		if n, _ := cmd.Flags().GetString("set-name"); cmd.Flags().Changed("set-name") {
@@ -134,9 +146,16 @@ func sprintAddCmd() *cobra.Command {
 				return usageErr("specify --name")
 			}
 			return withStore(cmd, func(ctx context.Context, s *todo.Store, _ *todo.Document) error {
-				id, _, err := s.AddSprintWith(ctx, todo.Fields{Title: name, Description: goal, Prefix: prefix})
+				id, res, err := s.AddSprintWith(ctx, todo.Fields{Title: name, Description: goal, Prefix: prefix})
 				if err != nil {
 					return err
+				}
+				if wantJSON(cmd) {
+					sp, ok := res.Doc.SprintByID(id)
+					if !ok {
+						return fmt.Errorf("sprint %s is missing from the written list", id)
+					}
+					return writeJSON(cmd.OutOrStdout(), sprintOf(res.Doc, sp))
 				}
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), id)
 				return nil
@@ -146,6 +165,7 @@ func sprintAddCmd() *cobra.Command {
 	c.Flags().String("name", "", "the sprint's name")
 	c.Flags().String("goal", "", "the sprint's goal")
 	c.Flags().String("prefix", "", "the reference prefix for tasks created in this sprint, such as S13 (a letter and up to 9 letters or digits)")
+	addJSONFlag(c)
 	return c
 }
 
@@ -171,13 +191,13 @@ func sprintEditCmd() *cobra.Command {
 			if ch.Name == nil && ch.Goal == nil && ch.Prefix == nil {
 				return usageErr("specify --set-name, --set-goal or --set-prefix")
 			}
-			return withSprint(cmd, "edit", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) error {
-				_, err := s.EditSprint(ctx, sp.ID, ch)
-				return err
+			return withSprint(cmd, "edit", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {
+				return s.EditSprint(ctx, sp.ID, ch)
 			})
 		},
 	}
 	addSprintFlag(c)
+	addJSONFlag(c)
 	c.Flags().String("set-name", "", "the new name")
 	c.Flags().String("set-goal", "", "the new goal (empty clears it)")
 	c.Flags().String("set-prefix", "", "the new reference prefix for tasks created in this sprint (empty clears it)")
@@ -190,16 +210,17 @@ func sprintCloseCmd() *cobra.Command {
 		Short: "close a sprint; refused while it has tasks not done",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withSprint(cmd, "close", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) error {
-				_, err := s.CloseSprint(ctx, sp.ID)
+			return withSprint(cmd, "close", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {
+				res, err := s.CloseSprint(ctx, sp.ID)
 				if errors.Is(err, todo.ErrSprintNotDone) {
-					return fmt.Errorf("cannot close %q: %w", sp.Name, err)
+					return res, fmt.Errorf("cannot close %q: %w", sp.Name, err)
 				}
-				return err
+				return res, err
 			})
 		},
 	}
 	addSprintFlag(c)
+	addJSONFlag(c)
 	return c
 }
 
@@ -209,13 +230,13 @@ func sprintReopenCmd() *cobra.Command {
 		Short: "reopen a closed sprint",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withSprint(cmd, "reopen", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) error {
-				_, err := s.ReopenSprint(ctx, sp.ID)
-				return err
+			return withSprint(cmd, "reopen", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {
+				return s.ReopenSprint(ctx, sp.ID)
 			})
 		},
 	}
 	addSprintFlag(c)
+	addJSONFlag(c)
 	return c
 }
 
@@ -225,12 +246,12 @@ func sprintRmCmd() *cobra.Command {
 		Short: "delete a sprint; its tasks return to the backlog, refused while it holds done tasks",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withSprint(cmd, "rm", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) error {
-				_, err := s.DeleteSprint(ctx, sp.ID)
-				return err
+			return withSprint(cmd, "rm", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {
+				return s.DeleteSprint(ctx, sp.ID)
 			})
 		},
 	}
 	addSprintFlag(c)
+	addJSONFlag(c)
 	return c
 }

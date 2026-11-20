@@ -40,6 +40,38 @@ func (e *cliError) Error() string { return e.msg }
 func usageErr(msg string) error { return &cliError{exitUsage, msg} }
 func notFound(msg string) error { return &cliError{exitNotFound, msg} }
 
+// errorNames are the JSON error code names, indexed by exit code.
+var errorNames = map[int]string{
+	exitGeneric:   "error",
+	exitUsage:     "usage",
+	exitNotFound:  "not_found",
+	exitAmbiguous: "ambiguous",
+	exitWrongKind: "wrong_kind",
+	exitConflict:  "conflict",
+}
+
+// errorCode returns err's exit code (a cliError's, else 1) and its name.
+func errorCode(err error) (exit int, name string) {
+	exit = exitGeneric
+	var ce *cliError
+	if errors.As(err, &ce) {
+		exit = ce.code
+	}
+	if name, ok := errorNames[exit]; ok {
+		return exit, name
+	}
+	return exit, errorNames[exitGeneric]
+}
+
+// jsonError is the structured error printed to stderr under --json or --flat.
+type jsonError struct {
+	Error struct {
+		Code    string `json:"code"`
+		Exit    int    `json:"exit"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
 // categoryPath returns the enclosing category's title, for confirmation lines.
 func categoryPath(it *todo.Item) string {
 	if c := it.EnclosingCategory(); c != nil {
