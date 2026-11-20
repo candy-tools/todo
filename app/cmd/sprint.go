@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -51,11 +50,9 @@ func writeSprintTable(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) {
 func writeSprintJSON(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) error {
 	out := []jsonSprint{}
 	for _, sp := range sprints {
-		out = append(out, jsonSprint{sp.ID, sp.Name, sp.Goal, sp.Prefix, sp.Status.String(), sprintCounts(doc, sp.ID)})
+		out = append(out, sprintOf(doc, sp))
 	}
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return writeJSON(w, out)
 }
 
 // sprintWrite applies one write to the sprint sp.

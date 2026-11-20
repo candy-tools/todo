@@ -393,12 +393,13 @@ out when it has none), its `status` (`open` or `done`; the
 text header adds `(closed)` for a done sprint), its `counts` (`next`,
 `progress`, `done`), the tasks `inProgress`, and the tasks `next` (`ready`
 before `new`), each a record. `inProgress` and `next` hold top-level tasks only;
-subtasks show through `doneCount`/`totalCount`. `todo show` prints one record with `subtasks`. `todo list --flat` prints
-a JSON array of records in list order (it implies `--json`). With `--column`,
-`--sprint` or `--backlog` it returns tasks only (subtasks included); `--filter`
-also returns the categories on the path to each match. `--kind task|category`
-and `--status <states, comma-separated>` need `--flat` (a usage error without
-it); `--status` takes state names (`progress` is accepted for `working`).
+subtasks show through `doneCount`/`totalCount`. `todo show` prints one record
+with `subtasks`. `todo list --flat` prints a JSON array of records in list order
+(it implies `--json`). With `--column`, `--sprint` or `--backlog` it returns
+tasks only (subtasks included); `--filter` also returns the categories on the
+path to each match. `--kind task|category` and
+`--status <states, comma-separated>` need `--flat` (a usage error without it);
+`--status` takes state names (`progress` is accepted for `working`).
 
 **The record.** Every item printed as JSON here has this shape, and so does
 every node of `todo list --json`, which adds its `children` (camelCase; fields
@@ -419,14 +420,15 @@ marked optional are left out when empty):
   `{number, id, title, status}` per direct child task.
 
 **`--json` on changes.** Add `--json` to any command that changes an item or a
-sprint (`import` has none) and it prints the result instead of the text line: `add`, `add-category`, `status`, `done`, `progress`,
-`defer`, `reopen`, `edit`, `move`, `assign` and `unassign` print the record of
-the item (with `subtasks`), and `move` adds `droppedRef` with the reference a
-task indented under another task lost (left out when none was dropped); `rm`
-prints `{"removed": <record>}`; `prune` prints
-`{"removed": <count>}`; `sprint add`, `sprint edit`, `sprint close` and
-`sprint reopen` print the sprint object (`{id, name, goal, prefix (optional),
-status, counts}`); `sprint rm` prints `{"removed": <sprint>}`.
+sprint (`import` has none) and it prints the result instead of the text line:
+`add`, `add-category`, `status`, `done`, `progress`, `defer`, `reopen`, `edit`,
+`move`, `assign` and `unassign` print the record of the item (with
+`subtasks`), and `move` adds `droppedRef` with the reference a task indented
+under another task lost (left out when none was dropped); `rm` prints
+`{"removed": <record>}`; `prune` prints `{"removed": <count>}`; `sprint add`,
+`sprint edit`, `sprint close` and `sprint reopen` print the sprint object
+(`{id, name, goal, prefix (optional), status, counts}`); `sprint rm` prints
+`{"removed": <sprint>}`.
 
 **Errors.** Under `--json` or `--flat`, a failing command prints one line on
 stderr, `{"error":{"code":"not_found","exit":3,"message":"…"}}`, and exits with
@@ -457,16 +459,17 @@ todo sprint list [--all] [--json]  # open sprints with their task counts
 
 The `state` column of `todo list` shows the task's state name (`open`, `ready`,
 `working`, …), and `--` for a category. `todo list --json` is a tree of records
-(see **The record** above), each with its `children`. In JSON, `status` is the state name,
-`column` is the task's column (`backlog`, `next`, `progress` or `done`; a
-subtask reports its parent's column), `plan` is the plan link and `ref` the
-task's reference (left out when it has none; `title` never includes it).
-`sprint` is the id of the sprint a top-level task is in (left out for a backlog
-task). `--column` without `--sprint` covers that column across every sprint;
-`--column backlog` with `--sprint` is a usage error.
-`todo sprint list --json` is an array of `{id, name, goal, status, counts}`,
-where `status` is `open` or `done` and `counts` has the `next`, `progress` and
-`done` task counts. `--all` includes closed sprints.
+(see **The record** above), each with its `children`. In JSON, `status` is the
+state name, `column` is the task's column (`backlog`, `next`, `progress` or
+`done`; a subtask reports its parent's column), `plan` is the plan link and
+`ref` the task's reference (left out when it has none; `title` never includes
+it). `sprint` is the id of the sprint the task is in (a subtask shows its
+parent's; left out for a backlog task). `--column` without `--sprint` covers
+that column across every sprint; `--column backlog` with `--sprint` is a usage
+error. `todo sprint list --json` is an array of
+`{id, name, goal, prefix (optional), status, counts}`, where `status` is `open`
+or `done` and `counts` has the `next`, `progress` and `done` task counts.
+`--all` includes closed sprints.
 
 **Breaking change:** JSON `status` now says `"working"` where it used to say
 `"progress"`. On input, `progress` is still accepted as an alias of `working`.

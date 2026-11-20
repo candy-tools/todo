@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -227,7 +226,5 @@ func writeListJSON(w io.Writer, doc *todo.Document, visible map[*todo.Item]bool)
 		}
 		roots = append(roots, toJSONItem(doc, r, nums, visible))
 	}
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(roots)
+	return writeJSON(w, roots)
 }
