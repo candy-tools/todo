@@ -40,6 +40,7 @@ const (
 //     only on the focused tree, m.focused().
 //   - sideFocus implies split.
 //   - listFocus means something only in the Sprints workspace (view.onBoard).
+//   - On screenPlan the unified view is off and the trees show nothing.
 //   - An external reload is applied in modeMain and modeSearch, and deferred
 //     in the modal modes and while an item is grabbed (see handleReload).
 type model struct {
@@ -89,6 +90,8 @@ type model struct {
 	// sprint board showed last, by sprint ID.
 	lastSprint string
 	boardTabs  map[string]todo.Column
+	// plan is Planning's state (see planner), meaningful on screenPlan.
+	plan planner
 	// tree is the main pane: the category/task tree, or — in the split view —
 	// the task list of the category picked in side, the sidebar.
 	tree tree
@@ -193,11 +196,15 @@ func newModel(st *todo.Store, notice string) (model, error) {
 func (m model) Init() tea.Cmd { return pollCmd() }
 
 // fitTrees tells the trees how tall their viewports are for the view on
-// screen, and re-anchors their scroll so the cursor stays visible. Update runs
-// it after every message, since a resize, a key (another workspace, sprint,
-// the unified view) or a reload can change the height (the board's head
-// takes rows); the stored height must always be the one mainView draws.
+// screen, and re-anchors their scroll so the cursor stays visible; in
+// Planning it does the same for both of its panes. Update runs it after every
+// message, since a resize, a key (another workspace, sprint, the unified view)
+// or a reload can change the height (the board's head takes rows); the stored
+// height must always be the one mainView draws.
 func (m *model) fitTrees() {
+	if m.view.screen == screenPlan {
+		m.plan.fit(m.doc, m.paneRows())
+	}
 	h := m.treeViewHeight()
 	if m.tree.viewHeight != h {
 		m.tree.viewHeight = h
@@ -291,11 +298,15 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// updateMain handles the main-view keys: the screen keys and the view keys
-// work everywhere; the Sprints workspace's sidebar has its own (see
-// updateSprintList); the rest act on the trees.
+// updateMain handles the main-view keys: Planning has its own (see
+// updatePlan); elsewhere the screen keys and the view keys work everywhere,
+// the Sprints workspace's sidebar has its own (see updateSprintList), and the
+// rest act on the trees.
 func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
+	if m.view.screen == screenPlan {
+		return m.updatePlan(msg)
+	}
 	if next, cmd, ok := m.updateScreenKey(msg); ok {
 		return next, cmd
 	}
@@ -339,9 +350,9 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateScreenKey handles the keys that work on every screen: q (quit), esc,
-// ? and the screen jumps b, s, k and K. The bool reports whether the key was
-// one of them.
+// updateScreenKey handles the keys that work on every screen but Planning
+// (which takes b, s, q and ? from here): q (quit), esc, ? and the screen
+// jumps b, s, p, k and K. The bool reports whether the key was one of them.
 func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "q":
@@ -358,6 +369,9 @@ func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "s":
 		m.showSprints()
+		return m, nil, true
+	case "p":
+		m.openPlanning()
 		return m, nil, true
 	case "k":
 		if id, ok := m.nextOpenSprint(); ok {

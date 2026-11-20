@@ -164,7 +164,7 @@ func switcherBar(active screen, crumb string, width int) string {
 	}{
 		{active == screenBacklog, "b", "Backlog"},
 		{active == screenSprint, "s", "Sprints"},
-		{false, "p", "Planning"}, // no Planning screen yet: never the active one
+		{active == screenPlan, "p", "Planning"},
 	}
 	var b strings.Builder
 	b.WriteString(" ")

@@ -189,6 +189,8 @@ func (m model) canApplyReload() bool {
 // applyReload swaps in the reloaded document, restoring the selection and the
 // folds by ID. The in-memory undo snapshots are dropped: the list changed under
 // us, and an undo must never write old statuses over someone else's change.
+// The reload notice goes first, so a status the adopt sets (Planning left for
+// a gone sprint) wins over it.
 func (m *model) applyReload(msg storeReloadedMsg) {
 	onPH := m.focused().onPlaceholder()
 	var focus string
@@ -196,8 +198,8 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 		focus = sel.ID
 	}
 	m.take(msg.doc, msg.fp)
-	m.adoptAll(msg.doc, focus, onPH)
 	m.noteExternal()
+	m.adoptAll(msg.doc, focus, onPH)
 }
 
 // leaveGoneSprint moves the Sprints workspace from a board whose sprint the

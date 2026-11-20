@@ -41,6 +41,8 @@ func (m model) mainView(dim bool) string {
 	}
 	var body string
 	switch {
+	case m.view.screen == screenPlan:
+		body = m.planBody(w, bodyH, dim)
 	case m.view.onBoard():
 		// The Sprints workspace: the sprint list beside the shown sprint's
 		// board, split view or not.
@@ -179,7 +181,7 @@ func (m model) header(width int) string {
 }
 
 // screenLine is the header's second line for the view on screen: the
-// workspace switcher and the breadcrumb.
+// workspace switcher (Planning marked while it is shown) and the breadcrumb.
 func (m model) screenLine(width int) string {
 	return switcherBar(m.view.screen, m.crumb(), width)
 }
@@ -193,6 +195,8 @@ func (m model) crumb() string {
 			total += n
 		}
 		return fmt.Sprintf("All states · %d tasks", total)
+	case m.view.screen == screenPlan:
+		return m.planCrumb()
 	case m.view.screen == screenBacklog:
 		crumb := "Backlog"
 		if path := categoryPath(m.backlogSelection()); path != "" {
@@ -252,6 +256,9 @@ func (m model) footer(width int) string {
 		// A transient message (a refused move, where a task went) wins over the
 		// move and filter lines; the next key clears it.
 		return ansi.Truncate(" "+helpTextStyle.Render(m.status), width, "")
+	case m.view.screen == screenPlan:
+		// Planning's own keys; the search and state filter do not apply there.
+		return ansi.Truncate(" "+strings.Join(m.planFooter(), "  "), width, "")
 	case m.onList():
 		// The sidebar's own keys, ahead of the board's search filter.
 		return ansi.Truncate(" "+strings.Join([]string{

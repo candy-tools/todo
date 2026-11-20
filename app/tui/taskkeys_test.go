@@ -247,12 +247,12 @@ func TestHelpListsSprintKeys(t *testing.T) {
 			desc[b.keys] = append(desc[b.keys], b.desc)
 		}
 	}
-	for _, keys := range []string{"b", "s", "k", "K", "q", "u", "a A", "a", "A", "o", "t", "1–3", "[  ]", "tab", "n", "e", "c", "d", "enter  e", "enter  tab", "D"} {
+	for _, keys := range []string{"b", "s", "p", "k", "K", "q", "u", "a A", "a", "A", "o", "t", "1–3", "[  ]", "tab", "n", "e", "c", "d", "enter  e", "enter  tab", "D", "→ a", "← A", "r", "k K"} {
 		if len(desc[keys]) == 0 {
 			t.Errorf("help has no row for %q", keys)
 		}
 	}
-	for _, gone := range []string{"↑ ↓  w s", "1–4", "x", "p P", "p", "P"} {
+	for _, gone := range []string{"↑ ↓  w s", "1–4", "x", "p P", "P"} {
 		if len(desc[gone]) > 0 {
 			t.Errorf("help still lists %q", gone)
 		}

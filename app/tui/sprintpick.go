@@ -18,6 +18,7 @@ const (
 	pickJump   sprintPickPurpose = iota // K: show the chosen sprint's board
 	pickAssign                          // a: put a backlog task in the chosen sprint
 	pickSendTo                          // o: move a sprint task to another sprint or the Backlog
+	pickPlan                            // K in Planning: plan the chosen open sprint, or show the chosen closed one
 )
 
 // sprintPickRow is one choice of the sprint picker: a sprint, or (backlog set)
@@ -59,6 +60,14 @@ func newJumpPicker(d *todo.Document) sprintPicker {
 			}
 		}
 	}
+	return p
+}
+
+// newPlanPicker lists every sprint of d as newJumpPicker does, for K in
+// Planning.
+func newPlanPicker(d *todo.Document) sprintPicker {
+	p := newJumpPicker(d)
+	p.title, p.purpose = "Plan sprint", pickPlan
 	return p
 }
 
@@ -206,10 +215,13 @@ func (m model) updateSprintPick(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // applySprintPick carries out row r chosen in picker p: it shows the sprint,
-// assigns the task, or sends it to the Backlog.
+// plans it (an open one, from Planning), assigns the task, or sends it to the
+// Backlog.
 func (m model) applySprintPick(p sprintPicker, r sprintPickRow) (tea.Model, tea.Cmd) {
 	switch {
-	case p.purpose == pickJump:
+	case p.purpose == pickPlan && !m.sprintClosed(r.sprintID):
+		m.plan.plan(r.sprintID)
+	case p.purpose == pickJump, p.purpose == pickPlan:
 		m.showSprint(r.sprintID)
 	case r.backlog:
 		m.commitMoved(p.taskID, func(ctx context.Context, s *todo.Store) (todo.WriteResult, error) {
