@@ -316,9 +316,30 @@ func TestListFlatWithColumnAndSprint(t *testing.T) {
 	id := addSprint(t, path, "S1")
 	sprintTask(t, path, "ready one", id, todo.Ready)
 	sprintTask(t, path, "working one", id, todo.Working)
-	recs := flatRecords(t, "--file", path, "--flat", "--sprint", id, "--column", "next", "--kind", "task")
+	recs := flatRecords(t, "--file", path, "--flat", "--sprint", id, "--column", "next")
 	if len(recs) != 1 || recs[0].Title != "ready one" || recs[0].SprintName != "S1" {
 		t.Errorf("got %+v", recs)
+	}
+}
+
+// A board selection in flat mode returns tasks (and subtasks) only; --filter
+// still adds the path categories of its matches.
+func TestListFlatBoardSelectionTasksOnly(t *testing.T) {
+	path := boardFixture(t)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--column", "backlog"}, "backlogged elsewhere"},
+		{[]string{"--backlog"}, "backlogged elsewhere"},
+		{[]string{"--column", "progress"}, "busy sub"},
+		{[]string{"--column", "backlog", "--filter", "backlogged"}, "Work backlogged"},
+		{[]string{"--column", "progress", "--filter", "busy"}, "Work busy sub"},
+	} {
+		recs := flatRecords(t, append([]string{"--file", path, "--flat"}, tc.args...)...)
+		if got := strings.Join(titlesOf(recs), " "); got != tc.want {
+			t.Errorf("%v: got %q, want %q", tc.args, got, tc.want)
+		}
 	}
 }
 

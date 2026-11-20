@@ -391,7 +391,9 @@ text header adds `(closed)` for a done sprint), its `counts` (`next`,
 `progress`, `done`), the tasks `inProgress`, and the tasks `next` (`ready`
 before `new`), each a record. `inProgress` and `next` hold top-level tasks only;
 subtasks show through `doneCount`/`totalCount`. `todo show` prints one record with `subtasks`. `todo list --flat` prints
-a JSON array of records in list order (it implies `--json`). `--kind task|category`
+a JSON array of records in list order (it implies `--json`). With `--column`,
+`--sprint` or `--backlog` it returns tasks only (subtasks included); `--filter`
+also returns the categories on the path to each match. `--kind task|category`
 and `--status <states, comma-separated>` need `--flat` (a usage error without
 it); `--status` takes state names (`progress` is accepted for `working`).
 

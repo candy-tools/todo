@@ -27,7 +27,7 @@ func listCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			visible, err := listVisible(cmd, doc)
+			visible, board, err := listVisible(cmd, doc)
 			if err != nil {
 				return err
 			}
@@ -38,7 +38,11 @@ func listCmd() *cobra.Command {
 				return usageErr("--kind and --status need --flat")
 			}
 			if flat {
-				keep, err := listKeep(kind, statusCSV)
+				// A board selection lists tasks; only a search adds the path
+				// categories of its matches.
+				filter, _ := cmd.Flags().GetString("filter")
+				tasksOnly := board && strings.TrimSpace(filter) == ""
+				keep, err := listKeep(kind, statusCSV, tasksOnly)
 				if err != nil {
 					return err
 				}
@@ -63,30 +67,31 @@ func listCmd() *cobra.Command {
 
 // listVisible returns the items `list` shows (nil => everything): those matching
 // --filter, narrowed to the board selection given by --column, --sprint or
-// --backlog. A conflicting selection or an unknown column or sprint is an error.
-func listVisible(cmd *cobra.Command, doc *todo.Document) (map[*todo.Item]bool, error) {
+// --backlog; board reports whether such a selection was given. A conflicting
+// selection or an unknown column or sprint is an error.
+func listVisible(cmd *cobra.Command, doc *todo.Document) (visible map[*todo.Item]bool, board bool, err error) {
 	filter, _ := cmd.Flags().GetString("filter")
 	colName, _ := cmd.Flags().GetString("column")
 	backlog, _ := cmd.Flags().GetBool("backlog")
 	inSprint := cmd.Flags().Changed("sprint")
 	switch {
 	case backlog && inSprint:
-		return nil, usageErr("--backlog and --sprint are mutually exclusive")
+		return nil, false, usageErr("--backlog and --sprint are mutually exclusive")
 	case backlog && colName != "":
-		return nil, usageErr("--backlog and --column are mutually exclusive")
+		return nil, false, usageErr("--backlog and --column are mutually exclusive")
 	case inSprint && colName == todo.ColBacklog.String():
-		return nil, usageErr("--sprint and --column backlog are mutually exclusive: a sprint has no backlog column")
+		return nil, false, usageErr("--sprint and --column backlog are mutually exclusive: a sprint has no backlog column")
 	case backlog:
 		colName = todo.ColBacklog.String()
 	}
 	if colName == "" && !inSprint {
-		return doc.VisibleItems(filter), nil
+		return doc.VisibleItems(filter), false, nil
 	}
 	sprintID := ""
 	if inSprint {
 		sp, err := resolveSprint(cmd, doc)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		sprintID = sp.ID
 	}
@@ -94,17 +99,18 @@ func listVisible(cmd *cobra.Command, doc *todo.Document) (map[*todo.Item]bool, e
 	if colName != "" {
 		col, ok := todo.ColumnFromName(colName)
 		if !ok {
-			return nil, usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
+			return nil, false, usageErr(fmt.Sprintf("invalid --column %q (%s)", colName, columnNames))
 		}
 		cols = []todo.Column{col}
 	}
 	// Search within the columns and sprint, as the TUI tab does.
-	return doc.ColumnMatches(filter, sprintID, cols...), nil
+	return doc.ColumnMatches(filter, sprintID, cols...), true, nil
 }
 
 // listKeep builds the --flat predicate from the --kind and --status values. A
-// status filter keeps tasks only, by their own state.
-func listKeep(kind, statusCSV string) (func(*todo.Item) bool, error) {
+// status filter, or tasksOnly, keeps tasks only; a status filter checks each
+// task's own state.
+func listKeep(kind, statusCSV string, tasksOnly bool) (func(*todo.Item) bool, error) {
 	if kind != "" && kind != "task" && kind != "category" {
 		return nil, usageErr(fmt.Sprintf("invalid --kind %q (task|category)", kind))
 	}
@@ -113,7 +119,7 @@ func listKeep(kind, statusCSV string) (func(*todo.Item) bool, error) {
 		return nil, err
 	}
 	return func(it *todo.Item) bool {
-		if kind == "task" && !it.IsTask() || kind == "category" && it.IsTask() {
+		if kind == "task" && !it.IsTask() || kind == "category" && it.IsTask() || tasksOnly && !it.IsTask() {
 			return false
 		}
 		return len(statuses) == 0 || it.IsTask() && statuses[it.Status]
