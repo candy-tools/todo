@@ -432,7 +432,9 @@ under another task lost (left out when none was dropped); `rm` prints
 
 **Errors.** Under `--json` or `--flat`, a failing command prints one line on
 stderr, `{"error":{"code":"not_found","exit":3,"message":"…"}}`, and exits with
-that code. Without those flags the message stays plain text.
+that code. Without those flags the message stays plain text. A successful
+command can still write plain-text notes to stderr, such as `done`'s
+open-subtasks hint; parse stderr as JSON only when the exit code is non-zero.
 
 | exit | `code`       | meaning |
 |------|--------------|---------|
