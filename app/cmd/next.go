@@ -21,29 +21,24 @@ type nextReport struct {
 	Sprints []nextSprint `json:"sprints"`
 }
 
-// buildNext collects, for each sprint, its top-level tasks in progress (tree
-// order) and those next (ready before new, tree order within each state). Done
-// tasks are left out.
+// buildNext maps each sprint's work queue (Document.WorkQueue) to records.
 func buildNext(doc *todo.Document, sprints []*todo.Sprint) nextReport {
 	nums := numberMap(doc)
+	toRecords := func(items []*todo.Item) []record {
+		rs := []record{}
+		for _, it := range items {
+			rs = append(rs, toRecord(doc, it, nums))
+		}
+		return rs
+	}
 	rep := nextReport{Sprints: []nextSprint{}}
 	for _, sp := range sprints {
-		ns := nextSprint{jsonSprint: sprintOf(doc, sp), InProgress: []record{}, Next: []record{}}
-		var ready, fresh []record
-		for _, it := range doc.SprintTasks(sp.ID) {
-			switch it.Status.Column() {
-			case todo.ColInProgress:
-				ns.InProgress = append(ns.InProgress, toRecord(doc, it, nums))
-			case todo.ColNext:
-				if it.Status == todo.Ready {
-					ready = append(ready, toRecord(doc, it, nums))
-				} else {
-					fresh = append(fresh, toRecord(doc, it, nums))
-				}
-			}
-		}
-		ns.Next = append(append(ns.Next, ready...), fresh...)
-		rep.Sprints = append(rep.Sprints, ns)
+		inProgress, next := doc.WorkQueue(sp.ID)
+		rep.Sprints = append(rep.Sprints, nextSprint{
+			jsonSprint: sprintOf(doc, sp),
+			InProgress: toRecords(inProgress),
+			Next:       toRecords(next),
+		})
 	}
 	return rep
 }

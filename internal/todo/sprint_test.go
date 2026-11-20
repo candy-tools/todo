@@ -2,6 +2,7 @@ package todo
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -61,6 +62,69 @@ func TestUnfinishedCountsSubtasks(t *testing.T) {
 	if got := len(d.SprintTasks("s")); got != 2 {
 		t.Errorf("SprintTasks = %d, want 2", got)
 	}
+}
+
+func TestWorkQueue(t *testing.T) {
+	type task struct {
+		id     string
+		status Status
+		sprint string
+	}
+	for _, c := range []struct {
+		name                 string
+		tasks                []task
+		wantInProgress, want []string
+	}{
+		{name: "empty sprint"},
+		{
+			name: "in progress in tree order",
+			tasks: []task{
+				{"a", Review, "s"}, {"b", Working, "s"}, {"c", Followup, "s"},
+			},
+			wantInProgress: []string{"a", "b", "c"},
+		},
+		{
+			name: "ready before new, tree order within each",
+			tasks: []task{
+				{"a", New, "s"}, {"b", Ready, "s"}, {"c", New, "s"}, {"d", Ready, "s"},
+			},
+			want: []string{"b", "d", "a", "c"},
+		},
+		{
+			name: "done, backlog states and other sprints left out",
+			tasks: []task{
+				{"a", Done, "s"}, {"b", Open, "s"}, {"c", Working, "t"},
+				{"d", Ready, "t"}, {"e", Working, "s"}, {"f", New, "s"},
+			},
+			wantInProgress: []string{"e"},
+			want:           []string{"f"},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cat := &Item{Kind: Category, Level: 1}
+			for _, tk := range c.tasks {
+				it := &Item{ID: tk.id, Kind: Task, Status: tk.status, Sprint: tk.sprint}
+				it.AppendChild(&Item{ID: tk.id + "-sub", Kind: Task, Status: Open})
+				cat.AppendChild(it)
+			}
+			d := &Document{Roots: []*Item{cat}}
+			inProgress, next := d.WorkQueue("s")
+			if got := itemIDs(inProgress); !slices.Equal(got, c.wantInProgress) {
+				t.Errorf("in progress = %v, want %v", got, c.wantInProgress)
+			}
+			if got := itemIDs(next); !slices.Equal(got, c.want) {
+				t.Errorf("next = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func itemIDs(items []*Item) []string {
+	var ids []string
+	for _, it := range items {
+		ids = append(ids, it.ID)
+	}
+	return ids
 }
 
 func TestSprintNotDoneErrorText(t *testing.T) {
