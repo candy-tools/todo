@@ -556,9 +556,11 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
-// sidebarWidth is the split view's sidebar width for a terminal w wide: 30%,
-// kept between 20 and 40 columns.
-func sidebarWidth(w int) int { return min(max(w*30/100, 20), 40) }
+// sidebarWidth is the sidebar width (the Backlog split's and the Sprints
+// workspace's) for a terminal w wide: 30%, kept between 20 and 40 columns, and
+// at most half of w, so on a terminal under 40 columns the pane beside it
+// still fits.
+func sidebarWidth(w int) int { return min(max(w*30/100, 20), 40, w/2) }
 
 // focused returns the tree the item keys act on: the sidebar while it has the
 // shown split view's focus, else the main tree.

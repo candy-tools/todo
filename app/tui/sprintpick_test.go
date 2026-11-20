@@ -162,6 +162,30 @@ func pickerRows(m model) []string {
 	return out
 }
 
+// A long or unprintable sprint name is drawn safe and cut with "…", so the
+// dialog never gets wider than the terminal; Planning's K shares the dialog.
+func TestSprintPickerCutsLongNames(t *testing.T) {
+	long := strings.Repeat("n", 200)
+	m, _ := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{{ID: "s000001", Name: long, Status: "open"}, {ID: "s000002", Name: "B", Status: "open"}},
+		seedTask{ID: "t000001", Title: "backlogTask", Status: "open"}))
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	// A valid list cannot hold such a name any more; an older one could.
+	m.doc.Sprints[1].Name += hostile
+	assertNoEscapes(t, "a picker label", newJumpPicker(m.doc).rows[1].label)
+	for _, keys := range [][]string{{"K"}, {"p", "K"}} {
+		out := press(m, keys...).View()
+		if !strings.Contains(ansi.Strip(out), "…") {
+			t.Errorf("%v: want the long name cut with …:\n%s", keys, ansi.Strip(out))
+		}
+		for i, line := range strings.Split(out, "\n") {
+			if w := ansi.StringWidth(line); w > 80 {
+				t.Errorf("%v: line %d is %d wide", keys, i, w)
+			}
+		}
+	}
+}
+
 func TestSprintPickerScrollsToCursor(t *testing.T) {
 	m := manySprints(t, 40)
 	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})

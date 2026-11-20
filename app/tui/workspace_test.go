@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -103,6 +104,21 @@ func TestNoSprintsShowsEmptyBoard(t *testing.T) {
 	// Back from the unified view the sidebar keeps the keys: there is no board.
 	if m = press(m, "u", "u"); !m.listFocus {
 		t.Error("after u u with no sprints the sidebar should have the keys")
+	}
+}
+
+// On a tiny terminal the two-pane screens never draw wider than it.
+func TestTinyTerminalFitsTwoPanes(t *testing.T) {
+	for _, w := range []int{20, 30} {
+		m, _ := threeSprints(t)
+		m = send(m, tea.WindowSizeMsg{Width: w, Height: 20})
+		for _, keys := range [][]string{{"s"}, {"s", "down", "down"}, {"s", "tab", "L"}, {"b", "v"}, {"p"}} {
+			for i, line := range strings.Split(press(m, keys...).View(), "\n") {
+				if lw := ansi.StringWidth(line); lw > w {
+					t.Errorf("width %d after %v: line %d is %d wide: %q", w, keys, i, lw, ansi.Strip(line))
+				}
+			}
+		}
 	}
 }
 

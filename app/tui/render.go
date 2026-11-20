@@ -22,7 +22,7 @@ func (m model) View() string {
 	case modeStatePick, modeStateFilter:
 		return placeCenter(m.mainView(true), m.pick.view())
 	case modeSprintPick:
-		return placeCenter(m.mainView(true), m.sprintPick.view(m.pickHeight()))
+		return placeCenter(m.mainView(true), m.sprintPick.view(m.pickSize()))
 	default:
 		return m.mainView(false)
 	}

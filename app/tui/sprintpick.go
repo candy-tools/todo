@@ -9,6 +9,7 @@ import (
 	"github.com/candy-tools/todo/internal/todo"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // sprintPickPurpose is what choosing a row of the sprint picker does.
@@ -40,9 +41,10 @@ type sprintPicker struct {
 	taskID  string
 }
 
-// sprintRow is the picker row of sprint s: done sprints carry a check mark.
+// sprintRow is the picker row of sprint s, its name made safe to draw: done
+// sprints carry a check mark.
 func sprintRow(s *todo.Sprint) sprintPickRow {
-	label := s.Name
+	label := todo.Printable(s.Name)
 	if s.Status == todo.SprintDone {
 		label = "✓ " + label
 	}
@@ -104,34 +106,45 @@ func (p *sprintPicker) scroll(termHeight int) {
 	p.offset = scrollWindow(p.offset, p.cursor, len(p.rows), helpVisibleRows(len(p.rows), termHeight))
 }
 
-// view renders the dialog on a terminal termHeight rows tall: the rows that
-// fit, the cursor's always among them and accented.
-func (p sprintPicker) view(termHeight int) string {
+// view renders the dialog on a terminal termWidth x termHeight: the rows that
+// fit, the cursor's always among them and accented, each label cut with "…"
+// so the dialog stays narrower than the terminal.
+func (p sprintPicker) view(termWidth, termHeight int) string {
 	p.scroll(termHeight)
+	maxWidth := termWidth - 4
+	// The border, the padding either side and the "❯ " gutter.
+	labelWidth := max(maxWidth-2-2*helpPad-2, 1)
 	var lines []string
 	end := min(p.offset+helpVisibleRows(len(p.rows), termHeight), len(p.rows))
 	for i := p.offset; i < end; i++ {
-		r := p.rows[i]
+		label := ansi.Truncate(p.rows[i].label, labelWidth, "…")
 		if i == p.cursor {
-			lines = append(lines, selectedRowStyle.Render("❯ "+r.label))
+			lines = append(lines, selectedRowStyle.Render("❯ "+label))
 		} else {
-			lines = append(lines, "  "+r.label)
+			lines = append(lines, "  "+label)
 		}
 	}
 	sep := helpTextStyle.Render(" · ")
 	lines = append(lines, "", hint("enter", "Choose")+sep+hint("esc", "Cancel"))
 	body := padBody(strings.Join(lines, "\n"), helpPad)
-	width := max(lipgloss.Width(body)+2+helpPad, lipgloss.Width(p.title)+8)
+	width := min(max(lipgloss.Width(body)+2+helpPad, lipgloss.Width(p.title)+8), maxWidth)
 	return titledBox(p.title, body, width, lipgloss.Height(body)+2, true)
 }
 
-// pickHeight is the terminal height the sprint picker lays out for, 24 while
+// pickSize is the terminal size the sprint picker lays out for, 80x24 while
 // the size is unknown, as in mainView.
-func (m model) pickHeight() int {
+func (m model) pickSize() (width, height int) {
 	if m.width == 0 {
-		return 24
+		return 80, 24
 	}
-	return m.height
+	return m.width, m.height
+}
+
+// pickHeight is the terminal height the sprint picker lays out for (see
+// pickSize).
+func (m model) pickHeight() int {
+	_, h := m.pickSize()
+	return h
 }
 
 // openSprintPick opens picker p, scrolled to its cursor.
