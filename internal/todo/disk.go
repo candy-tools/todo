@@ -15,7 +15,8 @@ import (
 
 // fileVersion is the version of the JSON list file format. Version 4 added
 // the task "ref" field, version 5 the "view" section, version 6 the sprints,
-// version 7 the "_comment" note.
+// version 7 the "_comment" note, the "refs" section and the category and
+// sprint "prefix" fields.
 const fileVersion = 7
 
 // fileComment is the note todo puts at the top of the file, under "_comment",

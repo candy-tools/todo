@@ -81,7 +81,8 @@ func nextCmd() *cobra.Command {
 }
 
 // writeNextText prints the report as text, one block per sprint separated by a
-// blank line; an empty list prints "(none)".
+// blank line, and an empty section as "(none)"; with no sprint it prints "no
+// open sprint".
 func writeNextText(w io.Writer, doc *todo.Document, rep nextReport) {
 	if len(rep.Sprints) == 0 {
 		_, _ = fmt.Fprintln(w, "no open sprint")
