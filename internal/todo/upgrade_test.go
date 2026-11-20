@@ -59,8 +59,8 @@ func TestUpgradeTwoWritersOneImportedSprint(t *testing.T) {
 	if n := len(loadList(t, path).Sprints); n != 1 {
 		t.Errorf("%d sprints, want 1", n)
 	}
-	if f := readFile(t, path); !strings.Contains(f, `"version": 6`) {
-		t.Errorf("file is not version 6:\n%s", f)
+	if f := readFile(t, path); !strings.Contains(f, `"version": 7`) {
+		t.Errorf("file is not version 7:\n%s", f)
 	}
 }
 

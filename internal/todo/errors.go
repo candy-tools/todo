@@ -72,14 +72,27 @@ var ErrInvalidTitle = classed(ErrBadRequest, "invalid title")
 // character (see unsafeRune). Its class is ErrBadRequest.
 var ErrInvalidRef = classed(ErrBadRequest, "invalid reference")
 
+// ErrInvalidPrefix is returned by a write that would store a reference prefix
+// that is not a letter followed by up to nine letters or digits. Its class is
+// ErrBadRequest.
+var ErrInvalidPrefix = classed(ErrBadRequest, "invalid reference prefix")
+
+// ErrRefGenerated is returned by an add that gives a task a reference where a
+// prefix applies: the reference is generated then. Its class is ErrBadRequest.
+var ErrRefGenerated = classed(ErrBadRequest, "the reference is generated from the prefix; change it afterwards with edit")
+
+// ErrNotCategory is returned by a write that would give a task a reference
+// prefix: only a category or a sprint has one. Its class is ErrWrongKind.
+var ErrNotCategory = classed(ErrWrongKind, "only a category or a sprint has a reference prefix")
+
 // ErrDuplicateRef is returned by a write that would give a task a reference
 // another task of the list already holds (compared ignoring case). Its class
 // is ErrBadRequest.
 var ErrDuplicateRef = classed(ErrBadRequest, "duplicate reference")
 
-// ErrSubtaskRef is returned by a write that would give a subtask a reference,
-// or move a task that has one under a task: only a top-level task has a
-// reference. Its class is ErrBadRequest.
+// ErrSubtaskRef is returned by a write that would give a subtask a reference
+// (an edit, or an add under a task): only a top-level task has one. Moving a
+// task under a task drops its reference instead. Its class is ErrBadRequest.
 var ErrSubtaskRef = classed(ErrBadRequest, "a subtask cannot have a reference")
 
 // ErrRestoreAndCascade is returned by a state change asked both to restore the

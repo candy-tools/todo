@@ -41,9 +41,10 @@ func newRootCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Opening does no I/O: a missing list file shows as an empty list,
-			// and nothing is created until the first write (unless TODO.md is
-			// imported first). Its writes wait only tui.BusyTimeout for another
+			// A missing list file shows as an empty list, and nothing is
+			// created until the first write (unless TODO.md is imported
+			// first); an existing one gets todo's note at startup (see
+			// tui.Run). Its writes wait only tui.BusyTimeout for another
 			// writer, so a stuck one elsewhere does not freeze the UI.
 			st, notice, err := openList(path, isDefault, todo.WithBusyTimeout(tui.BusyTimeout))
 			if err != nil {
@@ -56,6 +57,6 @@ func newRootCommand() *cobra.Command {
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
 		return &cliError{exitUsage, e.Error()}
 	})
-	cmd.AddCommand(versionCmd(), listCmd(), statusCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd(), moveCmd(), importCmd(), sprintCmd(), assignCmd(), unassignCmd())
+	cmd.AddCommand(versionCmd(), listCmd(), statusCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd(), moveCmd(), importCmd(), sprintCmd(), assignCmd(), unassignCmd(), settingsCmd())
 	return cmd
 }

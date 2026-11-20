@@ -73,7 +73,7 @@ func pruneCmd() *cobra.Command {
 func editCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "edit",
-		Short: "change an item's title and/or a task's description, plan or reference",
+		Short: "change an item's title, a task's description, plan or reference, or a category's reference prefix",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
@@ -85,8 +85,9 @@ func editCmd() *cobra.Command {
 				setDesc := cmd.Flags().Changed("set-desc")
 				setPlan := cmd.Flags().Changed("set-plan")
 				setRef := cmd.Flags().Changed("set-ref")
-				if !setTitle && !setDesc && !setPlan && !setRef {
-					return usageErr("specify --set-title, --set-desc, --set-plan and/or --set-ref")
+				setPrefix := cmd.Flags().Changed("set-prefix")
+				if !setTitle && !setDesc && !setPlan && !setRef && !setPrefix {
+					return usageErr("specify --set-title, --set-desc, --set-plan, --set-ref and/or --set-prefix")
 				}
 				// Only the flags given are written, so a field another process
 				// changed since the read is kept.
@@ -114,6 +115,10 @@ func editCmd() *cobra.Command {
 					}
 					ch.Ref = &ref
 				}
+				if setPrefix {
+					prefix, _ := cmd.Flags().GetString("set-prefix")
+					ch.Prefix = &prefix
+				}
 				// The store refuses a description, plan or reference for a
 				// category, and a reference for a subtask or one another task
 				// holds.
@@ -135,5 +140,6 @@ func editCmd() *cobra.Command {
 	c.Flags().String("set-desc", "", "the new description (tasks only)")
 	c.Flags().String("set-plan", "", "the new plan path or reference; empty clears it (tasks only)")
 	c.Flags().String("set-ref", "", "the new reference, such as APP-001; unique in the list, empty clears it (tasks, not subtasks)")
+	c.Flags().String("set-prefix", "", "the new reference prefix for tasks created in this category; empty clears it (categories only)")
 	return c
 }

@@ -136,14 +136,21 @@ func TestMoveByRef(t *testing.T) {
 	wantChildren(t, path, "Other", "o1", "o2", "a")
 }
 
-func TestMoveRefTaskUnderTask(t *testing.T) {
+func TestMoveRefTaskUnderTaskDropsRef(t *testing.T) {
 	path := todotest.Seed(t, moveDoc)
 	if _, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-ref", "APP-001"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := runCmd(t, "move", "--file", path, "--title", "a", "--parent-title", "b")
-	if codeOf(t, err) != exitUsage {
-		t.Errorf("err = %v, want a usage error", err)
+	out, err := runCmd(t, "move", "--file", path, "--title", "a", "--parent-title", "b")
+	if err != nil {
+		t.Fatalf("move under a task: %v", err)
+	}
+	if !strings.Contains(out, "dropped reference APP-001") {
+		t.Errorf("output = %q, want the dropped-reference note", out)
+	}
+	wantChildren(t, path, "b", "a")
+	if strings.Contains(todotest.Dump(t, path), "APP-001") {
+		t.Errorf("the reference survived the indent:\n%s", todotest.Dump(t, path))
 	}
 }
 

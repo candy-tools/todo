@@ -258,14 +258,14 @@ func (m *model) moveSprints(delta int) {
 	m.followList()
 }
 
-// openSprintForm opens the sprint form: for edit, that sprint's name and goal,
-// else a blank one to add a sprint.
+// openSprintForm opens the sprint form: for edit, that sprint's name, reference
+// prefix and goal, else a blank one to add a sprint.
 func (m model) openSprintForm(edit *todo.Sprint) (tea.Model, tea.Cmd) {
 	v, editing := todo.Fields{}, edit != nil
 	m.target = targetAddSprint
 	if editing {
 		// Shown as the rows show them: a legacy value may hold control characters.
-		v = todo.Fields{Title: todo.Printable(edit.Name), Description: todo.PrintableLines(edit.Goal)}
+		v = todo.Fields{Title: todo.Printable(edit.Name), Description: todo.PrintableLines(edit.Goal), Prefix: todo.Printable(edit.Prefix)}
 		m.target, m.editingSprint = targetEditSprint, edit.ID
 	}
 	m.form = newForm(v, formSprint, editing)
@@ -294,7 +294,7 @@ func (m *model) submitSprint() {
 	if m.target == targetAddSprint {
 		var id string
 		if !m.writeSprint(func(ctx context.Context, st *todo.Store) (res todo.WriteResult, err error) {
-			id, res, err = st.AddSprint(ctx, v.Title, v.Description)
+			id, res, err = st.AddSprintWith(ctx, v)
 			return res, err
 		}) {
 			m.mode = modeForm

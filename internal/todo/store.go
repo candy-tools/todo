@@ -152,6 +152,9 @@ func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Sn
 		if err != nil || !changed {
 			return false, err
 		}
+		if !cur.Exists { // a new file starts with todo's note
+			d.Comment = fileComment
+		}
 		*l = toDisk(d)
 		return true, nil
 	})
@@ -164,6 +167,20 @@ func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Sn
 	// The Document is rebuilt from what was written, so it matches what a
 	// Load of the file returns.
 	return WriteResult{Doc: fromDisk(res.Value), Read: res.Read, Wrote: res.Wrote, Written: res.Written}, nil
+}
+
+// WriteNote puts todo's "_comment" note (fileComment) in the list file when
+// it holds another note or none; a file that already has it is not written.
+// It never creates the file: a missing one fails with ErrListMissing. The TUI
+// calls it at startup, so a list gets the note as soon as it is opened.
+func (s *Store) WriteNote(ctx context.Context) (WriteResult, error) {
+	return s.Existing().write(ctx, func(d *Document) (bool, error) {
+		if d.Comment == fileComment {
+			return false, nil
+		}
+		d.Comment = fileComment
+		return true, nil
+	})
 }
 
 // gone reports whether the list file, or its directory, does not exist.

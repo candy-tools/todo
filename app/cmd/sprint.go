@@ -16,6 +16,7 @@ type jsonSprint struct {
 	ID     string         `json:"id"`
 	Name   string         `json:"name"`
 	Goal   string         `json:"goal"`
+	Prefix string         `json:"prefix,omitempty"`
 	Status string         `json:"status"`
 	Counts map[string]int `json:"counts"`
 }
@@ -50,7 +51,7 @@ func writeSprintTable(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) {
 func writeSprintJSON(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) error {
 	out := []jsonSprint{}
 	for _, sp := range sprints {
-		out = append(out, jsonSprint{sp.ID, sp.Name, sp.Goal, sp.Status.String(), sprintCounts(doc, sp.ID)})
+		out = append(out, jsonSprint{sp.ID, sp.Name, sp.Goal, sp.Prefix, sp.Status.String(), sprintCounts(doc, sp.ID)})
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -122,17 +123,18 @@ func sprintListCmd() *cobra.Command {
 
 func sprintAddCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "add --name <name> [--goal <goal>]",
+		Use:   "add --name <name> [--goal <goal>] [--prefix <prefix>]",
 		Short: "create an open sprint and print its id",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			name, _ := cmd.Flags().GetString("name")
 			goal, _ := cmd.Flags().GetString("goal")
+			prefix, _ := cmd.Flags().GetString("prefix")
 			if name == "" {
 				return usageErr("specify --name")
 			}
 			return withStore(cmd, func(ctx context.Context, s *todo.Store, _ *todo.Document) error {
-				id, _, err := s.AddSprint(ctx, name, goal)
+				id, _, err := s.AddSprintWith(ctx, todo.Fields{Title: name, Description: goal, Prefix: prefix})
 				if err != nil {
 					return err
 				}
@@ -143,13 +145,14 @@ func sprintAddCmd() *cobra.Command {
 	}
 	c.Flags().String("name", "", "the sprint's name")
 	c.Flags().String("goal", "", "the sprint's goal")
+	c.Flags().String("prefix", "", "the reference prefix for tasks created in this sprint, such as S13 (a letter and up to 9 letters or digits)")
 	return c
 }
 
 func sprintEditCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "edit --sprint <id|name> [--set-name <name>] [--set-goal <goal>]",
-		Short: "change a sprint's name or goal",
+		Use:   "edit --sprint <id|name> [--set-name <name>] [--set-goal <goal>] [--set-prefix <prefix>]",
+		Short: "change a sprint's name, goal or reference prefix",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var ch todo.SprintChanges
@@ -161,8 +164,12 @@ func sprintEditCmd() *cobra.Command {
 				v, _ := cmd.Flags().GetString("set-goal")
 				ch.Goal = &v
 			}
-			if ch.Name == nil && ch.Goal == nil {
-				return usageErr("specify --set-name or --set-goal")
+			if cmd.Flags().Changed("set-prefix") {
+				v, _ := cmd.Flags().GetString("set-prefix")
+				ch.Prefix = &v
+			}
+			if ch.Name == nil && ch.Goal == nil && ch.Prefix == nil {
+				return usageErr("specify --set-name, --set-goal or --set-prefix")
 			}
 			return withSprint(cmd, "edit", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) error {
 				_, err := s.EditSprint(ctx, sp.ID, ch)
@@ -173,6 +180,7 @@ func sprintEditCmd() *cobra.Command {
 	addSprintFlag(c)
 	c.Flags().String("set-name", "", "the new name")
 	c.Flags().String("set-goal", "", "the new goal (empty clears it)")
+	c.Flags().String("set-prefix", "", "the new reference prefix for tasks created in this sprint (empty clears it)")
 	return c
 }
 

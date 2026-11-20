@@ -247,11 +247,11 @@ func (m *model) afterPlanWrite() {
 // updatePlan handles the keys of Planning: the arrows move the focused side's
 // selection, tab switches side, → or a pulls the Backlog side's task into the
 // sprint, ← or A sends the sprint side's Next task back, r toggles it between
-// new and ready, k and K change the planned sprint, esc and p leave. b, s, q
-// and ? work as everywhere; every other key does nothing.
+// new and ready, k and K change the planned sprint, esc and p leave. b, s, q,
+// ? and S work as everywhere; every other key does nothing.
 func (m model) updatePlan(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key := msg.String(); key {
-	case "b", "s", "q", "?":
+	case "b", "s", "q", "?", "S":
 		next, cmd, _ := m.updateScreenKey(msg)
 		return next, cmd
 	case "esc", "p":

@@ -45,6 +45,9 @@ type Sprint struct {
 	Name   string
 	Goal   string
 	Status SprintStatus
+	// Prefix is the reference prefix of the tasks created in the sprint (see
+	// Document.PrefixFor); "" for none.
+	Prefix string
 }
 
 // InSprint reports whether a task in this state belongs to a sprint: every

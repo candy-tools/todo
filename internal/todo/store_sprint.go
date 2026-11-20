@@ -9,6 +9,13 @@ func (s *Store) AddSprint(ctx context.Context, name, goal string) (string, Write
 	return s.add(ctx, func(d *Document) (string, error) { return d.AddSprint(name, goal) })
 }
 
+// AddSprintWith adds an open sprint named f.Title, with the goal f.Description
+// and the reference prefix f.Prefix, and returns its ID. It fails as AddSprint
+// does, and with ErrInvalidPrefix for an invalid prefix.
+func (s *Store) AddSprintWith(ctx context.Context, f Fields) (string, WriteResult, error) {
+	return s.add(ctx, func(d *Document) (string, error) { return d.AddSprintWith(f) })
+}
+
 // EditSprint sets the fields of sprint id that c names, in the list as it is at
 // write time. A missing sprint is ErrSprintNotFound; a name fails as for
 // AddSprint. An edit that changes nothing writes nothing.

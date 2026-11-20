@@ -12,7 +12,7 @@ func TestValidate(t *testing.T) {
 	const a, b, c, d = "aaaaaaa", "bbbbbbb", "ccccccc", "ddddddd"
 	good := func() todo.DiskList {
 		return todo.DiskList{
-			Version:    6,
+			Version:    7,
 			Categories: []todo.DiskCategory{{ID: a, Title: "A"}},
 			Tasks: []todo.DiskTask{{ID: b, Category: a, Title: "T", Status: "open",
 				Subtasks: []todo.DiskSubtask{{ID: c, Title: "S"}}}},
@@ -104,6 +104,22 @@ func TestValidate(t *testing.T) {
 			l.Tasks[0].Ref = "APP-001"
 			l.Tasks = append(l.Tasks, todo.DiskTask{ID: d, Category: a, Ref: "app-001", Title: "U", Status: "open"})
 		}, "invalid list file: task " + d + `: reference "app-001" is already used by task ` + b},
+		{"valid refs", func(l *todo.DiskList) {
+			l.Refs = &todo.DiskRefs{Prefix: "TODO", Last: map[string]int{"TODO": 1, "W2": 5}}
+			l.Categories[0].Prefix = "WORK"
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Prefix: "S1", Status: "open"}}
+		}, ""},
+		{"refs prefix lower case", func(l *todo.DiskList) { l.Refs = &todo.DiskRefs{Prefix: "todo"} },
+			"invalid list file: refs: invalid reference prefix \"todo\""},
+		{"refs counter key invalid", func(l *todo.DiskList) { l.Refs = &todo.DiskRefs{Last: map[string]int{"wo rk": 1}} },
+			"invalid list file: refs: invalid reference prefix \"wo rk\""},
+		{"refs counter zero", func(l *todo.DiskList) { l.Refs = &todo.DiskRefs{Last: map[string]int{"WORK": 0}} },
+			"invalid list file: refs: counter for WORK must be at least 1"},
+		{"category prefix invalid", func(l *todo.DiskList) { l.Categories[0].Prefix = "1A" },
+			"invalid list file: category " + a + ": invalid reference prefix \"1A\""},
+		{"sprint prefix invalid", func(l *todo.DiskList) {
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Prefix: "x-", Status: "open"}}
+		}, "invalid list file: sprint " + d + ": invalid reference prefix \"x-\""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -157,6 +157,10 @@ const BusyTimeout = 750 * time.Millisecond
 // automatic TODO.md import summary) is shown in the footer at start; it may be
 // empty. The caller makes st with BusyTimeout.
 func Run(st *todo.Store, notice string) error {
+	// Put the note for agents in the file before loading it. The note is not
+	// worth failing the start for: a missing file gets it on its first save,
+	// and an invalid one fails the load below with its own error.
+	_, _ = st.WriteNote(context.Background())
 	m, err := newModel(st, notice)
 	if err != nil {
 		return err
@@ -372,8 +376,9 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateScreenKey handles the keys that work on every screen but Planning
-// (which takes b, s, q and ? from here): q (quit), esc, ? and the screen
-// jumps b, s, p, k and K. The bool reports whether the key was one of them.
+// (which takes b, s, q, ? and S from here): q (quit), esc, ?, S (settings) and
+// the screen jumps b, s, p, k and K. The bool reports whether the key was one
+// of them.
 func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "q":
@@ -385,6 +390,9 @@ func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "?":
 		m.mode, m.helpOffset = modeHelp, 0
 		return m, nil, true
+	case "S":
+		next, cmd := m.openSettings()
+		return next, cmd, true
 	case "b":
 		m.showBacklog()
 		return m, nil, true

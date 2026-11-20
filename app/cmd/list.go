@@ -110,6 +110,7 @@ type jsonItem struct {
 	ID          string     `json:"id"`
 	Kind        string     `json:"kind"`
 	Ref         string     `json:"ref,omitempty"`
+	Prefix      string     `json:"prefix,omitempty"` // a category's reference prefix
 	Title       string     `json:"title"`
 	Status      string     `json:"status,omitempty"`
 	Column      string     `json:"column,omitempty"`
@@ -153,6 +154,7 @@ func toJSONItem(it *todo.Item, nums map[*todo.Item]int, visible map[*todo.Item]b
 	} else {
 		ji.Kind = "category"
 		ji.Level = it.Level
+		ji.Prefix = it.Prefix
 	}
 	for _, c := range it.Children {
 		if visible != nil && !visible[c] {

@@ -37,6 +37,7 @@ func moveCmd() *cobra.Command {
 				if parent != nil {
 					parentID = parent.ID
 				}
+				oldRef := it.Ref
 				var res todo.WriteResult
 				switch {
 				case after != nil:
@@ -55,6 +56,9 @@ func moveCmd() *cobra.Command {
 					it = now
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "move: %s  (%s)\n", todo.Printable(it.DisplayTitle()), placeName(it.Parent))
+				if oldRef != "" && it.Ref == "" {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "dropped reference %s\n", oldRef)
+				}
 				return nil
 			})
 		},

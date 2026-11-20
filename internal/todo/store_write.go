@@ -9,6 +9,7 @@ type Fields struct {
 	Plan        string // a path or reference to the task's plan
 	Ref         string // a top-level task's reference, such as "APP-001"; "" for none
 	Sprint      string // the sprint a new top-level task joins; "" for the backlog (a subtask ignores it)
+	Prefix      string // a new category's or sprint's reference prefix; "" for none
 }
 
 // Changes are the text fields an Edit sets. A nil field keeps what the store
@@ -19,6 +20,7 @@ type Changes struct {
 	Description *string
 	Plan        *string
 	Ref         *string
+	Prefix      *string // a category's reference prefix; "" clears it
 }
 
 // AddCategory adds a category under parentID ("" for a root), after the
@@ -39,6 +41,20 @@ func (s *Store) AddCategory(ctx context.Context, title string, parentID, afterID
 // caller read the list cannot make the add fail.
 func (s *Store) AppendCategory(ctx context.Context, title string, parentID string) (string, WriteResult, error) {
 	return s.add(ctx, func(d *Document) (string, error) { return d.AppendCategory(title, parentID) })
+}
+
+// AppendCategoryWith adds a category like AppendCategory, titled f.Title and
+// with the reference prefix f.Prefix. An invalid prefix fails it with
+// ErrInvalidPrefix.
+func (s *Store) AppendCategoryWith(ctx context.Context, f Fields, parentID string) (string, WriteResult, error) {
+	return s.add(ctx, func(d *Document) (string, error) { return d.AppendCategoryWith(f, parentID) })
+}
+
+// SetRefPrefix sets the list's reference prefix, cleaned as CleanPrefix does;
+// "" clears it. An invalid prefix fails it with ErrInvalidPrefix. A prefix the
+// list already holds writes nothing.
+func (s *Store) SetRefPrefix(ctx context.Context, prefix string) (WriteResult, error) {
+	return s.write(ctx, func(d *Document) (bool, error) { return d.SetRefPrefix(prefix) })
 }
 
 // AddTask adds a task with fields f and status st under parentID, after the
@@ -113,8 +129,8 @@ func (s *Store) Edit(ctx context.Context, id string, c Changes) (WriteResult, er
 // new parent must not be a subtask, or the move fails with ErrTooDeep; a move
 // into the item's own subtree fails with ErrInvalidMove. A task that becomes,
 // stays or stops being a subtask takes its status from StatusAfterMove; a task
-// moved between categories keeps its status. A task that has a reference
-// cannot become a subtask (ErrSubtaskRef).
+// moved between categories keeps its status. A task that has a reference and
+// becomes a subtask drops it; the number is not reused.
 func (s *Store) Move(ctx context.Context, id, parentID, afterID string) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.Move(id, parentID, afterID) })
 }

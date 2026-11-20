@@ -69,18 +69,20 @@ func TestEditDuplicateRefKeepsForm(t *testing.T) {
 	}
 }
 
-// Indenting a task that has a reference under the task above is refused, as a
-// subtask holds none: nothing moves and the footer says why.
-func TestIndentRefTaskRefused(t *testing.T) {
+// Indenting a task that has a reference under the task above drops the
+// reference, as a subtask holds none.
+func TestIndentRefTaskDropsRef(t *testing.T) {
 	m, path := newJSONModel(t, `{"version": 4, "categories": [{"id": "c000000", "title": "Work"}], "tasks": [
 		{"id": "t000000", "category": "c000000", "title": "a", "status": "open"},
 		{"id": "t000001", "category": "c000000", "ref": "APP-002", "title": "b", "status": "open"}]}`)
-	before := storeFP(t, m)
 	got := press(selectTitle(t, m, "b"), "m", "right")
-	if !strings.Contains(got.status, "reference") {
-		t.Errorf("status = %q, want the reference refusal", got.status)
+	if it := storedItem(t, path, "b"); it.Ref != "" || it.Parent == nil {
+		t.Errorf("stored b = ref %q, parent %v; want a subtask with no ref", it.Ref, it.Parent)
 	}
-	if storeFP(t, got) != before || storedItem(t, path, "b").Ref != "APP-002" {
-		t.Error("a refused indent wrote to the store")
+	if b := find(got.doc, "b"); b.Ref != "" {
+		t.Errorf("ref in the model = %q, want none", b.Ref)
+	}
+	if got.status != "dropped reference APP-002" {
+		t.Errorf("status = %q, want the dropped-reference notice", got.status)
 	}
 }

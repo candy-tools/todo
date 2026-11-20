@@ -28,7 +28,7 @@ func TestSprintListNewCreatesSprint(t *testing.T) {
 		t.Fatalf("n: mode %v kind %v, want the sprint form", m.mode, m.form.kind)
 	}
 	m = typeText(m, "Delta")
-	m = press(m, "tab")
+	m = press(m, "tab", "tab") // past the reference prefix to the goal
 	m = typeText(m, "ship it")
 	m = press(m, "enter")
 	if m.mode != modeMain || m.err != nil {
