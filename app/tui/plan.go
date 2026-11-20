@@ -187,9 +187,8 @@ func taskRowNear(rows []planRow, i, dir int) int {
 // shown sprint when it is open, else the last viewed sprint while it is open,
 // else the first open one, with the keys on the Backlog side. With no open
 // sprint the footer says how to make one. Planning itself is never stored,
-// but entering it stores the view it leaves when the list's view opens on
-// another (a sprint browsed to in the sidebar), or a quit from Planning would
-// forget it.
+// but entering it stores the view it leaves (see saveView: a sprint browsed
+// to in the sidebar), or a quit from Planning would forget it.
 // Like b and s, it starts the footer afresh: an earlier failure is cleared,
 // and only a failure of that save shows over Planning.
 func (m *model) openPlanning() {
@@ -201,10 +200,7 @@ func (m *model) openPlanning() {
 			return
 		}
 	}
-	m.err = nil
-	if !m.viewStored() {
-		m.saveView()
-	}
+	m.saveView()
 	m.switchScreen(screenPlan, "")
 	m.plan.plan(id)
 	m.plan.right = false

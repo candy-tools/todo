@@ -503,9 +503,9 @@ func (m *model) applyView(v todo.View) {
 
 // opensOn is the view a session opening on the stored view v shows, as
 // viewOnScreen puts it: the sprint list and a sprint that is gone open on the
-// first open sprint, and the Backlog names no sprint. quit and openPlanning
-// store the view on screen only when the file's view does not open on it, so
-// a list opened only to look at it is not rewritten.
+// first open sprint, and the Backlog names no sprint. saveView stores the view
+// on screen only when the file's view does not open on it, so a list opened
+// only to look at it is not rewritten.
 func (m *model) opensOn(v todo.View) todo.View {
 	switch v.Screen {
 	case todo.ScreenSprints, todo.ScreenSprint:
@@ -518,9 +518,14 @@ func (m *model) opensOn(v todo.View) todo.View {
 	return todo.View{Unified: v.Unified, Split: v.Split, Screen: todo.ScreenBacklog}
 }
 
-// viewStored reports whether the list file's view opens on the view on
-// screen, so storing it would change nothing the next session shows.
-func (m *model) viewStored() bool { return m.viewOnScreen() == m.opensOn(m.doc.View) }
+// viewStored reports whether storing the view on screen would change nothing
+// this session should: it is the one the session opened on or last stored
+// (baseView), so a view another session stored since is not overwritten, or
+// the list file's view opens on it, so the next session would show it anyway.
+func (m *model) viewStored() bool {
+	on := m.viewOnScreen()
+	return on == m.baseView || on == m.opensOn(m.doc.View)
+}
 
 // viewOnScreen is the view on screen as the list file holds it: the screen and
 // its sprint, unified or not, split or not.
@@ -529,28 +534,35 @@ func (m *model) viewOnScreen() todo.View {
 }
 
 // saveView stores the view on screen in the list file, so the next session
-// opens on it. It is a write like any other (see commit): a failed one shows
-// in the footer, and the view stays as it is on screen. Planning is never
-// stored: the list keeps the view stored before it.
+// opens on it, unless viewStored says that would change nothing: a key that
+// only shows again the view the file opens on writes nothing, not even the
+// lock file. It is a write like any other (see commit): it starts the footer
+// afresh, clearing an earlier failure also when it writes nothing, a failed
+// one shows in the footer, and the view stays as it is on screen. Planning is
+// never stored: the list keeps the view stored before it.
 func (m *model) saveView() {
 	if m.view.screen == screenPlan {
 		return
 	}
+	m.err = nil
+	if m.viewStored() {
+		return
+	}
 	v := m.viewOnScreen()
-	m.commit(m.focused().selectedID(), func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+	if m.commit(m.focused().selectedID(), func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
 		return st.SetView(ctx, v)
-	})
+	}) {
+		m.baseView = v
+	}
 }
 
-// quit stores the view on screen when the list file's view opens on another —
-// so a sprint browsed to in the Sprints workspace's sidebar is the one the
-// next session opens on — and quits. Every way out of the app goes through it.
+// quit stores the view on screen (see saveView) — so a sprint browsed to in
+// the Sprints workspace's sidebar is the one the next session opens on — and
+// quits. Every way out of the app goes through it.
 func (m model) quit() (tea.Model, tea.Cmd) {
-	if !m.viewStored() {
-		m.err = nil
-		m.saveView()
-		m.quitErr = m.err
-	}
+	m.err = nil
+	m.saveView()
+	m.quitErr = m.err
 	return m, tea.Quit
 }
 

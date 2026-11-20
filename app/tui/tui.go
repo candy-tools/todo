@@ -91,6 +91,10 @@ type model struct {
 	// lastSprint is the ID of the sprint whose board was shown last, where
 	// "k" goes back to from the other screens.
 	lastSprint string
+	// baseView is the view (as viewOnScreen puts it) the session opened on, or
+	// the last one it stored: saveView stores no view equal to it, so a view
+	// another session stored since is kept unless this one changed its own.
+	baseView todo.View
 	// plan is Planning's state (see planner), meaningful on screenPlan.
 	plan planner
 	// tree is the main pane: the category/task tree, or — in the split view —
@@ -209,6 +213,7 @@ func newModel(st *todo.Store, notice string) (model, error) {
 		status:    strings.ReplaceAll(notice, "\n", " · "),
 	}
 	m.applyView(doc.View)
+	m.baseView = m.viewOnScreen()
 	return m, nil
 }
 
