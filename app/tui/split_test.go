@@ -59,11 +59,11 @@ func TestSplitSidebarNarrowsTasks(t *testing.T) {
 	}
 }
 
-func TestSplitXSwitchesFocus(t *testing.T) {
+func TestSplitTabSwitchesFocus(t *testing.T) {
 	m, _ := newTestModel(t, splitDoc)
 	m = press(m, "v", "tab")
 	if m.sideFocus {
-		t.Fatal("x should move focus to the task list")
+		t.Fatal("tab should move focus to the task list")
 	}
 	side := m.side.cursor
 	m = press(m, "down")
@@ -76,11 +76,11 @@ func TestSplitXSwitchesFocus(t *testing.T) {
 	}
 	m = press(m, "tab")
 	if !m.sideFocus {
-		t.Error("x again should move focus back to the sidebar")
+		t.Error("tab again should move focus back to the sidebar")
 	}
 	n, _ := newTestModel(t, splitDoc)
 	if n = press(n, "tab"); n.split || n.sideFocus || n.mode != modeMain {
-		t.Error("x outside the split view should do nothing")
+		t.Error("tab outside the split view should do nothing")
 	}
 }
 
@@ -92,7 +92,7 @@ func TestSplitLayout(t *testing.T) {
 		t.Errorf("split view should show both panes:\n%s", v)
 	}
 	if got := m.footer(200); !strings.Contains(got, "Pane") {
-		t.Errorf("footer = %q, want the x Pane hint", got)
+		t.Errorf("footer = %q, want the tab Pane hint", got)
 	}
 }
 

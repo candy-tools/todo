@@ -252,7 +252,7 @@ func TestHelpListsSprintKeys(t *testing.T) {
 			t.Errorf("help has no row for %q", keys)
 		}
 	}
-	for _, gone := range []string{"↑ ↓  w s", "1–4"} {
+	for _, gone := range []string{"↑ ↓  w s", "1–4", "x", "p P", "p", "P"} {
 		if len(desc[gone]) > 0 {
 			t.Errorf("help still lists %q", gone)
 		}

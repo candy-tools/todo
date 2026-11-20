@@ -403,7 +403,7 @@ func TestOpensOnStoredBoard(t *testing.T) {
 		t.Fatalf("opened on screen %v sprint %q unified %v, want A's board under the unified view", m.view.screen, m.view.sprint, m.view.all)
 	}
 	if m = press(m, "u"); m.view.all || !hasRow(m, "aNext") {
-		t.Errorf("a should return to A's board: unified %v rows %v", m.view.all, rowTitles(m.tree))
+		t.Errorf("u should return to A's board: unified %v rows %v", m.view.all, rowTitles(m.tree))
 	}
 }
 

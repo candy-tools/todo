@@ -358,7 +358,7 @@ func TestGrabIgnoresModeKeys(t *testing.T) {
 	if !m.sideFocus || !m.side.grabbed {
 		t.Fatalf("precondition: m should grab Home in the sidebar: sideFocus %v, grabbed %v", m.sideFocus, m.side.grabbed)
 	}
-	m = press(m, "/", "?", "t", "e", "x")
+	m = press(m, "/", "?", "t", "e", "tab")
 	if !m.side.grabbed {
 		t.Error("keys outside the move set must leave the item grabbed")
 	}
@@ -366,7 +366,7 @@ func TestGrabIgnoresModeKeys(t *testing.T) {
 		t.Errorf("keys must not open a mode while grabbed: mode %v, want modeMain", m.mode)
 	}
 	if !m.sideFocus {
-		t.Error("x must not switch panes while grabbed")
+		t.Error("tab must not switch panes while grabbed")
 	}
 }
 

@@ -64,7 +64,7 @@ var helpSections = []helpSection{
 		{"d", "Delete the sprint"},
 	}},
 	{"Views", []helpBinding{
-		{"v", "Split: categories sidebar + task list"},
+		{"v", "Split: categories sidebar + task list (opens on the selection)"},
 		{"tab", "Switch pane (split view)"},
 	}},
 	{"App", []helpBinding{

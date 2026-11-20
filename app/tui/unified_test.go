@@ -46,7 +46,7 @@ func TestUnifiedShowsEveryState(t *testing.T) {
 	}
 	m = press(m, "u")
 	if m.view.all || m.view.screen != screenBacklog {
-		t.Errorf("a again should return to Backlog, all=%v screen=%v", m.view.all, m.view.screen)
+		t.Errorf("u again should return to Backlog, all=%v screen=%v", m.view.all, m.view.screen)
 	}
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "o"}) {
 		t.Errorf("back on Backlog rows = %v", got)
@@ -58,7 +58,7 @@ func TestUnifiedReturnsToLastTab(t *testing.T) {
 	toTab(&m, todo.ColNext)
 	m = press(m, "u", "u")
 	if m.view.screen != screenSprint || m.view.column != todo.ColNext {
-		t.Errorf("a twice should return to the board's Next, got screen %v tab %v", m.view.screen, m.view.column)
+		t.Errorf("u twice should return to the board's Next, got screen %v tab %v", m.view.screen, m.view.column)
 	}
 }
 
