@@ -77,7 +77,7 @@ func TestListCursorDrivesBoard(t *testing.T) {
 func TestQQuitsFromBoard(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s", "tab")
-	if _, cmd := m.Update(keyMsg("q")); !quits(cmd) {
+	if !quitsConfirmed(t, m, "q") {
 		t.Fatal("q on the board should quit")
 	}
 }
@@ -218,9 +218,9 @@ func TestQuitStoresSprintOnScreen(t *testing.T) {
 	if v := storedView(t, path); v.Sprint != "s00000a" {
 		t.Fatalf("an arrow in the list stored %+v, want A still stored", v)
 	}
-	nm, cmd := m.Update(keyMsg("q"))
+	nm, cmd := press(m, "q").Update(keyMsg("enter"))
 	if !quits(cmd) {
-		t.Fatal("q should quit")
+		t.Fatal("q, confirmed, should quit")
 	}
 	if v := storedView(t, path); v.Screen != todo.ScreenSprint || v.Sprint != "s00000c" {
 		t.Errorf("after q stored view %+v, want sprint C", v)
@@ -228,7 +228,7 @@ func TestQuitStoresSprintOnScreen(t *testing.T) {
 	// Nothing changed since: quitting again writes nothing.
 	m = nm.(model)
 	before := storeFP(t, m)
-	if _, cmd := m.Update(keyMsg("q")); !quits(cmd) || storeFP(t, m) != before {
+	if _, cmd := press(m, "q").Update(keyMsg("enter")); !quits(cmd) || storeFP(t, m) != before {
 		t.Error("q with the view unchanged must quit without a write")
 	}
 }
@@ -269,8 +269,8 @@ func TestUClearsListFocus(t *testing.T) {
 func TestEscInSidebarQuitsAndTabFocusesList(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
-	if _, cmd := m.Update(keyMsg("esc")); !quits(cmd) {
-		t.Error("esc in the sidebar with nothing to clear should quit")
+	if !quitsConfirmed(t, m, "esc") {
+		t.Error("esc in the sidebar with nothing to clear should quit once confirmed")
 	}
 	if m = press(m, "enter"); m.listFocus {
 		t.Fatal("enter in the sidebar should focus the board")

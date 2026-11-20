@@ -16,7 +16,7 @@ func (m model) View() string {
 	case modeForm:
 		return placeCenter(m.mainView(true), m.form.view())
 	case modeConfirm:
-		return placeCenter(m.mainView(true), confirmModal(m.confirmQuestion(), m.confirmOnDelete, m.width))
+		return placeCenter(m.mainView(true), confirmModal(m.confirmQuestion(), m.confirmLabels(), m.confirmOnYes, m.width))
 	case modeHelp:
 		return placeCenter(m.mainView(true), helpModal(m.width, m.height, m.helpOffset))
 	case modeStatePick, modeStateFilter:

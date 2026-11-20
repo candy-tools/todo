@@ -392,7 +392,7 @@ func TestDeleteDefaultsToCancel(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	m = press(m, "down") // task a
 	m = press(m, "d")
-	if m.confirmOnDelete {
+	if m.confirmOnYes {
 		t.Errorf("focus should default to Cancel")
 	}
 	if !strings.Contains(m.View(), "Confirm delete") {
@@ -468,7 +468,7 @@ func TestClearDoneConfirmed(t *testing.T) {
 func TestClearDoneDefaultsToCancel(t *testing.T) {
 	m, _ := newTestModelOn(t, "# Work\n\n- [x] a\n- [x] c\n- [ ] b\n", todo.ColDone)
 	m = press(m, "D")
-	if m.confirmOnDelete {
+	if m.confirmOnYes {
 		t.Errorf("focus should default to Cancel")
 	}
 	if out := m.View(); !strings.Contains(out, "Remove 2 completed task") {

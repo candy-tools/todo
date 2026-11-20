@@ -290,8 +290,8 @@ func TestPlanningNeverStoresTheView(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s", "p")
 	before := storeFP(t, m)
-	_, cmd := m.Update(keyMsg("q"))
-	if cmd == nil || storeFP(t, m) != before {
+	_, cmd := press(m, "q").Update(keyMsg("enter"))
+	if !quits(cmd) || storeFP(t, m) != before {
 		t.Fatal("q from Planning must quit without storing the view")
 	}
 }
@@ -476,8 +476,8 @@ func TestPlanningWriteOnAChangedListWithGoneSprintSaysGone(t *testing.T) {
 func TestQuitFromPlanningStoresTheBrowsedSprint(t *testing.T) {
 	m, path := threeSprints(t)
 	m = press(m, "s", "down", "p") // C, browsed to but not stored
-	_, cmd := m.Update(keyMsg("q"))
-	if cmd == nil {
+	_, cmd := press(m, "q").Update(keyMsg("enter"))
+	if !quits(cmd) {
 		t.Fatal("q must quit")
 	}
 	if got := loadSprintDoc(t, path).View.Sprint; got != "s00000c" {

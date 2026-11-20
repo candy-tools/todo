@@ -23,17 +23,30 @@ func deletionQuestion(it *todo.Item) string {
 	return fmt.Sprintf("Delete %s %q?", kind, it.DisplayTitle())
 }
 
-// confirmModal renders the delete confirmation. Focus defaults to Cancel
-// (onDelete=false) so a stray keystroke can't delete — the dibs convention for
+// confirmLabels is the wording of a confirm dialog: its title, its two
+// buttons, and the key(s) its hint row offers for the confirming button.
+type confirmLabels struct{ title, yes, no, yesKeys string }
+
+var (
+	// deleteLabels word the destructive dialogs (delete, clear done, delete
+	// sprint); they open on the safe Cancel button.
+	deleteLabels = confirmLabels{title: "Confirm delete", yes: "Delete", no: "Cancel", yesKeys: "y"}
+	// quitLabels word the quit dialog, which opens on Yes so enter quits.
+	quitLabels = confirmLabels{title: "Confirm quit", yes: "Yes", no: "No", yesKeys: "y/enter"}
+)
+
+// confirmModal renders a confirm dialog worded by l, with the confirming
+// button focused when onYes. The destructive dialogs open with focus on Cancel
+// (onYes=false) so a stray keystroke can't delete — the dibs convention for
 // destructive dialogs.
-func confirmModal(question string, onDelete bool, termWidth int) string {
+func confirmModal(question string, l confirmLabels, onYes bool, termWidth int) string {
 	if termWidth <= 0 {
 		termWidth = 80
 	}
 	buttons := lipgloss.JoinHorizontal(lipgloss.Top,
-		button("Delete", onDelete), "   ", button("Cancel", !onDelete))
+		button(l.yes, onYes), "   ", button(l.no, !onYes))
 	sep := helpTextStyle.Render(" · ")
-	help := hint("y", "Delete") + sep + hint("n/esc", "Cancel") + sep + hint("tab", "Move")
+	help := hint(l.yesKeys, l.yes) + sep + hint("n/esc", l.no) + sep + hint("tab", "Move")
 
 	contentW := lipgloss.Width(question)
 	for _, el := range []string{help, buttons} {
@@ -53,7 +66,7 @@ func confirmModal(question string, onDelete bool, termWidth int) string {
 
 	buttonRow := lipgloss.NewStyle().Width(contentW).Align(lipgloss.Right).Render(buttons)
 	body := padBody(question+"\n\n"+buttonRow+"\n\n"+help, pad)
-	return titledBox("Confirm delete", body, width, lipgloss.Height(body)+2, true)
+	return titledBox(l.title, body, width, lipgloss.Height(body)+2, true)
 }
 
 // padBody indents every non-empty line by pad columns and adds a blank row
@@ -76,7 +89,25 @@ const (
 	confirmDelete       confirmAction = iota // delete the selected item (m.deleting)
 	confirmClearDone                         // remove the board's sprint's completed tasks
 	confirmDeleteSprint                      // delete the selected sprint (m.deletingSprint)
+	confirmQuit                              // quit the app
 )
+
+// askQuit opens the quit dialog, focused on Yes so enter quits and esc stays.
+// q, and esc with nothing left to clear, come here; ctrl+c quits at once.
+func (m model) askQuit() (tea.Model, tea.Cmd) {
+	m.confirmOnYes = true
+	m.confirmAction = confirmQuit
+	m.mode = modeConfirm
+	return m, nil
+}
+
+// confirmLabels is the wording of the open confirm dialog.
+func (m model) confirmLabels() confirmLabels {
+	if m.confirmAction == confirmQuit {
+		return quitLabels
+	}
+	return deleteLabels
+}
 
 // openDelete opens the confirm dialog for the selected item (focused on the
 // safe Cancel button). A no-op when nothing is selected; a category outside
@@ -91,7 +122,7 @@ func (m model) openDelete() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.deleting = sel
-	m.confirmOnDelete = false
+	m.confirmOnYes = false
 	m.confirmAction = confirmDelete
 	m.mode = modeConfirm
 	return m, nil
@@ -115,14 +146,14 @@ func (m model) openClearDone() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.deleting = nil
-	m.confirmOnDelete = false
+	m.confirmOnYes = false
 	m.confirmAction = confirmClearDone
 	m.mode = modeConfirm
 	return m, nil
 }
 
-// updateConfirm handles the confirm dialog: y/enter-on-Delete confirms, n/esc
-// cancels, tab/arrows toggle the focused button.
+// updateConfirm handles the confirm dialog: y, or enter on the confirming
+// button, confirms; n/esc cancels; tab/arrows toggle the focused button.
 func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
@@ -131,10 +162,10 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 		return m, nil
 	case "left", "right", "tab", "shift+tab":
-		m.confirmOnDelete = !m.confirmOnDelete
+		m.confirmOnYes = !m.confirmOnYes
 		return m, nil
 	case "enter", " ":
-		if m.confirmOnDelete {
+		if m.confirmOnYes {
 			return m.doConfirm()
 		}
 		m.mode = modeMain
@@ -150,6 +181,9 @@ func (m model) doConfirm() (tea.Model, tea.Cmd) {
 		return m.doClearDone()
 	case confirmDeleteSprint:
 		return m.doDeleteSprint()
+	case confirmQuit:
+		m.mode = modeMain
+		return m.quit()
 	}
 	return m.doDelete()
 }
@@ -219,6 +253,8 @@ func (m model) confirmQuestion() string {
 		return fmt.Sprintf("Remove %d completed task(s)?", m.doc.RemovableDoneIn(m.view.sprint))
 	case confirmDeleteSprint:
 		return fmt.Sprintf("Delete sprint %q? Its unfinished tasks go back to the Backlog.", todo.Printable(m.deletingSprint.Name))
+	case confirmQuit:
+		return "Quit?"
 	}
 	return deletionQuestion(m.deleting)
 }

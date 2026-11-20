@@ -176,7 +176,7 @@ func TestBoardHeadShowsGoal(t *testing.T) {
 func TestQOnBoardQuits(t *testing.T) {
 	m, _ := threeSprints(t)
 	openBoard(&m, "s00000a")
-	if _, cmd := m.Update(keyMsg("q")); !quits(cmd) {
+	if !quitsConfirmed(t, m, "q") {
 		t.Fatal("q on a board must quit")
 	}
 }
@@ -184,10 +184,10 @@ func TestQOnBoardQuits(t *testing.T) {
 func TestQOnListQuits(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
-	if _, cmd := m.Update(keyMsg("q")); !quits(cmd) {
+	if !quitsConfirmed(t, m, "q") {
 		t.Error("q in the sprint sidebar must quit")
 	}
-	if _, cmd := press(m, "b").Update(keyMsg("q")); !quits(cmd) {
+	if !quitsConfirmed(t, press(m, "b"), "q") {
 		t.Error("q on the Backlog must quit")
 	}
 }
@@ -207,7 +207,7 @@ func TestEscOnBoardFocusesList(t *testing.T) {
 	}
 	// The unified view over a board still quits.
 	m.showSprint("s00000a")
-	if _, cmd := press(m, "u").Update(keyMsg("esc")); !quits(cmd) {
+	if !quitsConfirmed(t, press(m, "u"), "esc") {
 		t.Error("esc in the unified view must quit")
 	}
 }

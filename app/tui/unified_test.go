@@ -170,7 +170,7 @@ func TestUnifiedEscInSplitTaskListFocusesCategories(t *testing.T) {
 	if quits(cmd) || !m.sideFocus {
 		t.Fatalf("esc in the task list: quits %v sideFocus %v, want the Categories focused", quits(cmd), m.sideFocus)
 	}
-	if _, cmd := m.Update(keyMsg("esc")); !quits(cmd) {
-		t.Error("a second esc should quit")
+	if !quitsConfirmed(t, m, "esc") {
+		t.Error("a second esc should quit once confirmed")
 	}
 }

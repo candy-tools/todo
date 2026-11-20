@@ -79,8 +79,8 @@ var helpSections = []helpSection{
 	}},
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},
-		{"q", "Quit"},
-		{"esc", "Clear search / state filter; else focus the sidebar; else quit"},
+		{"q", "Quit (asks first: enter yes, esc no)"},
+		{"esc", "Clear search / state filter; else focus the sidebar; else ask to quit"},
 	}},
 }
 

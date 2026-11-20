@@ -94,7 +94,7 @@ func TestQuitKeepsTheViewSaveError(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	m = press(m, "q")
+	m = press(m, "q", "enter")
 	if m.quitErr == nil {
 		t.Fatalf("quit with the file removed: quitErr nil, err %v", m.err)
 	}
@@ -106,7 +106,7 @@ func TestQuitKeepsTheViewSaveError(t *testing.T) {
 // A quit that stores the view without trouble has nothing to say.
 func TestQuitWithoutSaveErrorIsSilent(t *testing.T) {
 	m, _ := twoSprints(t)
-	m = press(m, "s", "down", "q")
+	m = press(m, "s", "down", "q", "enter")
 	if m.quitErr != nil || quitWarning(m) != "" {
 		t.Errorf("quitErr %v warning %q, want none", m.quitErr, quitWarning(m))
 	}

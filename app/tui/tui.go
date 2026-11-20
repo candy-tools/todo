@@ -124,9 +124,10 @@ type model struct {
 	// confirmDeleteSprint.
 	editingSprint  string
 	deletingSprint *todo.Sprint
-	// confirmOnDelete is which confirm-dialog button has focus: false = Cancel
-	// (the safe default so a stray key can't delete), true = Delete.
-	confirmOnDelete bool
+	// confirmOnYes is which confirm-dialog button has focus: false = Cancel/No
+	// (the destructive dialogs' safe default so a stray key can't delete), true
+	// = Delete/Yes (the quit dialog's default, so enter quits).
+	confirmOnYes bool
 	// confirmAction is what confirming the open dialog does — delete the selected
 	// item, or clear all completed tasks.
 	confirmAction confirmAction
@@ -382,7 +383,7 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "q":
-		next, cmd := m.quit()
+		next, cmd := m.askQuit()
 		return next, cmd, true
 	case "esc":
 		next, cmd := m.escOrQuit()
@@ -530,7 +531,7 @@ func (m model) categoryLocked(it *todo.Item) bool {
 // cancelled), else the tab's state filter. When there is nothing to dismiss it
 // focuses the sidebar from the pane beside it — the sprint list from the
 // Sprints workspace's board, the categories from a split's task
-// list — and quits elsewhere.
+// list — and asks to quit elsewhere (see askQuit).
 func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 	if m.view.filter != "" {
 		m.clearFilter()
@@ -548,7 +549,7 @@ func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 		m.sideFocus = true
 		return m, nil
 	}
-	return m.quit()
+	return m.askQuit()
 }
 
 // updateMainItemKey handles the item-scoped main-view keys (add/edit/delete/

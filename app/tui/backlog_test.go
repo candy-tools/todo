@@ -84,8 +84,8 @@ func TestEscInSplitTaskListFocusesCategories(t *testing.T) {
 	if quits(cmd) || !m.sideFocus {
 		t.Fatalf("esc in the task list: quits %v sideFocus %v, want the Categories sidebar focused", quits(cmd), m.sideFocus)
 	}
-	if _, cmd := m.Update(keyMsg("esc")); !quits(cmd) {
-		t.Error("esc on the Categories sidebar should quit")
+	if !quitsConfirmed(t, m, "esc") {
+		t.Error("esc on the Categories sidebar should quit once confirmed")
 	}
 }
 

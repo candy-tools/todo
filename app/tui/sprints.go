@@ -355,7 +355,7 @@ func (m model) openDeleteSprint() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.deletingSprint = s
-	m.confirmOnDelete = false
+	m.confirmOnYes = false
 	m.confirmAction = confirmDeleteSprint
 	m.mode = modeConfirm
 	return m, nil
