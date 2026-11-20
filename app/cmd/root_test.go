@@ -135,6 +135,73 @@ func TestExecuteJSONTrueOnFlagError(t *testing.T) {
 	}
 }
 
+// A wrong number of positional arguments is a usage error (exit 2), printed as
+// JSON when the command's --json is set and as plain text otherwise.
+func TestExecuteArgumentErrorIsUsage(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	tests := []struct {
+		name string
+		args []string
+		json bool
+	}{
+		{"list json extra", []string{"list", "--file", p, "--json", "extra"}, true},
+		{"sprint list json extra", []string{"sprint", "list", "--file", p, "--json", "x"}, true},
+		{"list extra", []string{"list", "--file", p, "extra"}, false},
+		{"sprint bogus", []string{"sprint", "--file", p, "bogus"}, false},
+		{"import no argument", []string{"import", "--file", p}, false},
+		{"root two arguments", []string{"a", "b"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, stdout, stderr := runExecute(tt.args...)
+			if code != exitUsage || stdout != "" {
+				t.Fatalf("code=%d stdout=%q stderr=%q, want exit %d", code, stdout, stderr, exitUsage)
+			}
+			if tt.json {
+				if je := decodeJSONError(t, stderr); je.Error.Code != "usage" || je.Error.Exit != exitUsage {
+					t.Errorf("unexpected error object: %+v", je.Error)
+				}
+				return
+			}
+			if strings.HasPrefix(stderr, "{") || strings.Count(stderr, "\n") != 1 {
+				t.Errorf("want one plain-text line, got %q", stderr)
+			}
+		})
+	}
+}
+
+// --json=<bool> before a bad flag counts by its parsed value, as cobra would
+// read it: 1 turns JSON errors on, 0 leaves them off.
+func TestExecuteJSONBoolValueOnFlagError(t *testing.T) {
+	p := todotest.Seed(t, "# Work\n\n- [ ] a\n")
+	tests := []struct {
+		flag string
+		json bool
+	}{
+		{"--json=1", true},
+		{"--json=0", false},
+		{"--flat=1", true},
+		{"--flat=0", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.flag, func(t *testing.T) {
+			code, _, stderr := runExecute("list", "--file", p, "--bogus", tt.flag)
+			if code != exitUsage {
+				t.Fatalf("code=%d stderr=%q", code, stderr)
+			}
+			if tt.json {
+				if je := decodeJSONError(t, stderr); je.Error.Code != "usage" || je.Error.Exit != exitUsage {
+					t.Errorf("unexpected error object: %+v", je.Error)
+				}
+				return
+			}
+			if strings.HasPrefix(stderr, "{") {
+				t.Errorf("want a plain error, got %q", stderr)
+			}
+		})
+	}
+}
+
 // --json taken as --set-title's value does not turn JSON errors on: the
 // error comes after flag parsing, so only the parsed flags count.
 func TestExecuteJSONAsFlagValueGivesPlainError(t *testing.T) {

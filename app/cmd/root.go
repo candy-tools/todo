@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/candy-tools/todo/app/metainfo"
@@ -49,8 +50,8 @@ func execute(args []string, stdout, stderr io.Writer) int {
 
 // wantsJSONErrors reports whether err is printed as a jsonError: c ran in JSON
 // mode (see jsonMode), or err is a flag-parse error and args holds --json or
-// --flat, bare or as =true (cobra stops at the bad flag, so a later one is never
-// set). Any other error trusts the parsed flags alone, so a --json taken as
+// --flat, bare or with a true value as strconv.ParseBool reads it (cobra stops
+// at the bad flag, so a later one is never set). Any other error trusts the parsed flags alone, so a --json taken as
 // another flag's value gives a plain error.
 func wantsJSONErrors(c *cobra.Command, args []string, err error) bool {
 	if jsonMode(c) {
@@ -61,8 +62,14 @@ func wantsJSONErrors(c *cobra.Command, args []string, err error) bool {
 		return false
 	}
 	for _, a := range args {
-		switch a {
-		case "--json", "--json=true", "--flat", "--flat=true":
+		if a == "--json" || a == "--flat" {
+			return true
+		}
+		v, ok := strings.CutPrefix(a, "--json=")
+		if !ok {
+			v, ok = strings.CutPrefix(a, "--flat=")
+		}
+		if on, err := strconv.ParseBool(v); ok && err == nil && on {
 			return true
 		}
 	}
@@ -114,5 +121,24 @@ func newRootCommand() *cobra.Command {
 		return &flagError{usageErr(e.Error())}
 	})
 	cmd.AddCommand(versionCmd(), listCmd(), statusCmd(), doneCmd(), progressCmd(), deferCmd(), reopenCmd(), addCmd(), addCategoryCmd(), rmCmd(), pruneCmd(), editCmd(), moveCmd(), importCmd(), sprintCmd(), assignCmd(), unassignCmd(), settingsCmd(), showCmd(), nextCmd())
+	argsAsUsage(cmd)
 	return cmd
+}
+
+// argsAsUsage makes a wrong number of positional arguments a usage error
+// (exit 2) on c and every command under it: cobra's argument validators
+// return plain errors. Flags are parsed by then, so jsonMode decides the
+// error's format.
+func argsAsUsage(c *cobra.Command) {
+	if args := c.Args; args != nil {
+		c.Args = func(cmd *cobra.Command, a []string) error {
+			if err := args(cmd, a); err != nil {
+				return usageErr(err.Error())
+			}
+			return nil
+		}
+	}
+	for _, sub := range c.Commands() {
+		argsAsUsage(sub)
+	}
 }
