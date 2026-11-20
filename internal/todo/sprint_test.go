@@ -104,7 +104,10 @@ func TestWorkQueue(t *testing.T) {
 			cat := &Item{Kind: Category, Level: 1}
 			for _, tk := range c.tasks {
 				it := &Item{ID: tk.id, Kind: Task, Status: tk.status, Sprint: tk.sprint}
-				it.AppendChild(&Item{ID: tk.id + "-sub", Kind: Task, Status: Open})
+				// Subtasks in the same sprint, in states that would qualify a
+				// task: the queue must still leave them out.
+				it.AppendChild(&Item{ID: tk.id + "-working", Kind: Task, Status: Working, Sprint: tk.sprint})
+				it.AppendChild(&Item{ID: tk.id + "-ready", Kind: Task, Status: Ready, Sprint: tk.sprint})
 				cat.AppendChild(it)
 			}
 			d := &Document{Roots: []*Item{cat}}
