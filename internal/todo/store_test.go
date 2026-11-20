@@ -333,7 +333,7 @@ func everyWrite(s *Store, cat, task string) map[string]func() error {
 func TestStoreNewerVersion(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	content := `{"version": 8, "categories": [], "tasks": [], "tags": []}`
+	content := `{"version": 9, "categories": [], "tasks": [], "tags": []}`
 	if err := os.WriteFile(s.Path(), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -407,23 +407,15 @@ func TestStoreSetRefPrefix(t *testing.T) {
 	}
 }
 
-func TestStoreAppendCategoryWithAndAddSprintWith(t *testing.T) {
+func TestStoreAppendCategoryWith(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	cat, _, err := s.AppendCategoryWith(ctx, Fields{Title: "A", Prefix: "work"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sp, _, err := s.AddSprintWith(ctx, Fields{Title: "S1", Description: "goal", Prefix: "spr"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc := load(t, s)
-	if c, _ := doc.ByID(cat); c.Prefix != "WORK" {
+	if c, _ := load(t, s).ByID(cat); c.Prefix != "WORK" {
 		t.Errorf("category prefix = %q, want WORK", c.Prefix)
-	}
-	if sprint, _ := doc.SprintByID(sp); sprint.Prefix != "SPR" || sprint.Goal != "goal" {
-		t.Errorf("sprint = %+v, want prefix SPR and goal", sprint)
 	}
 }
 

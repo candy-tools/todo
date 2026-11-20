@@ -324,9 +324,7 @@ func TestPlannedSprintClosedElsewhereLeaves(t *testing.T) {
 func TestPlannedSprintDeletedElsewhereLeaves(t *testing.T) {
 	m, path := threeSprints(t)
 	m = press(m, "s", "down", "p") // C
-	if _, err := openSecond(t, path).DeleteSprint(context.Background(), "s00000c"); err != nil {
-		t.Fatal(err)
-	}
+	deleteSprintOnDisk(t, path, "s00000c")
 	before := storeFP(t, m)
 	m = pollOnce(t, m)
 	if m.view.screen != screenSprint || m.view.sprint == "s00000c" {
@@ -368,9 +366,7 @@ func TestPlanningEmptySprintShowsItsColumns(t *testing.T) {
 
 func TestPlanningWritesOnAGoneSprintSayGone(t *testing.T) {
 	deleteC := func(t *testing.T, path string) {
-		if _, err := openSecond(t, path).DeleteSprint(context.Background(), "s00000c"); err != nil {
-			t.Fatal(err)
-		}
+		deleteSprintOnDisk(t, path, "s00000c")
 	}
 	for _, tc := range []struct {
 		name  string
@@ -468,9 +464,7 @@ func TestPlanningReloadKeepsTheCursorOnTheNearestTask(t *testing.T) {
 func TestPlanningWriteOnAChangedListWithGoneSprintSaysGone(t *testing.T) {
 	m, path := threeSprints(t)
 	m = press(m, "s", "down", "p") // C
-	if _, err := openSecond(t, path).DeleteSprint(context.Background(), "s00000c"); err != nil {
-		t.Fatal(err)
-	}
+	deleteSprintOnDisk(t, path, "s00000c")
 	m = press(m, "right") // a write on the list another session changed
 	if m.view.screen != screenSprint || m.status != msgPlanGone {
 		t.Fatalf("screen %v status %q, want the Sprints screen and %q", m.view.screen, m.status, msgPlanGone)

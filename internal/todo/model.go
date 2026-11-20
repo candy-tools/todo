@@ -252,8 +252,15 @@ type Document struct {
 	// RefPrefix is the list's reference prefix, "" for none: the last resort
 	// of Document.PrefixFor.
 	RefPrefix string
+	// SprintPrefix is the sprints' reference prefix set in the settings, ""
+	// for none: new sprints then take FolderPrefix (see SprintRefPrefix).
+	SprintPrefix string
+	// FolderPrefix is the sprint reference prefix made from the name of the
+	// folder the list file is in (see FolderPrefix), "" when none can be. The
+	// store sets it; it is not stored in the file.
+	FolderPrefix string
 	// RefLast is the last number handed out per reference prefix, so a number
-	// is never reused after its task goes; nil when none was.
+	// is never reused after its task or sprint goes; nil when none was.
 	RefLast map[string]int
 }
 
@@ -361,7 +368,8 @@ func (it *Item) AppendChild(c *Item) {
 // Clone returns a deep copy of the document: every item is copied, with its
 // Parent pointing into the copy, so changing one never shows in the other.
 func (d *Document) Clone() *Document {
-	c := &Document{Roots: make([]*Item, len(d.Roots)), View: d.View, Comment: d.Comment, RefPrefix: d.RefPrefix, RefLast: maps.Clone(d.RefLast)}
+	c := &Document{Roots: make([]*Item, len(d.Roots)), View: d.View, Comment: d.Comment, RefPrefix: d.RefPrefix,
+		SprintPrefix: d.SprintPrefix, FolderPrefix: d.FolderPrefix, RefLast: maps.Clone(d.RefLast)}
 	for i, it := range d.Roots {
 		c.Roots[i] = it.clone(nil)
 	}

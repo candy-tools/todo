@@ -2,18 +2,11 @@ package todo
 
 import "context"
 
-// AddSprint adds an open sprint and returns its ID. A name CleanTitle refuses
-// fails it with ErrInvalidTitle, and one another sprint holds (ignoring case)
-// with ErrDuplicateSprint.
+// AddSprint adds an open sprint and returns its ID; it gets the next sprint
+// reference (see Document.AddSprint). A name CleanTitle refuses fails it with
+// ErrInvalidTitle.
 func (s *Store) AddSprint(ctx context.Context, name, goal string) (string, WriteResult, error) {
 	return s.add(ctx, func(d *Document) (string, error) { return d.AddSprint(name, goal) })
-}
-
-// AddSprintWith adds an open sprint named f.Title, with the goal f.Description
-// and the reference prefix f.Prefix, and returns its ID. It fails as AddSprint
-// does, and with ErrInvalidPrefix for an invalid prefix.
-func (s *Store) AddSprintWith(ctx context.Context, f Fields) (string, WriteResult, error) {
-	return s.add(ctx, func(d *Document) (string, error) { return d.AddSprintWith(f) })
 }
 
 // EditSprint sets the fields of sprint id that c names, in the list as it is at
@@ -34,9 +27,9 @@ func (s *Store) ReopenSprint(ctx context.Context, id string) (WriteResult, error
 	return s.change(ctx, func(d *Document) error { return d.ReopenSprint(id) })
 }
 
-// DeleteSprint removes sprint id and returns its tasks to the backlog. A sprint
-// with a done task fails with ErrSprintHasDone; a missing one with
-// ErrSprintNotFound.
+// DeleteSprint removes the done sprint id and all its tasks, as
+// Document.DeleteSprint does. An open sprint fails with ErrSprintOpen; a
+// missing one with ErrSprintNotFound.
 func (s *Store) DeleteSprint(ctx context.Context, id string) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.DeleteSprint(id) })
 }

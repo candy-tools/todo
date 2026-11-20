@@ -57,6 +57,14 @@ func (s *Store) SetRefPrefix(ctx context.Context, prefix string) (WriteResult, e
 	return s.write(ctx, func(d *Document) (bool, error) { return d.SetRefPrefix(prefix) })
 }
 
+// UpdateSettings sets the list settings st names, as Document.UpdateSettings
+// does, on the list as it is at write time: an invalid prefix fails it with
+// ErrInvalidPrefix, a sprint prefix that is a task prefix with
+// ErrPrefixClash. An update that changes nothing writes nothing.
+func (s *Store) UpdateSettings(ctx context.Context, st Settings) (WriteResult, error) {
+	return s.write(ctx, func(d *Document) (bool, error) { return d.UpdateSettings(st) })
+}
+
 // AddTask adds a task with fields f and status st under parentID, after the
 // sibling afterID ("" or a category places it first among the tasks, after
 // every subcategory), and returns its ID. At the root it

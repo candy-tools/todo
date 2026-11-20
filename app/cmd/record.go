@@ -19,7 +19,8 @@ type record struct {
 	Title       string   `json:"title"`
 	Status      string   `json:"status,omitempty"`
 	Column      string   `json:"column,omitempty"`
-	Sprint      string   `json:"sprint,omitempty"` // the sprint's id; a subtask shows its parent's
+	Sprint      string   `json:"sprint,omitempty"`    // the sprint's id; a subtask shows its parent's
+	SprintRef   string   `json:"sprintRef,omitempty"` // the sprint's reference (TODO-001)
 	SprintName  string   `json:"sprintName,omitempty"`
 	Path        []string `json:"path"`
 	ParentID    string   `json:"parentId,omitempty"`
@@ -54,7 +55,7 @@ func toRecord(doc *todo.Document, it *todo.Item, nums map[*todo.Item]int) record
 		r.Column = it.Column().String()
 		r.Sprint = it.SprintID()
 		if sp, ok := doc.SprintByID(r.Sprint); ok {
-			r.SprintName = sp.Name
+			r.SprintRef, r.SprintName = sp.Ref, sp.Name
 		}
 		r.Description = it.Description
 		r.Plan = it.Plan

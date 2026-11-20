@@ -71,6 +71,9 @@ type Store struct {
 	// mustExist makes every write fail with ErrListMissing on a missing file
 	// (see Existing).
 	mustExist bool
+	// folderPrefix is the FolderPrefix of the file's path, given to every
+	// Document the store builds.
+	folderPrefix string
 }
 
 // NewStore returns a store for the list file at path. It does no I/O and
@@ -87,7 +90,18 @@ func NewStore(path string, opts ...Option) *Store {
 		Decode:      decodeList,
 		Validate:    func(l *diskList) error { return l.validate() },
 	})
-	return &Store{file: file}
+	return &Store{file: file, folderPrefix: FolderPrefix(path)}
+}
+
+// document builds the Document of l, as fromDisk does, with the store's
+// FolderPrefix, and gives every sprint without a reference one (see
+// fillSprintRefs): a list written before sprints had references reads with
+// them, numbered in creation order, and keeps them from its next write on.
+func (s *Store) document(l diskList) *Document {
+	d := fromDisk(l)
+	d.FolderPrefix = s.folderPrefix
+	d.fillSprintRefs()
+	return d
 }
 
 // Path returns the path of the list file.
@@ -117,7 +131,7 @@ func (s *Store) Load(_ context.Context) (*Document, Fingerprint, error) {
 	if err != nil {
 		return nil, fp, s.mapErr(err)
 	}
-	return fromDisk(l), fp, nil
+	return s.document(l), fp, nil
 }
 
 // Changed reports whether the file's content differs from since, and returns
@@ -147,7 +161,7 @@ func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Sn
 		if s.mustExist && !cur.Exists {
 			return false, ErrListMissing
 		}
-		d := fromDisk(*l)
+		d := s.document(*l)
 		changed, err := fn(d, cur)
 		if err != nil || !changed {
 			return false, err
@@ -166,7 +180,7 @@ func (s *Store) update(ctx context.Context, fn func(d *Document, cur jsonfile.Sn
 	}
 	// The Document is rebuilt from what was written, so it matches what a
 	// Load of the file returns.
-	return WriteResult{Doc: fromDisk(res.Value), Read: res.Read, Wrote: res.Wrote, Written: res.Written}, nil
+	return WriteResult{Doc: s.document(res.Value), Read: res.Read, Wrote: res.Wrote, Written: res.Written}, nil
 }
 
 // gone reports whether the list file, or its directory, does not exist.

@@ -37,7 +37,7 @@ func rmCmd() *cobra.Command {
 
 func pruneCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "prune (--sprint <id|name> | --all)",
+		Use:   "prune (--sprint <ref|id|name> | --all)",
 		Short: "remove fully-completed tasks, from one sprint or from everywhere",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -47,7 +47,7 @@ func pruneCmd() *cobra.Command {
 			case all && inSprint:
 				return usageErr("--sprint and --all are mutually exclusive")
 			case !all && !inSprint:
-				return usageErr("specify --sprint <id|name> or --all")
+				return usageErr("specify --sprint <ref|id|name> or --all")
 			}
 			return withStore(cmd, func(ctx context.Context, s *todo.Store, doc *todo.Document) error {
 				var n int
@@ -72,7 +72,7 @@ func pruneCmd() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().String("sprint", "", "prune only this sprint's done tasks, by id or name")
+	c.Flags().String("sprint", "", "prune only this sprint's done tasks, by reference, id or name")
 	c.Flags().Bool("all", false, "prune every done task in the list, in all sprints and the backlog")
 	addJSONFlag(c)
 	return c

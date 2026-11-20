@@ -119,7 +119,7 @@ func TestAddBoardStateNeedsSprint(t *testing.T) {
 	if codeOf(t, err) != exitUsage {
 		t.Fatalf("a ready task outside a sprint should be a usage error, got %v", err)
 	}
-	if err.Error() != "--status ready needs --sprint <id|name>" {
+	if err.Error() != "--status ready needs --sprint <ref|id|name>" {
 		t.Errorf("unclear message %q", err)
 	}
 	if strings.Contains(todotest.Dump(t, path), "b") {

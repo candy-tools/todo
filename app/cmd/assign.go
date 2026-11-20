@@ -10,7 +10,7 @@ import (
 
 func assignCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "assign --sprint <id|name>",
+		Use:   "assign --sprint <ref|id|name>",
 		Short: "put a task in a sprint (a backlog task becomes new; one in another sprint keeps its state)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -31,14 +31,14 @@ func assignCmd() *cobra.Command {
 					it = now
 				}
 				return echoItem(cmd, res.Doc, it.ID, func() {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "assign: [%s] %s  (%s)\n", it.Status.String(), todo.Printable(it.DisplayTitle()), todo.Printable(sp.Name))
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "assign: [%s] %s  (%s)\n", it.Status.String(), todo.Printable(it.DisplayTitle()), sprintLabel(sp))
 				})
 			})
 		},
 	}
 	addSelectorFlags(c, "")
 	addJSONFlag(c)
-	c.Flags().String("sprint", "", "the sprint, by id or name (required)")
+	c.Flags().String("sprint", "", "the sprint, by reference, id or name (required)")
 	return c
 }
 

@@ -58,17 +58,6 @@ func (f *sprintFixture) item(id string) *Item {
 	return it
 }
 
-func TestAddSprintDuplicateNameIgnoringCase(t *testing.T) {
-	f := newSprintFixture(t)
-	f.sprint("Sprint 1")
-	if _, err := f.d.AddSprint("sprint 1 ", ""); !errors.Is(err, ErrDuplicateSprint) {
-		t.Errorf("err = %v, want ErrDuplicateSprint", err)
-	}
-	if len(f.d.Sprints) != 1 {
-		t.Errorf("%d sprints, want 1", len(f.d.Sprints))
-	}
-}
-
 func TestAddSprintBadName(t *testing.T) {
 	d := &Document{}
 	if _, err := d.AddSprint("", ""); !errors.Is(err, ErrInvalidTitle) {
@@ -107,11 +96,6 @@ func TestEditSprintRenameKeepsTasks(t *testing.T) {
 	}
 	if changed, err := f.d.EditSprint(s, SprintChanges{Name: &name}); err != nil || changed {
 		t.Errorf("same edit = %v, %v; want no change", changed, err)
-	}
-	other := f.sprint("Other")
-	dup := "NEW"
-	if _, err := f.d.EditSprint(other, SprintChanges{Name: &dup}); !errors.Is(err, ErrDuplicateSprint) {
-		t.Errorf("err = %v, want ErrDuplicateSprint", err)
 	}
 	if _, err := f.d.EditSprint("zzzzzzz", SprintChanges{}); !errors.Is(err, ErrSprintNotFound) {
 		t.Errorf("err = %v, want ErrSprintNotFound", err)
@@ -154,49 +138,6 @@ func TestReopenSprint(t *testing.T) {
 	}
 	if err := f.d.ReopenSprint("zzzzzzz"); !errors.Is(err, ErrSprintNotFound) {
 		t.Errorf("err = %v", err)
-	}
-}
-
-func TestDeleteSprintReturnsUnfinishedToBacklog(t *testing.T) {
-	f := newSprintFixture(t)
-	s := f.sprint("S")
-	keep := f.sprint("Keep")
-	task := f.task("t", Working, s)
-	sub := f.sub(task, Done)
-	if err := f.d.DeleteSprint(s); err != nil {
-		t.Fatal(err)
-	}
-	it := f.item(task)
-	if it.Sprint != "" || it.Status != Open {
-		t.Errorf("task = sprint %q status %v, want backlog Open", it.Sprint, it.Status)
-	}
-	if f.item(sub).Status != Done {
-		t.Error("subtask state changed")
-	}
-	if _, ok := f.d.SprintByID(s); ok {
-		t.Error("sprint still there")
-	}
-	if _, ok := f.d.SprintByID(keep); !ok {
-		t.Error("other sprint removed")
-	}
-}
-
-func TestDeleteSprintRefusedWithDone(t *testing.T) {
-	f := newSprintFixture(t)
-	s := f.sprint("S")
-	f.task("done", Done, s)
-	open := f.task("open", Working, s)
-	if err := f.d.DeleteSprint(s); !errors.Is(err, ErrSprintHasDone) {
-		t.Fatalf("err = %v, want ErrSprintHasDone", err)
-	}
-	if it := f.item(open); it.Sprint != s || it.Status != Working {
-		t.Error("document changed on error")
-	}
-	if got := f.d.PruneSprint(s); got != 1 {
-		t.Fatalf("PruneSprint = %d, want 1", got)
-	}
-	if err := f.d.DeleteSprint(s); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -328,19 +269,6 @@ func TestAssignSameClosedSprintIsNoChange(t *testing.T) {
 	}
 }
 
-func TestDeleteSprintRefusedWithDoneTaskHoldingOpenSubtask(t *testing.T) {
-	f := newSprintFixture(t)
-	s := f.sprint("S")
-	task := f.task("t", Done, s)
-	f.sub(task, Open)
-	if err := f.d.DeleteSprint(s); !errors.Is(err, ErrSprintHasDone) {
-		t.Fatalf("err = %v, want ErrSprintHasDone", err)
-	}
-	if it := f.item(task); it.Sprint != s || it.Status != Done {
-		t.Errorf("task changed on error: %q %v", it.Sprint, it.Status)
-	}
-}
-
 func TestSprintGoalIsOneLine(t *testing.T) {
 	f := newSprintFixture(t)
 	id, err := f.d.AddSprint("S", "  ship\nsprints\r\nnow\t!  \n")
@@ -365,23 +293,67 @@ func TestSprintGoalIsOneLine(t *testing.T) {
 	}
 }
 
-func TestCloseThenPruneThenDeleteSprint(t *testing.T) {
+func TestDeleteSprintRefusedWhileOpen(t *testing.T) {
 	f := newSprintFixture(t)
 	s := f.sprint("S")
-	done := f.task("t", Done, s)
+	task := f.task("t", Done, s)
+	if err := f.d.DeleteSprint(s); !errors.Is(err, ErrSprintOpen) || !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("err = %v, want ErrSprintOpen", err)
+	}
+	if _, ok := f.d.SprintByID(s); !ok {
+		t.Error("sprint removed on error")
+	}
+	if it := f.item(task); it.Sprint != s || it.Status != Done {
+		t.Errorf("task changed on error: %q %v", it.Sprint, it.Status)
+	}
+}
+
+func TestDeleteClosedSprintRemovesItsTasks(t *testing.T) {
+	f := newSprintFixture(t)
+	s := f.sprint("S")
+	keep := f.sprint("Keep")
+	task := f.task("t", Done, s)
+	sub := f.sub(task, Done)
+	other := f.task("other", Working, keep)
+	backlog := f.task("backlog", Open, "")
 	if err := f.d.CloseSprint(s); err != nil {
 		t.Fatal(err)
 	}
-	if n := f.d.PruneSprint(s); n != 1 {
-		t.Fatalf("PruneSprint of the closed sprint = %d, want 1", n)
+	if err := f.d.DeleteSprint(s); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := f.d.lookup(done); !errors.Is(err, ErrNotFound) {
-		t.Errorf("the done task is still there: %v", err)
+	if _, ok := f.d.SprintByID(s); ok {
+		t.Error("sprint still there")
+	}
+	for _, id := range []string{task, sub} {
+		if _, err := f.d.lookup(id); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s still there: %v", id, err)
+		}
+	}
+	if _, ok := f.d.SprintByID(keep); !ok {
+		t.Error("other sprint removed")
+	}
+	if it := f.item(other); it.Sprint != keep || it.Status != Working {
+		t.Errorf("other sprint's task = %q %v", it.Sprint, it.Status)
+	}
+	if it := f.item(backlog); it.Sprint != "" || it.Status != Open {
+		t.Errorf("backlog task = %q %v", it.Sprint, it.Status)
+	}
+	if _, err := f.d.lookup(f.cat); err != nil {
+		t.Errorf("the category went with the tasks: %v", err)
+	}
+}
+
+func TestDeleteEmptyClosedSprint(t *testing.T) {
+	f := newSprintFixture(t)
+	s := f.sprint("S")
+	if err := f.d.CloseSprint(s); err != nil {
+		t.Fatal(err)
 	}
 	if err := f.d.DeleteSprint(s); err != nil {
-		t.Fatalf("DeleteSprint after the prune: %v", err)
+		t.Fatal(err)
 	}
-	if _, ok := f.d.SprintByID(s); ok || len(f.d.Sprints) != 0 {
+	if len(f.d.Sprints) != 0 {
 		t.Errorf("sprints = %v, want none", f.d.Sprints)
 	}
 }

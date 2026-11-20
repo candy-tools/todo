@@ -1,6 +1,36 @@
 {
-  "version": 6,
-  "sprints": [],
-  "categories": [],
-  "tasks": []
+  "_comment": "This file is managed by the todo CLI. Do not edit it directly, by hand or with a script. Read it with todo: `todo next --json` (what to work on), `todo show --id <id|ref> --json` (one task), `todo list --flat` (every item as flat JSON records). Change it with todo commands (add, edit, move, status, assign, rm, ...; see `todo --help`), which keep its ids and rules valid.",
+  "version": 8,
+  "refs": {
+    "last": {
+      "TODO": 1
+    }
+  },
+  "view": {
+    "screen": "sprint",
+    "sprint": "f6yhjg4"
+  },
+  "sprints": [
+    {
+      "id": "f6yhjg4",
+      "ref": "TODO-001",
+      "name": "Next",
+      "status": "open"
+    }
+  ],
+  "categories": [
+    {
+      "id": "fhsbxnt",
+      "title": "Main"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "xsjawph",
+      "category": "fhsbxnt",
+      "sprint": "f6yhjg4",
+      "title": "Search in TUI should also show references,",
+      "status": "ready"
+    }
+  ]
 }

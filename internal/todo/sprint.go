@@ -1,9 +1,6 @@
 package todo
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
 // SprintStatus is a sprint's state. The list file stores it by name (see
 // String), so the names are pinned.
@@ -45,9 +42,10 @@ type Sprint struct {
 	Name   string
 	Goal   string
 	Status SprintStatus
-	// Prefix is the reference prefix of the tasks created in the sprint (see
-	// Document.PrefixFor); "" for none.
-	Prefix string
+	// Ref is the sprint's reference, "<prefix>-<n>" (TODO-001), given when it
+	// is created (see Document.SprintRefPrefix) and never changed. Unlike a
+	// name, which several sprints may share, it names one sprint.
+	Ref string
 }
 
 // InSprint reports whether a task in this state belongs to a sprint: every
@@ -73,27 +71,39 @@ func (d *Document) SprintByID(id string) (*Sprint, bool) {
 	return nil, false
 }
 
-// sprintNameKey is the form two sprint names are compared in: names are unique
-// in a list ignoring case.
-func sprintNameKey(name string) string { return strings.ToLower(strings.ToUpper(name)) }
-
-// SprintByName returns the sprint with the given name, ignoring case.
-func (d *Document) SprintByName(name string) (*Sprint, bool) {
-	key := sprintNameKey(name)
+// sprintByRef returns the sprint whose reference equals ref ignoring case. The
+// empty reference never matches.
+func (d *Document) sprintByRef(ref string) (*Sprint, bool) {
+	if ref == "" {
+		return nil, false
+	}
+	key := refKey(ref)
 	for _, s := range d.Sprints {
-		if sprintNameKey(s.Name) == key {
+		if s.Ref != "" && refKey(s.Ref) == key {
 			return s, true
 		}
 	}
 	return nil, false
 }
 
-// ResolveSprint finds a sprint by key: an ID first, then a name.
-func (d *Document) ResolveSprint(key string) (*Sprint, bool) {
+// ResolveSprint returns the sprints key names: the one with that ID, else the
+// one with that reference (ignoring case), else every sprint with that name
+// (ignoring case), in creation order. Names may repeat, so a name can match
+// more than one sprint; nil when nothing matches.
+func (d *Document) ResolveSprint(key string) []*Sprint {
 	if s, ok := d.SprintByID(key); ok {
-		return s, true
+		return []*Sprint{s}
 	}
-	return d.SprintByName(key)
+	if s, ok := d.sprintByRef(key); ok {
+		return []*Sprint{s}
+	}
+	var out []*Sprint
+	for _, s := range d.Sprints {
+		if refKey(s.Name) == refKey(key) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // OpenSprints returns the sprints that are not done, in creation order.

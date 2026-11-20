@@ -111,15 +111,29 @@ Sprint rules:
   not done: `can't close: N tasks not done`. Send the unfinished tasks to
   another open sprint or back to the Backlog first. A closed sprint can be
   reopened.
-- **Deleting** a sprint returns its unfinished tasks to the Backlog as `open`.
-  It is refused while the sprint holds done tasks, so finished work never
-  disappears as a side effect: close the sprint instead, or remove its done
-  tasks first.
+- **Deleting** a sprint removes it together with all its tasks and their
+  subtasks; nothing goes back to the Backlog. Only a closed sprint can be
+  deleted, so a sprint is only ever deleted once its work is finished: an open
+  one is refused with `the sprint is open; close it before deleting it`.
 - **A closed sprint is frozen.** Assigning to it, adding a task to it, moving a
   task out of it and setting one of its tasks to a state other than done are
   refused with `reopen the sprint first`. Editing a task's text, deleting a
   task, removing its done tasks and moving tasks between categories still work.
-- Sprint names are unique in the list, ignoring case.
+- **References.** Every sprint gets a reference when it is created,
+  `<PREFIX>-<n>` (`TODO-001`, `TODO-002`, …), shown before its name on every
+  screen. It never changes, and its number is never reused. Names may repeat, so
+  the reference is how you name a sprint: `--sprint TODO-002`. The prefix is the
+  sprint reference prefix set in the settings (`todo settings --sprint-prefix`,
+  `S` in the TUI). Without one it is the name of the folder that holds the list
+  file, upper-cased, with only letters and digits, no leading digits, and at most
+  10 characters (`todo` gives `TODO`, `candy-tools` gives `CANDYTOOLS`, and
+  `SPRINT` is used when nothing is left). A sprint reference never matches a task
+  reference. Setting the sprint prefix to the list's or a category's prefix is
+  refused, and so is the reverse. When the folder name is also a task prefix,
+  sprints add an `S` to it (`TODOS`). A task reference that equals a sprint's is
+  refused. The sprints of a list written before sprints had references are
+  numbered in creation order when the list is read, and keep those numbers from
+  its next write on.
 - **Nesting.** Indenting a task under another task is allowed only when both
   are in the same sprint, or both in the Backlog.
 
@@ -147,13 +161,13 @@ Other rules, as before:
 - **Reference prefix.** A task created without a reference gets one generated
   from a prefix, `<PREFIX>-<n>` with `n` counted per prefix and padded to three
   digits (`WORK-001`, `WORK-002`, ..., `WORK-999`, `WORK-1000`). The prefix is the
-  one of the sprint the task is created in, else of the nearest category above it
-  that has one, else the list's; with none, the task gets no reference. A prefix
-  is a letter and up to 9 letters or digits, stored in upper case. Set the
-  list's with `todo settings --ref-prefix`, a category's with `todo add-category
-  --prefix` or `todo edit --set-prefix`, a sprint's with `todo sprint add
-  --prefix` or `todo sprint edit --set-prefix` (in the TUI: `S` for the list's,
-  the category and sprint dialogs for theirs); an empty value clears it. A
+  one of the nearest category above the task that has one, else the list's;
+  with none, the task gets no reference. The sprint a task is created in plays
+  no part. A prefix is a letter and up to 9 letters or digits, stored in upper
+  case. Set the list's with `todo settings --ref-prefix`, a category's with
+  `todo add-category --prefix` or `todo edit --set-prefix` (in the TUI: `S` for
+  the list's, the category dialog for a category's); an empty value clears it.
+  A task prefix may not be the sprint reference prefix (see Sprint rules). A
   reference typed for a new task where a prefix applies is refused, since it is
   generated: create the task, then change it with `edit --set-ref`. Subtasks never
   get a reference, an import assigns none, and existing references are never
@@ -228,7 +242,7 @@ opens Planning to pull several in.
 ### Sprints (`s`)
 
 A sidebar of sprints on the left, the selected sprint's board on the right.
-Each sidebar row shows the sprint's name, its task counts (Next · In Progress ·
+Each sidebar row shows the sprint's reference and name, its task counts (Next · In Progress ·
 Done) and its goal (`—` without one); names and goals are cut with `…`, never
 wrapped. The sidebar has two sections, each opened by a coloured rule with its
 title and how many sprints it holds, like the board's: `━━ Open 2 ━━━━` (cyan,
@@ -238,14 +252,14 @@ shows as its rule alone.
 
 ```text
 ━━ Open 2 ━━━━━━━━━━
-❯ ● Sprint 15   3·1·0
+❯ ● TODO-003 Sprint 15   3·1·0
     Ship the importer
-  ● Sprint 16   0·0·0
+  ● TODO-004 Sprint 16   0·0·0
     —
 ━━ Done 2 ━━━━━━━━━━
-  ✓ Sprint 14   0·0·7
+  ✓ TODO-002 Sprint 14   0·0·7
     Refs and prefixes
-  ✓ Sprint 13   0·0·5
+  ✓ TODO-001 Sprint 13   0·0·5
     Board sections
 ```
 
@@ -260,9 +274,10 @@ saw.
 
 The keys start on the sidebar: `n` creates a sprint (a form with Name and
 Goal), `e` edits its name and goal, `c` closes an open sprint or reopens a
-closed one, and `d` deletes it after a confirmation. A refused close or delete
-says why in the footer (`can't close: 3 tasks not done`; delete is refused
-while the sprint holds done tasks). `enter` or `tab` moves the keys onto the
+closed one, and `d` deletes a closed sprint and all its tasks after a
+confirmation that says how many tasks go with it. A refused close or delete
+says why in the footer (`can't close: 3 tasks not done`; `d` on an open sprint
+is refused at once). `enter` or `tab` moves the keys onto the
 board, and `tab` or `esc` on the board brings them back to the sidebar.
 
 Above the board's tree is a **head** of three lines: the sprint's goal, a
@@ -338,8 +353,8 @@ on the view you left, for everyone who opens that list. (Planning is not
 saved.)
 
 **Unified view (`u`).** On the Backlog or a sprint board, shows every task,
-whatever its state and sprint, in one tree; each task shows its sprint's name
-next to its state, and the breadcrumb becomes `All states · N tasks`. Press
+whatever its state and sprint, in one tree; each task shows its sprint's
+reference and name next to its state, and the breadcrumb becomes `All states · N tasks`. Press
 `u` again to return to the screen you came from; `b`, `s`, `p`, `k` and `K`
 leave it and go where they say. In this view:
 
@@ -401,11 +416,11 @@ todo show --id APP-001 --json          # one item (--number, --id, --title; --id
 todo list --flat [--kind task] [--status working,review] [--sprint "…"] [--column …] [--filter …]
 ```
 
-`todo next [--sprint <id|name>] [--json]` prints
-`{"sprints":[{id, name, goal, prefix, status, counts, inProgress, next}]}`: for
-each open sprint (or the one named, open or closed) its reference `prefix` (left
-out when it has none), its `status` (`open` or `done`; the
-text header adds `(closed)` for a done sprint), its `counts` (`next`,
+`todo next [--sprint <ref|id|name>] [--json]` prints
+`{"sprints":[{id, ref, name, goal, status, counts, inProgress, next}]}`: for
+each open sprint (or the one named, open or closed) its reference `ref`, its
+`status` (`open` or `done`; the text header starts with the reference and name
+and adds `(closed)` for a done sprint), its `counts` (`next`,
 `progress`, `done`), the tasks `inProgress`, and the tasks `next` (`ready`
 before `new`), each a record. `inProgress` and `next` hold top-level tasks only;
 subtasks show through `doneCount`/`totalCount`. `todo show` prints one record
@@ -429,7 +444,7 @@ marked optional are left out when empty):
 - `status` (tasks): the state name; `column` (tasks): `backlog`, `next`,
   `progress` or `done`.
 - `sprint` (optional, tasks): the sprint's id (a subtask shows its parent's);
-  `sprintName` (optional).
+  `sprintRef` and `sprintName` (optional): its reference and name.
 - `path`: the titles of the ancestors, root first, excluding the item itself
   (`[]` at the top).
 - `parentId`, `parentTitle` (optional): the parent item.
@@ -448,7 +463,7 @@ sprint (`import` has none) and it prints the result instead of the text line:
 under another task lost (left out when none was dropped); `rm` prints
 `{"removed": <record>}`; `prune` prints `{"removed": <count>}`; `sprint add`,
 `sprint edit`, `sprint close` and `sprint reopen` print the sprint object
-(`{id, name, goal, prefix (optional), status, counts}`); `sprint rm` prints
+(`{id, ref, name, goal, status, counts}`); `sprint rm` prints
 `{"removed": <sprint>}`.
 
 **Errors.** Under `--json` or `--flat`, a failing command prints one line on
@@ -475,7 +490,7 @@ todo list                 # aligned table: # · id · state · item
 todo list --json          # the nested view: a tree of records, each with children
 todo list --filter build  # only matching items and their path
 todo list --column next   # only tasks in one column: backlog|next|progress|done
-todo list --sprint "Sprint 13"  # only that sprint's tasks (by id or name)
+todo list --sprint TODO-013     # only that sprint's tasks (by reference, id or name)
 todo list --backlog       # only tasks in no sprint (same as --column backlog)
 todo sprint list [--all] [--json]  # open sprints with their task counts
 ```
@@ -517,19 +532,19 @@ todo defer    --id k3f9qw2 # shortcut: status --to deferred
 todo reopen   --title "Cut the tag" [--cascade]
 todo edit     --number 4 --set-title "…" --set-desc "…" --set-plan "docs/plan.md" --set-ref APP-002
 todo edit     --title "Backend" --set-prefix BACK   # a category's reference prefix
-todo settings [--ref-prefix TODO] [--json]            # show or set the list's reference prefix
+todo settings [--ref-prefix TODO] [--sprint-prefix SP] [--json]   # show or set the task and sprint reference prefixes
 todo move     --title "Cut the tag" --parent-title "Backend" [--first | --after-title "…"]
 todo move     --title "Backend" --root
 todo rm       --number 4
 todo prune --sprint "Sprint 13"  # drop that sprint's fully-completed tasks
 todo prune --all                 # drop them in every sprint and the backlog
 
-todo sprint add    --name "Sprint 13" [--goal "ship sprint support"] [--prefix S13]   # prints the new id
-todo sprint edit   --sprint "Sprint 13" [--set-name "…"] [--set-goal "…"] [--set-prefix S13]
-todo sprint close  --sprint "Sprint 13"
-todo sprint reopen --sprint "Sprint 13"
-todo sprint rm     --sprint "Sprint 13"
-todo assign        --sprint "Sprint 13" --number 4
+todo sprint add    --name "Sprint 13" [--goal "ship sprint support"]   # prints the new reference, e.g. TODO-013
+todo sprint edit   --sprint TODO-013 [--set-name "…"] [--set-goal "…"]
+todo sprint close  --sprint TODO-013
+todo sprint reopen --sprint TODO-013
+todo sprint rm     --sprint TODO-013             # a closed sprint, with all its tasks
+todo assign        --sprint TODO-013 --number 4
 todo unassign      --number 4
 ```
 
@@ -543,10 +558,15 @@ or one given to a subtask, is refused as a usage error (exit code `2`), and so
 is `add --ref` where a reference prefix applies (see Reference prefix): the
 reference is generated and `add` prints it before the title. `edit --set-prefix`
 on a task is refused with exit code `5`. `todo settings` prints
-`ref-prefix: TODO` (or `ref-prefix: (none)`), `--json` prints
-`{"refPrefix":"TODO"}`, and an invalid prefix is a usage error. `list --json`
-shows a category's `prefix`, and `sprint list --json` a sprint's, each left out
-when empty.
+`ref-prefix: TODO` (or `ref-prefix: (none)`) and `sprint-prefix: SP` (or, with
+none set, the one in use from the folder name: `sprint-prefix: TODO (folder
+name)`). `--json` prints
+`{"refPrefix":"TODO","sprintPrefix":"SP","sprintRefPrefix":"SP"}`, where
+`sprintPrefix` is the one set (`""` for none) and `sprintRefPrefix` the one new
+sprints use. `--sprint-prefix ""` goes back to the folder name. An invalid
+prefix, or a sprint prefix that is also a task prefix, is a usage error.
+`list --json` shows a category's `prefix`, left out when empty, and
+`sprint list --json` a sprint's `ref`.
 `move` places an item, with its subtree, under the parent named by
 `--parent-number`, `--parent-id` or `--parent-title` (or at the top level with
 `--root`, for a category): last among its kind there by default, first with
@@ -563,16 +583,19 @@ is not done keeps its state and nothing is written (with `--cascade` its
 subtasks are reopened). `--cascade` on `done` / `reopen` applies the change to
 the task's subtasks too.
 
-**Sprints.** `--sprint` takes a sprint's id or its name (ignoring case); sprint
-names are unique, so a name is unambiguous. `todo sprint add` prints the new
-sprint's id. `assign` puts a task in a sprint: a backlog task becomes `new`, a
+**Sprints.** `--sprint` takes a sprint's reference (`TODO-003`), its id or its
+name, ignoring case, tried in that order. Names may repeat: a name that several
+sprints share exits `4` (ambiguous) and lists their references to pick from.
+`todo sprint add` prints the new sprint's reference, `sprint list` shows each
+sprint's reference first, and the text output of the sprint commands, `next` and
+`show` names a sprint as `TODO-003 Sprint 13`. `assign` puts a task in a sprint: a backlog task becomes `new`, a
 task in another sprint moves there and keeps its state; `unassign` returns it
 to the backlog as `open`. `status`, `done`, `progress`, `defer` and `reopen`
 never change a task's sprint, so `status --to working` on a backlog task fails
 with `task is not in a sprint (use todo assign)`, and a backlog state on a
 sprint task is refused too. `sprint close` is refused while tasks are not done
-(`cannot close "S1": 1 task not done`); `sprint rm` returns a sprint's
-unfinished tasks to the backlog and is refused while it holds done tasks;
+(`cannot close "TODO-001 S1": 1 task not done`); `sprint rm` deletes a closed sprint
+together with all its tasks and is refused while the sprint is open;
 changing the state of a task in a closed sprint fails with `reopen the sprint
 first`. All of these exit with code `2`; an unknown sprint exits `3`.
 
@@ -582,7 +605,7 @@ subtask done; a done subtask under an unfinished task stays. `prune --all`
 also removes those done subtasks under unfinished tasks, in every sprint and
 the backlog.
 
-**Breaking change:** `prune` now needs `--sprint <id|name>` or `--all`; a bare
+**Breaking change:** `prune` now needs `--sprint <ref|id|name>` or `--all`; a bare
 `todo prune` is a usage error (exit code `2`) rather than emptying every
 sprint's history. A new task in a sprint, and `status --to new` / `ready` /
 `working` / `review` / `followup` / `done` on a backlog task, behave as above.
@@ -632,7 +655,7 @@ Errors go to stderr.
 | `t` | Open the state dialog to set the task's state, including done (`↑`/`↓`, `enter` sets, `esc` cancels) |
 | `m` | Grab the task to reorder it (arrows move it, `enter`/`esc`/`m` drops it) |
 | `y` | Copy the selected item to the clipboard — a task's title and full (multi-line) description as plain text |
-| `enter` / `e` | Open / edit the selected item's dialog — its column/state/progress plus its editable title, reference, description & plan (a category's or sprint's reference prefix) |
+| `enter` / `e` | Open / edit the selected item's dialog — its column/state/progress plus its editable title, reference, description & plan (a category's reference prefix) |
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it); on a sprint board, in that sprint |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
 | `c` | Add a category (a subcategory when a category is selected) — Backlog and unified view only; on the Sprints sidebar, `c` closes / reopens the sprint |
@@ -640,14 +663,13 @@ Errors go to stderr.
 | `D` | On a sprint board, remove that sprint's completed tasks (keeping any with unfinished sub-tasks) — asks to confirm |
 | `v` | Backlog split view: categories sidebar + task list / back to the single tree — see Views |
 | `?` | Show the shortcuts dialog (`↑`/`↓` scroll it on a short terminal; `?`, `esc`, `q` or `enter` closes it) |
-| `S` | Settings: the list's reference prefix (see Reference prefix), from every screen; an empty value clears it |
+| `S` | Settings: the task reference prefix (see Reference prefix) and the sprint reference prefix (see Sprint rules), from every screen; an empty value clears one, and an empty sprint prefix shows the folder-name one sprints fall back to |
 | `esc` | Clear an active search, then the state filter; when there is neither, on a sprint board back to the sprint sidebar, in a split's task list back to the categories, else ask to quit, like `q` |
 
-On the **Sprints sidebar**: `n` creates a sprint, `e` edits its name,
-reference prefix and goal, `c` closes or reopens it, `d` deletes it, `[` / `]`
-and `1` / `2` jump between the Open and Done sections, and `enter` or `tab`
-focuses its board. A sprint's reference prefix is the one its
-new tasks get their references from, ahead of any category's.
+On the **Sprints sidebar**: `n` creates a sprint, `e` edits its name and goal,
+`c` closes or reopens it, `d` deletes it, `[` / `]` and `1` / `2` jump between
+the Open and Done sections, and `enter` or `tab` focuses its board. A sprint's
+reference is given when it is created and cannot be edited.
 
 Tasks always live under a category — there are no root-level tasks. In the
 Backlog the tree always ends with a **`+ new category`** row: select it and
@@ -661,8 +683,8 @@ cancels. Where a reference prefix applies to a new task (see Reference prefix),
 the add dialog shows its reference as `WORK-… (automatic)` instead of a field:
 it is generated when the task is saved, and the edit dialog can change it
 afterwards. The category dialog (`c`, and `e` on a category) has a **Reference
-prefix** field after the title, and the sprint dialog one between the name and
-the goal; it is stored in upper case, and emptying it clears the prefix.
+prefix** field after the title; it is stored in upper case, and emptying it
+clears the prefix. The sprint dialog has the name and the goal only.
 
 Grab mode (`m`) is refused while a search or state filter is active.
 
@@ -720,12 +742,13 @@ changes only the lines that changed.
 ```json
 {
   "_comment": "This file is managed by the todo CLI. Do not edit it directly, …",
-  "version": 7,
+  "version": 8,
   "refs": {
     "prefix": "TODO",
+    "sprintPrefix": "SP",
     "last": {
       "BACK": 3,
-      "S13": 12
+      "SP": 13
     }
   },
   "view": {
@@ -736,9 +759,9 @@ changes only the lines that changed.
   "sprints": [
     {
       "id": "a1b2c3d",
+      "ref": "SP-013",
       "name": "Sprint 13",
       "goal": "ship sprint support",
-      "prefix": "S13",
       "status": "open"
     }
   ],
@@ -784,9 +807,9 @@ changes only the lines that changed.
   todo's note first in a file that has none, and a new file starts with it. A
   file with a different note keeps it. Opening or reading a list never writes
   it. A file with a different note, or none, loads as usual.
-- `version` is the format version (now `7`). A file with a higher version is
-  refused: `list was written by a newer todo`. A version `3` to `6` file loads
-  as it is and is written back as version `7` on the next change (opening it
+- `version` is the format version (now `8`). A file with a higher version is
+  refused: `list was written by a newer todo`. A version `3` to `7` file loads
+  as it is and is written back as version `8` on the next change (opening it
   in the TUI alone does not), after which todo versions older than this one
   refuse it.
   **Upgrade:** version `3`, `4` and `5` files (from before sprints) have tasks
@@ -797,8 +820,10 @@ changes only the lines that changed.
   and a file with no such task gets no `Imported` sprint. A markdown import
   follows the same rule for its `[/]`, `[>]` and `[x]` tasks.
 - `refs` holds the reference-prefix state and is left out when empty: `prefix`
-  is the list's prefix, and `last` is the last number handed out for each
-  prefix, so a number is never reused after a task is deleted.
+  is the list's task prefix, `sprintPrefix` the sprint prefix set in the
+  settings (left out for the folder name), and `last` is the last number handed
+  out for each prefix, so a number is never reused after a task or sprint is
+  deleted. `sprintPrefix` may not be `prefix` or a category's prefix.
 - `view` is the screen and view the list opens on: `screen` is `backlog`
   (default), `sprints` or `sprint`, with `sprint` the id of the board shown for
   `screen: sprint`; `unified` is the unified view (`u`) and `split` the Backlog's
@@ -806,9 +831,11 @@ changes only the lines that changed.
   section when all are. A saved `screen: sprints`, or a saved sprint that no longer
   exists, opens the Sprints workspace on the first open sprint.
 - `sprints` is always written, possibly empty, in creation order (which is the
-  `k` rotation order). A sprint has an `id`, a `name` (unique, ignoring case),
-  a `goal` (optional), a `prefix` (optional, its reference prefix) and a
-  `status`, `open` or `done`.
+  `k` rotation order). A sprint has an `id`, a `ref` (its reference, unique
+  among tasks and sprints, ignoring case), a `name` (several sprints may share
+  one), a `goal` (optional) and a `status`, `open` or `done`. Version 7 sprints
+  had an optional `prefix`. It is still read, then ignored and dropped on the
+  next write. Their tasks keep the references they already have.
 - `categories` have an `id`, a `title` and, for a nested one, the `parent`
   category's id, and an optional `prefix`, the reference prefix for tasks
   created in it. Array order is the order among siblings.

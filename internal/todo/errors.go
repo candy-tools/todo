@@ -153,13 +153,15 @@ var ErrSprintClosed = classed(ErrBadRequest, "reopen the sprint first")
 // its own: a subtask follows its task. Its class is ErrBadRequest.
 var ErrSprintMembership = classed(ErrBadRequest, "tasks in different sprints cannot nest")
 
-// ErrDuplicateSprint is returned by a write that would give a sprint a name
-// another sprint already holds. Its class is ErrBadRequest.
-var ErrDuplicateSprint = classed(ErrBadRequest, "duplicate sprint name")
+// ErrPrefixClash is returned by a write that would give the sprints the
+// reference prefix of the list or of a category, or a task prefix (the list's
+// or a category's) the sprint reference prefix set in the settings, so that one
+// reference could name both a task and a sprint. Its class is ErrBadRequest.
+var ErrPrefixClash = classed(ErrBadRequest, "reference prefix used by both tasks and sprints")
 
-// ErrSprintHasDone is returned by a write that would remove a sprint that
-// still holds done tasks. Its class is ErrBadRequest.
-var ErrSprintHasDone = classed(ErrBadRequest, "the sprint holds done tasks; close it or prune them first")
+// ErrSprintOpen is returned by a write that would delete a sprint that is not
+// closed: only a done sprint may be deleted. Its class is ErrBadRequest.
+var ErrSprintOpen = classed(ErrBadRequest, "the sprint is open; close it before deleting it")
 
 // ErrSprintNotDone matches a SprintNotDoneError with errors.Is.
 var ErrSprintNotDone = errors.New("sprint has tasks not done")

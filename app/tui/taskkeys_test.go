@@ -287,19 +287,20 @@ func TestUnifiedRowsNameTheSprint(t *testing.T) {
 		seedTask{ID: "t000002", Title: "working", Status: "working", Sprint: "s000001"},
 		seedTask{ID: "t000003", Title: "longOne", Status: "new", Sprint: "s000002"}))
 	m = press(m, "u")
-	if got := ansi.Strip(rowOf(t, m.tree, "working")); !strings.Contains(got, "working · Sprint 1") {
+	if got := ansi.Strip(rowOf(t, m.tree, "working")); !strings.Contains(got, "working · SPRINT-001 Sprint 1") {
 		t.Errorf("a sprint task's unified row = %q, want its sprint next to its state", got)
 	}
 	m = selectTitle(t, m, "working")
-	if got := ansi.Strip(m.tree.rowString(m.tree.rows[m.tree.cursor], true)); !strings.Contains(got, "working · Sprint 1") {
+	if got := ansi.Strip(m.tree.rowString(m.tree.rows[m.tree.cursor], true)); !strings.Contains(got, "working · SPRINT-001 Sprint 1") {
 		t.Errorf("the selected row = %q, want its sprint too", got)
 	}
 	if got := ansi.Strip(rowOf(t, m.tree, "backlogTask")); strings.Contains(got, "·") {
 		t.Errorf("a backlog task's unified row = %q, want no sprint", got)
 	}
 	got := ansi.Strip(rowOf(t, m.tree, "longOne"))
-	if strings.Contains(got, long) || !strings.Contains(got, "new · "+strings.Repeat("L", maxNameWidth-1)+"…") {
-		t.Errorf("a long sprint name must be cut to %d columns, row = %q", maxNameWidth, got)
+	label := "SPRINT-002 " + strings.Repeat("L", maxNameWidth-len("SPRINT-002 ")-1) + "…"
+	if strings.Contains(got, long) || !strings.Contains(got, "new · "+label) {
+		t.Errorf("a long sprint label must be cut to %d columns, row = %q", maxNameWidth, got)
 	}
 	// Boards and the Backlog don't repeat it.
 	m = press(m, "u")
@@ -316,7 +317,7 @@ func TestUnifiedMovesSayWhereTheTaskWent(t *testing.T) {
 	m, _ := twoSprints(t)
 	m = selectTitle(t, press(m, "u"), "working")
 	m = press(m, "o", "down", "enter") // to Sprint 2
-	if m.err != nil || m.status != "moved to Sprint 2 — "+todo.Working.Label() {
+	if m.err != nil || m.status != "moved to SPRINT-002 Sprint 2 — "+todo.Working.Label() {
 		t.Errorf("o in the unified view: status %q err %v", m.status, m.err)
 	}
 	m = selectTitle(t, m, "working")

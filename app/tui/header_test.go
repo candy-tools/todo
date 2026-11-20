@@ -20,7 +20,7 @@ func TestSwitcherMarksWorkspaceAndCrumb(t *testing.T) {
 	}
 	m = press(m, "s", "tab", "]")
 	h = ansi.Strip(m.header(120))
-	if !strings.Contains(h, "[s Sprints]") || !strings.Contains(h, "Sprints › A") || strings.Contains(h, "Sprints › A ›") {
+	if !strings.Contains(h, "[s Sprints]") || !strings.Contains(h, "Sprints › SPRINT-001 A") || strings.Contains(h, "Sprints › SPRINT-001 A ›") {
 		t.Fatalf("sprints header %q", h)
 	}
 }
@@ -32,7 +32,7 @@ func TestCrumbs(t *testing.T) {
 		t.Errorf("unified header %q", h)
 	}
 	m = press(m, "u", "s", "down", "down") // C, then the done B
-	if h := ansi.Strip(m.header(120)); !strings.Contains(h, "Sprints › B ✓") {
+	if h := ansi.Strip(m.header(120)); !strings.Contains(h, "Sprints › SPRINT-002 B ✓") {
 		t.Errorf("done sprint header %q", h)
 	}
 
@@ -234,12 +234,12 @@ func TestBoardHeadFitsReadiness(t *testing.T) {
 func TestDoneSprintBoardTitle(t *testing.T) {
 	m, _ := threeSprints(t)
 	openBoard(&m, "s00000b")
-	if got := m.boardTitle(); got != "B ✓ closed" {
-		t.Errorf("done sprint title %q, want %q", got, "B ✓ closed")
+	if got := m.boardTitle(); got != "SPRINT-002 B ✓ closed" {
+		t.Errorf("done sprint title %q, want %q", got, "SPRINT-002 B ✓ closed")
 	}
 	openBoard(&m, "s00000a")
-	if got := m.boardTitle(); got != "A" {
-		t.Errorf("open sprint title %q, want %q", got, "A")
+	if got := m.boardTitle(); got != "SPRINT-001 A" {
+		t.Errorf("open sprint title %q, want %q", got, "SPRINT-001 A")
 	}
 }
 
@@ -297,7 +297,7 @@ func TestSidebarKeepsFullHeight(t *testing.T) {
 	lines := strings.Split(ansi.Strip(m.View()), "\n")
 	last := lines[headerHeight+m.sprintListHeight()] // under the top border
 	side := []rune(last)[:sidebarWidth(100)]
-	if s := strings.Trim(string(side), "│ "); !strings.HasPrefix(s, "● S09") {
+	if s := strings.Trim(string(side), "│ "); !strings.HasPrefix(s, "● SPRINT-010 S09") {
 		t.Errorf("sidebar's last line %q, want the 10th sprint's name", s)
 	}
 }

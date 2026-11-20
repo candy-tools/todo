@@ -16,8 +16,10 @@ import (
 // fileVersion is the version of the JSON list file format. Version 4 added
 // the task "ref" field, version 5 the "view" section, version 6 the sprints,
 // version 7 the "_comment" note, the "refs" section and the category and
-// sprint "prefix" fields.
-const fileVersion = 7
+// sprint "prefix" fields, version 8 the sprint "ref" field and the refs
+// "sprintPrefix" field, and dropped the sprint "prefix" field (still read, and
+// ignored).
+const fileVersion = 8
 
 // fileComment is the note todo puts at the top of the file, under "_comment",
 // for whoever opens the file instead of running todo: mostly coding agents,
@@ -55,11 +57,13 @@ type diskList struct {
 	Tasks      []diskTask     `json:"tasks"`
 }
 
-// diskRefs is the refs section: the list's reference prefix and, per prefix,
-// the last number a reference took, so a deleted task's number is not reused.
+// diskRefs is the refs section: the list's reference prefix, the sprints'
+// reference prefix setting and, per prefix, the last number a reference took,
+// so a deleted task's or sprint's number is not reused.
 type diskRefs struct {
-	Prefix string         `json:"prefix,omitempty"`
-	Last   map[string]int `json:"last,omitempty"`
+	Prefix       string         `json:"prefix,omitempty"`
+	SprintPrefix string         `json:"sprintPrefix,omitempty"`
+	Last         map[string]int `json:"last,omitempty"`
 }
 
 // diskView is the view section; a false or empty field is left out.
@@ -70,9 +74,14 @@ type diskView struct {
 	Sprint  string `json:"sprint,omitempty"`
 }
 
-// diskSprint is a sprint; Status is "open" or "done".
+// diskSprint is a sprint; Status is "open" or "done". Ref is "" only in a
+// file written before sprints had references: such sprints get one when the
+// list is read (see Store). Prefix is the task reference prefix sprints had in
+// version 7: it is read so such a file decodes, then ignored, and never
+// written.
 type diskSprint struct {
 	ID     string `json:"id"`
+	Ref    string `json:"ref,omitempty"`
 	Name   string `json:"name"`
 	Goal   string `json:"goal,omitempty"`
 	Prefix string `json:"prefix,omitempty"`
@@ -127,8 +136,8 @@ type diskSubtask struct {
 // view and empty reference settings are left out.
 func toDisk(d *Document) diskList {
 	l := diskList{Comment: d.Comment, Version: fileVersion, Sprints: []diskSprint{}, Categories: []diskCategory{}, Tasks: []diskTask{}}
-	if d.RefPrefix != "" || len(d.RefLast) > 0 {
-		l.Refs = &diskRefs{Prefix: d.RefPrefix, Last: maps.Clone(d.RefLast)}
+	if d.RefPrefix != "" || d.SprintPrefix != "" || len(d.RefLast) > 0 {
+		l.Refs = &diskRefs{Prefix: d.RefPrefix, SprintPrefix: d.SprintPrefix, Last: maps.Clone(d.RefLast)}
 	}
 	if d.View != (View{}) {
 		v := &diskView{Unified: d.View.Unified, Split: d.View.Split, Sprint: d.View.Sprint}
@@ -138,7 +147,7 @@ func toDisk(d *Document) diskList {
 		l.View = v
 	}
 	for _, s := range d.Sprints {
-		l.Sprints = append(l.Sprints, diskSprint{ID: s.ID, Name: s.Name, Goal: s.Goal, Prefix: s.Prefix, Status: s.Status.String()})
+		l.Sprints = append(l.Sprints, diskSprint{ID: s.ID, Ref: s.Ref, Name: s.Name, Goal: s.Goal, Status: s.Status.String()})
 	}
 	for _, cat := range d.Enumerate() {
 		if cat.Kind != Category {
@@ -180,6 +189,7 @@ func fromDisk(l diskList) *Document {
 	d := &Document{Comment: l.Comment}
 	if l.Refs != nil {
 		d.RefPrefix = l.Refs.Prefix
+		d.SprintPrefix = l.Refs.SprintPrefix
 		if len(l.Refs.Last) > 0 {
 			d.RefLast = maps.Clone(l.Refs.Last)
 		}
@@ -189,7 +199,7 @@ func fromDisk(l diskList) *Document {
 		d.View.Screen, _ = screenFromName(l.View.Screen)
 	}
 	for _, s := range l.Sprints {
-		sp := &Sprint{ID: s.ID, Name: s.Name, Goal: s.Goal, Prefix: s.Prefix}
+		sp := &Sprint{ID: s.ID, Ref: s.Ref, Name: s.Name, Goal: s.Goal}
 		sp.Status, _ = SprintStatusFromName(s.Status)
 		d.Sprints = append(d.Sprints, sp)
 	}

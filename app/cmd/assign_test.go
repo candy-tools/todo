@@ -31,7 +31,7 @@ func TestAssignBacklogTaskNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assign: %v", err)
 	}
-	if got := strings.TrimSpace(out); got != "assign: [new] a  (Alpha)" {
+	if got := strings.TrimSpace(out); got != "assign: [new] a  (SPRINT-001 Alpha)" {
 		t.Errorf("confirmation %q", got)
 	}
 	it := taskNamed(t, path, "a")
@@ -120,7 +120,7 @@ func TestAddSprintStateNeedsSprintFlag(t *testing.T) {
 	addSprint(t, path, "Alpha")
 	before := bytesOf(t, path)
 	_, err := runCmd(t, "add", "--file", path, "--title", "x", "--parent-title", "Work", "--status", "working")
-	if codeOf(t, err) != exitUsage || err.Error() != "--status working needs --sprint <id|name>" {
+	if codeOf(t, err) != exitUsage || err.Error() != "--status working needs --sprint <ref|id|name>" {
 		t.Fatalf("--status working without --sprint: %v", err)
 	}
 	if string(bytesOf(t, path)) != string(before) {
@@ -250,7 +250,7 @@ func TestListJSONHasSprint(t *testing.T) {
 func TestPruneNeedsScope(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n\n- [x] gone\n")
 	_, err := runCmd(t, "prune", "--file", path)
-	if codeOf(t, err) != exitUsage || !strings.Contains(err.Error(), "specify --sprint <id|name> or --all") {
+	if codeOf(t, err) != exitUsage || !strings.Contains(err.Error(), "specify --sprint <ref|id|name> or --all") {
 		t.Fatalf("got %v", err)
 	}
 	addSprint(t, path, "Alpha")

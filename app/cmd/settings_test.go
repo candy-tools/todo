@@ -11,11 +11,11 @@ import (
 func TestSettingsShowSetClear(t *testing.T) {
 	path := todotest.Seed(t, "# Work\n")
 	out, err := runCmd(t, "settings", "--file", path)
-	if err != nil || strings.TrimSpace(out) != "ref-prefix: (none)" {
+	if err != nil || out != "ref-prefix: (none)\nsprint-prefix: SPRINT (folder name)\n" {
 		t.Fatalf("show = %q, %v", out, err)
 	}
 	out, err = runCmd(t, "settings", "--file", path, "--ref-prefix", "todo")
-	if err != nil || strings.TrimSpace(out) != "ref-prefix: TODO" {
+	if err != nil || !strings.HasPrefix(out, "ref-prefix: TODO\n") {
 		t.Fatalf("set = %q, %v", out, err)
 	}
 	doc, _, err := todo.NewStore(path).Load(t.Context())
@@ -23,15 +23,15 @@ func TestSettingsShowSetClear(t *testing.T) {
 		t.Fatalf("file prefix = %q, %v", doc.RefPrefix, err)
 	}
 	out, err = runCmd(t, "settings", "--file", path, "--json")
-	if err != nil || strings.TrimSpace(out) != `{"refPrefix":"TODO"}` {
+	if err != nil || strings.TrimSpace(out) != `{"refPrefix":"TODO","sprintPrefix":"","sprintRefPrefix":"SPRINT"}` {
 		t.Fatalf("json = %q, %v", out, err)
 	}
 	out, err = runCmd(t, "settings", "--file", path, "--ref-prefix", "")
-	if err != nil || strings.TrimSpace(out) != "ref-prefix: (none)" {
+	if err != nil || !strings.HasPrefix(out, "ref-prefix: (none)\n") {
 		t.Fatalf("clear = %q, %v", out, err)
 	}
 	out, err = runCmd(t, "settings", "--file", path, "--json")
-	if err != nil || strings.TrimSpace(out) != `{"refPrefix":""}` {
+	if err != nil || strings.TrimSpace(out) != `{"refPrefix":"","sprintPrefix":"","sprintRefPrefix":"SPRINT"}` {
 		t.Fatalf("json none = %q, %v", out, err)
 	}
 	_, err = runCmd(t, "settings", "--file", path, "--ref-prefix", "1x")
@@ -71,30 +71,6 @@ func TestEditSetPrefix(t *testing.T) {
 	_, err := runCmd(t, "edit", "--file", path, "--title", "a", "--set-prefix", "X")
 	if codeOf(t, err) != exitWrongKind {
 		t.Errorf("task: %v", err)
-	}
-}
-
-func TestSprintPrefix(t *testing.T) {
-	path := todotest.Seed(t, "# Work\n")
-	if _, err := runCmd(t, "sprint", "add", "--file", path, "--name", "S", "--prefix", "spr"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runCmd(t, "add", "--file", path, "--parent-title", "Work", "--sprint", "S", "--title", "t"); err != nil {
-		t.Fatal(err)
-	}
-	if got := refOf(t, path, "t"); got != "SPR-001" {
-		t.Errorf("ref = %q", got)
-	}
-	out, err := runCmd(t, "sprint", "list", "--file", path, "--json")
-	if err != nil || !strings.Contains(out, `"prefix": "SPR"`) {
-		t.Errorf("list json = %q, %v", out, err)
-	}
-	if _, err := runCmd(t, "sprint", "edit", "--file", path, "--sprint", "S", "--set-prefix", ""); err != nil {
-		t.Fatal(err)
-	}
-	out, _ = runCmd(t, "sprint", "list", "--file", path, "--json")
-	if strings.Contains(out, "prefix") {
-		t.Errorf("prefix not cleared: %q", out)
 	}
 }
 

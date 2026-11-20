@@ -364,9 +364,9 @@ func (m model) planTitle() string {
 	case !ok:
 		return ""
 	case strings.TrimSpace(s.Goal) == "":
-		return todo.Printable(s.Name)
+		return sprintLabel(s)
 	}
-	return todo.Printable(s.Name) + " — " + todo.Printable(s.Goal)
+	return sprintLabel(s) + " — " + todo.Printable(s.Goal)
 }
 
 // planPane renders the rows of one side that fit width x height, the
@@ -416,7 +416,7 @@ func planRowString(r planRow, selected bool) string {
 func (m model) planCrumb() string {
 	name := ""
 	if s, ok := m.doc.SprintByID(m.plan.sprintID); ok {
-		name = todo.Printable(s.Name)
+		name = sprintLabel(s)
 	}
 	return fmt.Sprintf("%s · %d in Next · %d in the Backlog", name,
 		m.doc.ColumnCounts(m.plan.sprintID)[todo.ColNext], m.doc.ColumnCounts("")[todo.ColBacklog])

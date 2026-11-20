@@ -56,6 +56,9 @@ func (d *Document) checkRef(it *Item, ref string, subtask bool) error {
 	if subtask {
 		return ErrSubtaskRef
 	}
+	if s, ok := d.sprintByRef(ref); ok {
+		return fmt.Errorf("%w: %q is already used by sprint %q", ErrDuplicateRef, s.Ref, s.Name)
+	}
 	if other, ok := d.ByRef(ref); ok && other != it {
 		return fmt.Errorf("%w: %q is already used by task %q", ErrDuplicateRef, other.Ref, other.Title)
 	}

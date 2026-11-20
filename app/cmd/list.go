@@ -56,7 +56,7 @@ func listCmd() *cobra.Command {
 	c.Flags().Bool("json", false, "output the tree as JSON")
 	c.Flags().String("filter", "", "only show items matching this text (and their path)")
 	c.Flags().String("column", "", "only show tasks in this board column: "+columnNames)
-	c.Flags().String("sprint", "", "only show this sprint's tasks, by id or name")
+	c.Flags().String("sprint", "", "only show this sprint's tasks, by reference, id or name")
 	c.Flags().Bool("backlog", false, "only show tasks not in a sprint (same as --column backlog)")
 	c.Flags().Bool("flat", false, "output a flat JSON array of records, one per item, in list order; implies --json")
 	c.Flags().String("kind", "", "with --flat, only this kind: task|category")

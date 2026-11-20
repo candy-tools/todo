@@ -39,8 +39,8 @@ func mustOK(t *testing.T) func(WriteResult, error) WriteResult {
 // first use: a top-level task in a sprint state needs a sprint.
 func testSprint(t *testing.T, s *Store) string {
 	t.Helper()
-	if sp, ok := load(t, s).SprintByName("Sprint"); ok {
-		return sp.ID
+	if sp := load(t, s).ResolveSprint("Sprint"); len(sp) > 0 {
+		return sp[0].ID
 	}
 	return mustID(t)(s.AddSprint(context.Background(), "Sprint", ""))
 }

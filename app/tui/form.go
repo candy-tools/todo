@@ -29,7 +29,7 @@ const (
 	formSubtask                  // title, description and plan
 	formTask                     // a top-level task: also its reference
 	formSprint                   // a sprint: its name (the title) and goal (the description)
-	formSettings                 // the list's settings: its reference prefix, in the title input
+	formSettings                 // the list's settings: its task reference prefix (the title input) and sprint reference prefix (the ref input)
 )
 
 // formKindOf returns the formKind for editing it.
@@ -45,13 +45,13 @@ func formKindOf(it *todo.Item) formKind {
 
 // form is the add/edit modal: a title input plus, for a task, a multi-line
 // description and a plan, and for a top-level task a reference; a category form
-// shows the title and the reference prefix, a sprint form the name, the prefix
-// and the goal. The settings form shows the list's reference prefix alone.
+// shows the title and the reference prefix, a sprint form the name and the
+// goal. The settings form shows the list's task and sprint reference prefixes.
 // Save/Cancel sit below.
 type form struct {
-	title textinput.Model // the title; the settings form's reference prefix
-	// ref is a top-level task's reference, or a category's or sprint's
-	// reference prefix: a single line.
+	title textinput.Model // the title; the settings form's task reference prefix
+	// ref is a top-level task's reference, a category's reference prefix, or
+	// the settings form's sprint reference prefix: a single line.
 	ref     textinput.Model
 	desc    textarea.Model
 	plan    textinput.Model // a task's plan link: a single line
@@ -74,8 +74,8 @@ type form struct {
 }
 
 // hasPrefix reports whether a form of kind k uses its ref input for a
-// reference prefix (a category or sprint form) rather than a task's reference.
-func (k formKind) hasPrefix() bool { return k == formCategory || k == formSprint }
+// category's reference prefix rather than a task's reference.
+func (k formKind) hasPrefix() bool { return k == formCategory }
 
 func newForm(v todo.Fields, kind formKind, editing bool) form {
 	ti := textinput.New()
@@ -94,6 +94,9 @@ func newForm(v todo.Fields, kind formKind, editing bool) form {
 	if kind.hasPrefix() {
 		ri.CharLimit = todo.MaxPrefixLen
 		ri.SetValue(v.Prefix)
+	}
+	if kind == formSettings {
+		ri.CharLimit = todo.MaxPrefixLen // the sprint prefix, in v.Ref
 	}
 
 	// The description and plan take no length limits of their own, so any stored
@@ -117,9 +120,10 @@ func newForm(v todo.Fields, kind formKind, editing bool) form {
 }
 
 // ring is the focus order: the title, then (for a top-level task whose
-// reference is not generated) the reference or (for a category or sprint) the
-// reference prefix, (for a task or sprint) the description and (for a task)
-// the plan, then the Save and Cancel buttons.
+// reference is not generated) the reference, (for a category) the reference
+// prefix or (for the settings) the sprint reference prefix, (for a task or
+// sprint) the description and (for a task) the plan, then the Save and Cancel
+// buttons.
 func (f form) ring() []formFocus {
 	switch f.kind {
 	case formTask:
@@ -130,8 +134,8 @@ func (f form) ring() []formFocus {
 	case formSubtask:
 		return []formFocus{focusTitle, focusDesc, focusPlan, focusSave, focusCancel}
 	case formSprint:
-		return []formFocus{focusTitle, focusRef, focusDesc, focusSave, focusCancel}
-	case formCategory:
+		return []formFocus{focusTitle, focusDesc, focusSave, focusCancel}
+	case formCategory, formSettings:
 		return []formFocus{focusTitle, focusRef, focusSave, focusCancel}
 	}
 	return []formFocus{focusTitle, focusSave, focusCancel}
@@ -220,11 +224,11 @@ func (f form) update(msg tea.Msg) (form, tea.Cmd) {
 
 // values returns the fields entered: the trimmed title, reference, prefix and
 // plan, and the description. A field the form does not show is "", and so is
-// the reference when it is generated. The settings form returns its prefix
-// alone.
+// the reference when it is generated. The settings form returns the task
+// reference prefix in Prefix and the sprint reference prefix in Ref.
 func (f form) values() todo.Fields {
 	if f.kind == formSettings {
-		return todo.Fields{Prefix: strings.TrimSpace(f.title.Value())}
+		return todo.Fields{Prefix: strings.TrimSpace(f.title.Value()), Ref: strings.TrimSpace(f.ref.Value())}
 	}
 	v := todo.Fields{Title: strings.TrimSpace(f.title.Value())}
 	if f.isTask || f.kind == formSprint {
@@ -267,8 +271,7 @@ func (f form) changes() todo.Changes {
 }
 
 // sprintChanges names the sprint fields (the title is the name, the description
-// the goal, and the prefix) whose values differ from the ones the form opened
-// with.
+// the goal) whose values differ from the ones the form opened with.
 func (f form) sprintChanges() todo.SprintChanges {
 	v := f.values()
 	var c todo.SprintChanges
@@ -277,9 +280,6 @@ func (f form) sprintChanges() todo.SprintChanges {
 	}
 	if v.Description != f.start.Description {
 		c.Goal = &v.Description
-	}
-	if v.Prefix != f.start.Prefix {
-		c.Prefix = &v.Prefix
 	}
 	return c
 }
@@ -316,24 +316,7 @@ func (f form) view() string {
 	b.WriteString(fieldLabel(titleLabel, f.focus == focusTitle))
 	b.WriteString("\n")
 	b.WriteString(f.underline(f.title.View(), f.focus == focusTitle))
-	switch {
-	case f.kind == formTask && f.autoRef != "":
-		// The reference is generated when the task is saved: shown, not typed.
-		b.WriteString("\n\n")
-		b.WriteString(fieldLabel("Reference", false))
-		b.WriteString("\n")
-		b.WriteString(helpTextStyle.Render(f.autoRef + "-… (automatic)"))
-	case f.kind == formTask:
-		b.WriteString("\n\n")
-		b.WriteString(fieldLabel("Reference", f.focus == focusRef))
-		b.WriteString("\n")
-		b.WriteString(f.underline(f.ref.View(), f.focus == focusRef))
-	case f.kind.hasPrefix():
-		b.WriteString("\n\n")
-		b.WriteString(fieldLabel("Reference prefix", f.focus == focusRef))
-		b.WriteString("\n")
-		b.WriteString(f.underline(f.ref.View(), f.focus == focusRef))
-	}
+	b.WriteString(f.refField())
 	if f.isTask || f.kind == formSprint {
 		descLabel := "Description"
 		if f.kind == formSprint {
@@ -362,6 +345,28 @@ func (f form) view() string {
 
 	body := lipgloss.NewStyle().Padding(0, 1).Render(b.String())
 	return titledBox(title, body, f.modalWidth(), lipgloss.Height(body)+2, true)
+}
+
+// refField renders the field below the title that the ref input backs, with
+// the blank line before it: a top-level task's reference (shown, not typed,
+// when it is generated), a category's reference prefix or the settings'
+// sprint reference prefix. It is "" for a form without one.
+func (f form) refField() string {
+	label := ""
+	switch {
+	case f.kind == formTask && f.autoRef != "":
+		// The reference is generated when the task is saved: shown, not typed.
+		return "\n\n" + fieldLabel("Reference", false) + "\n" + helpTextStyle.Render(f.autoRef+"-… (automatic)")
+	case f.kind == formTask:
+		label = "Reference"
+	case f.kind.hasPrefix():
+		label = "Reference prefix"
+	case f.kind == formSettings:
+		label = "Sprint reference prefix"
+	default:
+		return ""
+	}
+	return "\n\n" + fieldLabel(label, f.focus == focusRef) + "\n" + f.underline(f.ref.View(), f.focus == focusRef)
 }
 
 // underline renders a value over a single accent/dim bottom border — the

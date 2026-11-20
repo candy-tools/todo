@@ -23,14 +23,14 @@ func TestResolveSprintIDBeforeName(t *testing.T) {
 	a := &Sprint{ID: "aaaaaaa", Name: "bbbbbbb"}
 	b := &Sprint{ID: "bbbbbbb", Name: "Sprint 2"}
 	d := &Document{Sprints: []*Sprint{a, b}}
-	if got, ok := d.ResolveSprint("bbbbbbb"); !ok || got != b {
-		t.Errorf("ResolveSprint(id) = %v, %v; want B", got, ok)
+	if got := d.ResolveSprint("bbbbbbb"); len(got) != 1 || got[0] != b {
+		t.Errorf("ResolveSprint(id) = %v; want B", got)
 	}
-	if got, ok := d.ResolveSprint("SPRINT 2"); !ok || got != b {
-		t.Errorf("ResolveSprint(name) = %v, %v; want B", got, ok)
+	if got := d.ResolveSprint("SPRINT 2"); len(got) != 1 || got[0] != b {
+		t.Errorf("ResolveSprint(name) = %v; want B", got)
 	}
-	if _, ok := d.ResolveSprint("nope"); ok {
-		t.Error("ResolveSprint(nope) found a sprint")
+	if got := d.ResolveSprint("nope"); len(got) != 0 {
+		t.Errorf("ResolveSprint(nope) = %v", got)
 	}
 }
 

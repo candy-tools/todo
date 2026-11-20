@@ -157,16 +157,36 @@ func resolveSelector(cmd *cobra.Command, doc *todo.Document, prefix string) (*to
 	}
 }
 
-// resolveSprint reads --sprint and returns the sprint it names, by ID or by
-// name ignoring case. A missing flag is a usage error and an unknown sprint is
-// not-found.
+// resolveSprint reads --sprint and returns the sprint it names, by reference
+// (TODO-001), ID or name, ignoring case (see Document.ResolveSprint). A missing
+// flag is a usage error and an unknown sprint is not-found. Names may repeat:
+// a name several sprints share is ambiguous, and the error lists their
+// references.
 func resolveSprint(cmd *cobra.Command, doc *todo.Document) (*todo.Sprint, error) {
 	key, _ := cmd.Flags().GetString("sprint")
 	if key == "" {
-		return nil, usageErr("specify --sprint <id|name>")
+		return nil, usageErr("specify --sprint <ref|id|name>")
 	}
-	if sp, ok := doc.ResolveSprint(key); ok {
-		return sp, nil
+	matches := doc.ResolveSprint(key)
+	switch len(matches) {
+	case 0:
+		return nil, notFound("no sprint " + key)
+	case 1:
+		return matches[0], nil
 	}
-	return nil, notFound("no sprint " + key)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%q matches %d sprints; name one by its reference:\n", key, len(matches))
+	for _, sp := range matches {
+		fmt.Fprintf(&b, "  --sprint %s  (%s, %s)\n", sp.Ref, todo.Printable(sp.Name), sp.Status)
+	}
+	return nil, &cliError{exitAmbiguous, b.String()}
+}
+
+// sprintLabel is how a sprint is named in text output: its reference, then its
+// name ("TODO-001 Sprint 13"), or the name alone when it has no reference.
+func sprintLabel(sp *todo.Sprint) string {
+	if sp.Ref == "" {
+		return todo.Printable(sp.Name)
+	}
+	return sp.Ref + " " + todo.Printable(sp.Name)
 }
