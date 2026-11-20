@@ -343,32 +343,42 @@ func TestSprintListRowsOrderAndCounts(t *testing.T) {
 		seedTask{ID: "t000004", Title: "a4", Status: "done", Sprint: "s00000a"},
 		seedTask{ID: "t000005", Title: "b1", Status: "done", Sprint: "s00000b"},
 	))
-	var names []string
-	for _, s := range m.sprints.rows(m.doc) {
-		names = append(names, s.Name)
+	keys := func(m model) (k []string) {
+		for _, r := range m.sprints.rows(m.doc) {
+			if r.group {
+				k = append(k, "Closed")
+			} else {
+				k = append(k, r.sprint.Name)
+			}
+		}
+		return k
 	}
-	if want := []string{"Alpha", "Gamma", "Delta", "Beta"}; !equalStrings(names, want) {
-		t.Fatalf("rows = %v, want %v (open in creation order, then done newest first)", names, want)
+	if want := []string{"Alpha", "Gamma", "Closed"}; !equalStrings(keys(m), want) {
+		t.Fatalf("rows = %v, want %v (open in creation order, then the folded Closed group)", keys(m), want)
 	}
-	out := m.sprints.view(m.doc, 100, 10)
-	lines := strings.Split(out, "\n")
-	if len(lines) != 4 {
-		t.Fatalf("want 4 rows, got %d:\n%s", len(lines), out)
+	m = press(m, "s", "down", "down", "right") // on the Closed row, unfolded
+	if want := []string{"Alpha", "Gamma", "Closed", "Delta", "Beta"}; !equalStrings(keys(m), want) {
+		t.Fatalf("unfolded rows = %v, want %v (done newest first)", keys(m), want)
+	}
+	lines := strings.Split(m.sprints.view(m.doc, 100, 20), "\n")
+	if len(lines) != 10 {
+		t.Fatalf("want 5 two-line rows, got %d lines", len(lines))
 	}
 	wants := [][]string{
-		{"Alpha", "open", "first goal", "2 · 1 · 1"},
-		{"Gamma", "open", "third goal", "0 · 0 · 0"},
-		{"Delta", "done", "0 · 0 · 0"},
-		{"Beta", "done", "0 · 0 · 1"},
+		{"Alpha", "2·1·1"}, {"first goal"},
+		{"Gamma", "0·0·0"}, {"third goal"},
+		{"▾", "Closed", "2"}, {},
+		{"Delta", "0·0·0"}, {},
+		{"Beta", "0·0·1"}, {},
 	}
 	for i, want := range wants {
 		for _, w := range want {
 			if !strings.Contains(lines[i], w) {
-				t.Errorf("row %d = %q, misses %q", i, lines[i], w)
+				t.Errorf("line %d = %q, misses %q", i, lines[i], w)
 			}
 		}
 	}
-	m = press(m, "s", "down", "down")
+	m = press(m, "down")
 	if sel := m.sprints.selected(m.doc); sel == nil || sel.Name != "Delta" {
 		t.Errorf("selected = %v, want Delta", sel)
 	}

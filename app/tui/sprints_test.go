@@ -132,13 +132,17 @@ func TestSprintListDeleteConfirm(t *testing.T) {
 }
 
 func TestSprintListDeleteFallsBackByIndex(t *testing.T) {
-	m, path := threeSprints(t) // rows: A, C (open), B (done)
+	m, path := threeSprints(t) // rows: A, C (open), Closed (B)
 	m = press(m, "s", "down", "d", "y")
 	if len(loadSprintDoc(t, path).Sprints) != 2 {
 		t.Fatalf("C was not deleted")
 	}
-	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000b" || m.view.sprint != "s00000b" {
-		t.Errorf("after deleting C: selected %v shown %q, want B (the row now at C's index)", s, m.view.sprint)
+	if !m.sprints.onGroup(m.doc) {
+		t.Errorf("after deleting C: the cursor should sit on the Closed row now at C's index")
+	}
+	m = press(m, "right", "down")
+	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000b" {
+		t.Errorf("after unfolding: selected %v, want B", s)
 	}
 	if !m.listFocus {
 		t.Error("the sidebar should keep the focus")
@@ -195,7 +199,7 @@ func manySprints(t *testing.T, n int) model {
 
 func TestSprintListScrollsOnlyWhenCursorLeavesWindow(t *testing.T) {
 	m := manySprints(t, 60)
-	h := m.sprintListHeight()
+	h := m.sprintListHeight() / rowLines // rows shown
 	for i := 0; i < h+3; i++ {
 		m = press(m, "down")
 	}
@@ -209,7 +213,7 @@ func TestSprintListScrollsOnlyWhenCursorLeavesWindow(t *testing.T) {
 		if m.sprints.offset != want {
 			t.Fatalf("up %d: offset = %d, want it to stay %d", i+1, m.sprints.offset, want)
 		}
-		if got := ansi.Strip(strings.Split(m.sprints.view(m.doc, 100, h), "\n")[0]); !strings.Contains(got, firstRow) {
+		if got := ansi.Strip(strings.Split(m.sprints.view(m.doc, 100, h*rowLines), "\n")[0]); !strings.Contains(got, firstRow) {
 			t.Fatalf("up %d: first row %v, want %s", i+1, got, firstRow)
 		}
 	}
@@ -242,13 +246,92 @@ func TestSprintListCursorFollowsSprintOnReload(t *testing.T) {
 	}
 }
 
-func TestSprintListCapsLongNames(t *testing.T) {
+func TestClosedGroupFoldsDoneSprints(t *testing.T) {
+	m, _ := threeSprints(t) // A open, B done, C open
+	m = press(m, "s")
+	view := ansi.Strip(m.sprints.view(m.doc, 30, 20))
+	if strings.Contains(view, " B") || !strings.Contains(view, "Closed") {
+		t.Fatalf("folded: %q, want the Closed row and no B", view)
+	}
+	m = press(m, "down", "down") // A, C, Closed
+	if !m.sprints.onGroup(m.doc) || m.view.sprint != "s00000c" {
+		t.Fatalf("on the group row: onGroup %v board %q, want C kept", m.sprints.onGroup(m.doc), m.view.sprint)
+	}
+	m = press(m, "right", "down")
+	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000b" || m.view.sprint != "s00000b" {
+		t.Fatalf("after unfolding and down: %v / %q, want B shown", s, m.view.sprint)
+	}
+	m = press(m, "left")
+	if !m.sprints.onGroup(m.doc) {
+		t.Fatal("left on a done sprint goes to the group row")
+	}
+	m = press(m, "left")
+	if m.sprints.closedOpen {
+		t.Error("left on the group row folds it")
+	}
+	m = press(m, "enter")
+	if !m.sprints.closedOpen || !m.listFocus {
+		t.Errorf("enter on the group row: closedOpen %v listFocus %v, want it unfolded and the list focused", m.sprints.closedOpen, m.listFocus)
+	}
+	m = press(m, "enter")
+	if m.sprints.closedOpen {
+		t.Error("enter on the group row toggles it again")
+	}
+	if m = press(m, "tab", "e", "c", "d"); !m.listFocus || m.mode != modeMain || m.view.sprint != "s00000b" {
+		t.Errorf("tab/e/c/d on the group row: listFocus %v mode %v board %q, want nothing", m.listFocus, m.mode, m.view.sprint)
+	}
+}
+
+func TestSidebarRowsAreTwoLinesAndCut(t *testing.T) {
 	long := strings.Repeat("n", 80)
 	m, _ := newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s00000a", Name: long, Goal: "goal", Status: "open"}},
+		[]seedSprint{{ID: "s00000a", Name: long, Goal: strings.Repeat("g", 80), Status: "open"}},
 		seedTask{ID: "t000001", Title: "x", Status: "new", Sprint: "s00000a"}))
-	line := ansi.Strip(m.sprints.view(m.doc, 100, 5))
-	if strings.Contains(line, long) || !strings.Contains(line, "…") || !strings.Contains(line, "1 · 0 · 0") {
-		t.Errorf("row = %q, want the name cut and the counts kept", line)
+	lines := strings.Split(ansi.Strip(m.sprints.view(m.doc, 30, 10)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("one sprint renders %d lines, want 2: %q", len(lines), lines)
+	}
+	for _, l := range lines {
+		if ansi.StringWidth(l) > 30 {
+			t.Errorf("line %q is wider than 30", l)
+		}
+	}
+	if !strings.Contains(lines[0], "…") || !strings.Contains(lines[0], "1·0·0") || !strings.Contains(lines[1], "…") {
+		t.Errorf("lines = %q, want the name and goal cut and the counts kept", lines)
+	}
+}
+
+func TestSidebarScrollCountsLines(t *testing.T) {
+	m := manySprints(t, 20)
+	if got := len(strings.Split(m.sprints.view(m.doc, 30, 9), "\n")); got != 8 {
+		t.Errorf("9 lines hold 4 two-line rows, got %d lines", got)
+	}
+	if got := len(strings.Split(m.sprints.view(m.doc, 30, 1), "\n")); got != 2 {
+		t.Errorf("a one-line height still shows one row (2 lines), got %d", got)
+	}
+}
+
+func TestKToDoneSprintUnfoldsClosed(t *testing.T) {
+	m, _ := threeSprints(t)
+	m = press(m, "K", "down", "down", "enter") // A, C, ✓ B
+	if m.view.sprint != "s00000b" || !m.sprints.closedOpen {
+		t.Fatalf("K to B: board %q closedOpen %v", m.view.sprint, m.sprints.closedOpen)
+	}
+}
+
+func TestClosingSelectedSprintUnfoldsClosed(t *testing.T) {
+	m, _ := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}, {ID: "s00000b", Name: "B", Status: "open"}},
+		seedTask{ID: "t000001", Title: "x", Status: "done", Sprint: "s00000a"}))
+	m = press(m, "s", "c")
+	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000a" || m.view.sprint != "s00000a" || !m.sprints.closedOpen {
+		t.Errorf("after closing A: selected %v board %q closedOpen %v, want A kept, shown, under the unfolded Closed", s, m.view.sprint, m.sprints.closedOpen)
+	}
+}
+
+func TestRefusedCloseKeepsClosedFolded(t *testing.T) {
+	m, _ := threeSprints(t) // A holds a task in Next
+	if m = press(m, "s", "c"); m.sprints.closedOpen {
+		t.Error("a refused close must leave Closed folded")
 	}
 }

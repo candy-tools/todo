@@ -61,6 +61,7 @@ var helpSections = []helpSection{
 		{"c", "Close / reopen the sprint"},
 		{"d", "Delete the sprint"},
 		{"enter  tab", "Focus the board (tab on the board: back to the list)"},
+		{"→  ←  enter", "On the Closed row: unfold / fold the closed sprints"},
 	}},
 	{"Views", []helpBinding{
 		{"v", "Split: categories sidebar + task list (opens on the selection)"},

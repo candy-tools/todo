@@ -406,14 +406,41 @@ func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveSprints(-navStep)
 	case "pgdown":
 		m.moveSprints(navStep)
-	case "enter", "tab", "shift+tab":
-		if m.view.sprint == "" {
-			return m, nil // no sprint selected: no board to move to
+	case "right", "left":
+		m.foldClosed(msg.String() == "right")
+	case "enter":
+		if m.sprints.onGroup(m.doc) {
+			m.sprints.closedOpen = !m.sprints.closedOpen
+			m.sprints.reconcile(m.doc, m.sprintListHeight())
+			return m, nil
 		}
-		m.listFocus = false
-		m.saveView()
+		m.focusBoard()
+	case "tab", "shift+tab":
+		m.focusBoard()
 	}
 	return m, nil
+}
+
+// foldClosed handles → (unfold) and ← (fold) on the sidebar: on the Closed
+// group row they unfold and fold it; ← on a done sprint goes to the group row.
+func (m *model) foldClosed(unfold bool) {
+	switch s := m.sprints.selected(m.doc); {
+	case m.sprints.onGroup(m.doc):
+		m.sprints.closedOpen = unfold
+	case s != nil && s.Status == todo.SprintDone && !unfold:
+		m.sprints.selectGroup(m.doc)
+	}
+	m.sprints.reconcile(m.doc, m.sprintListHeight())
+}
+
+// focusBoard moves the keys from the sidebar to the board of the selected
+// sprint. Nothing on the Closed group row or an empty list: no sprint, no board.
+func (m *model) focusBoard() {
+	if m.sprints.selected(m.doc) == nil {
+		return
+	}
+	m.listFocus = false
+	m.saveView()
 }
 
 // msgCategoriesInBacklog is the footer hint for a category key pressed outside

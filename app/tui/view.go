@@ -268,14 +268,26 @@ func (m *model) openWorkspace(id string) {
 	m.selectInList(id)
 }
 
-// selectInList puts the sidebar's cursor on sprint id, or on no row for "",
-// and keeps it shown.
+// selectInList puts the sidebar's cursor on sprint id (unfolding Closed for a
+// done one), or for "" on the folded Closed group row, as when only closed
+// sprints exist, and keeps it shown.
 func (m *model) selectInList(id string) {
 	if id == "" {
-		m.sprints.deselect()
-		return
+		m.sprints.selectGroup(m.doc)
+	} else {
+		m.sprints.selectID(m.doc, id)
 	}
-	m.sprints.selectID(m.doc, id)
+	m.sprints.reconcile(m.doc, m.sprintListHeight())
+}
+
+// selectRow puts the sidebar's cursor on the row with the given key (a sprint
+// ID or the group row's), and keeps it shown.
+func (m *model) selectRow(key string) {
+	if key == groupKey {
+		m.sprints.selectGroup(m.doc)
+	} else {
+		m.sprints.selectID(m.doc, key)
+	}
 	m.sprints.reconcile(m.doc, m.sprintListHeight())
 }
 

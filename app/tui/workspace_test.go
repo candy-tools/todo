@@ -107,20 +107,20 @@ func TestOnlyClosedSprintsShowNoOpenSprints(t *testing.T) {
 		[]seedSprint{{ID: "s00000b", Name: "B", Status: "done"}},
 		seedTask{ID: "t000001", Title: "bDone", Status: "done", Sprint: "s00000b"}))
 	m = press(m, "s")
-	if m.view.screen != screenSprint || m.view.sprint != "" || m.sprints.selected(m.doc) != nil {
-		t.Fatalf("only closed: screen %v sprint %q selected %v, want no sprint shown and no row selected", m.view.screen, m.view.sprint, m.sprints.selected(m.doc))
+	if m.view.screen != screenSprint || m.view.sprint != "" || !m.sprints.onGroup(m.doc) || m.sprints.closedOpen {
+		t.Fatalf("only closed: screen %v sprint %q onGroup %v closedOpen %v, want no sprint shown and the cursor on the folded Closed row", m.view.screen, m.view.sprint, m.sprints.onGroup(m.doc), m.sprints.closedOpen)
 	}
-	if !inBoardPane(m, "no open sprints") || strings.Contains(ansi.Strip(m.View()), "❯") {
-		t.Errorf("the board pane should say there are no open sprints, with no row selected:\n%s", ansi.Strip(m.View()))
+	if !inBoardPane(m, "no open sprints") || !strings.Contains(ansi.Strip(m.View()), "❯ ▸ Closed") {
+		t.Errorf("the board pane should say there are no open sprints, with the Closed row selected:\n%s", ansi.Strip(m.View()))
 	}
 	if v := storedView(t, path); v.Screen != todo.ScreenSprints || v.Sprint != "" {
 		t.Errorf("stored view %+v, want sprints", v)
 	}
-	if m = press(m, "e", "c", "d"); m.mode != modeMain {
-		t.Errorf("e/c/d with no row selected: mode %v, want nothing", m.mode)
+	if m = press(m, "e", "c", "d", "tab"); m.mode != modeMain || !m.listFocus {
+		t.Errorf("e/c/d/tab on the Closed row: mode %v listFocus %v, want nothing", m.mode, m.listFocus)
 	}
-	if m = press(m, "down"); m.view.sprint != "s00000b" || !hasRow(press(m, "tab", "3"), "bDone") {
-		t.Errorf("down onto B shows %q, want B's board", m.view.sprint)
+	if m = press(m, "enter", "down"); m.view.sprint != "s00000b" || !hasRow(press(m, "tab", "3"), "bDone") {
+		t.Errorf("enter unfolds, down onto B shows %q, want B's board", m.view.sprint)
 	}
 }
 

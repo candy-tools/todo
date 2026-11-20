@@ -13,40 +13,64 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// sprintList is the Sprints workspace's sidebar: one row per sprint, the
-// cursor over them and the first row shown. The rows are derived from the list
-// on every use. The cursor follows the sprint it is on (selID) when a write or
-// reload reorders the rows, and falls back to its index, clamped, when that
-// sprint is gone.
+// sprintList is the Sprints workspace's sidebar: the open sprints, then one
+// Closed group row that folds the done ones, the cursor over them and the first
+// row shown. The rows are derived from the list on every use. The cursor follows
+// the row it is on (selID) when a write or reload reorders the rows, and falls
+// back to its index, clamped, when that row is gone.
 type sprintList struct {
 	cursor int
-	selID  string // the ID of the sprint the cursor is on, "" before the first use
+	selID  string // the key of the row the cursor is on, "" before the first use
 	offset int    // the index of the first row shown
-	// none is true while no row is selected: the workspace shows no sprint,
-	// as when every sprint is closed. A move down or selectID ends it.
-	none bool
+	// closedOpen is whether the Closed group shows the done sprints.
+	closedOpen bool
 }
 
-// maxGoalWidth and maxNameWidth cap the goal and name columns, so a long one
-// never pushes the counts off the row.
-const (
-	maxGoalWidth = 40
-	maxNameWidth = 30
-)
+// sprintListRow is one row of the sidebar: a sprint, or the Closed group.
+type sprintListRow struct {
+	sprint *todo.Sprint // nil on the group row
+	group  bool
+}
 
-// rows lists the sprints of d as the screen shows them: the open ones in
-// creation order, then the done ones, newest first.
-func (l *sprintList) rows(d *todo.Document) []*todo.Sprint {
-	var open, done []*todo.Sprint
+// maxNameWidth caps a sprint's name wherever it is shown beside other text, so
+// a long one never pushes the rest off the row.
+const maxNameWidth = 30
+
+// groupKey is the selID of the Closed group row; sprint IDs never look like it.
+const groupKey = "·closed"
+
+// key identifies the row across reloads.
+func (r sprintListRow) key() string {
+	if r.group {
+		return groupKey
+	}
+	return r.sprint.ID
+}
+
+// rows lists the rows of d as the screen shows them: the open sprints in
+// creation order; then, when d has done sprints, the Closed group row; then,
+// only while the group is unfolded, the done sprints, newest first.
+func (l *sprintList) rows(d *todo.Document) []sprintListRow {
+	var rows []sprintListRow
+	var done []*todo.Sprint
 	for _, s := range d.Sprints {
 		if s.Status == todo.SprintDone {
 			done = append(done, s)
 		} else {
-			open = append(open, s)
+			rows = append(rows, sprintListRow{sprint: s})
 		}
 	}
-	slices.Reverse(done)
-	return append(open, done...)
+	if len(done) == 0 {
+		return rows
+	}
+	rows = append(rows, sprintListRow{group: true})
+	if l.closedOpen {
+		slices.Reverse(done)
+		for _, s := range done {
+			rows = append(rows, sprintListRow{sprint: s})
+		}
+	}
+	return rows
 }
 
 // clamp keeps the cursor on one of n rows (on 0 when there are none).
@@ -54,64 +78,65 @@ func (l *sprintList) clamp(n int) {
 	l.cursor = max(min(l.cursor, n-1), 0)
 }
 
-// sync puts the cursor on the sprint it was on, wherever it is in rows now;
-// when that sprint is gone it keeps the index, clamped. With no row selected
-// it does nothing.
-func (l *sprintList) sync(rows []*todo.Sprint) {
-	if l.none {
-		return
-	}
-	if i := slices.IndexFunc(rows, func(s *todo.Sprint) bool { return s.ID == l.selID }); i >= 0 {
+// sync puts the cursor on the row it was on, wherever it is in rows now; when
+// that row is gone it keeps the index, clamped.
+func (l *sprintList) sync(rows []sprintListRow) {
+	if i := slices.IndexFunc(rows, func(r sprintListRow) bool { return r.key() == l.selID }); i >= 0 {
 		l.cursor = i
 		return
 	}
 	l.clamp(len(rows))
 	l.selID = ""
 	if len(rows) > 0 {
-		l.selID = rows[l.cursor].ID
+		l.selID = rows[l.cursor].key()
 	}
 }
 
-// move shifts the cursor by delta rows, clamped to the list. With no row
-// selected, a move down starts above the first row and a move up does nothing.
+// move shifts the cursor by delta rows, clamped to the list.
 func (l *sprintList) move(d *todo.Document, delta int) {
 	rows := l.rows(d)
-	if l.none {
-		if delta <= 0 || len(rows) == 0 {
-			return
-		}
-		l.none, l.cursor = false, -1
-	} else {
-		l.sync(rows)
-	}
+	l.sync(rows)
 	l.cursor += delta
 	l.clamp(len(rows))
 	if len(rows) > 0 {
-		l.selID = rows[l.cursor].ID
+		l.selID = rows[l.cursor].key()
 	}
 }
 
-// selected returns the sprint under the cursor, or nil when d has none or no
-// row is selected.
+// selected returns the sprint under the cursor, or nil when d has none or the
+// cursor is on the group row.
 func (l *sprintList) selected(d *todo.Document) *todo.Sprint {
 	rows := l.rows(d)
 	l.sync(rows)
-	if len(rows) == 0 || l.none {
+	if len(rows) == 0 {
 		return nil
 	}
-	return rows[l.cursor]
+	return rows[l.cursor].sprint
 }
 
-// selectID puts the cursor on the sprint with the given ID, when d has it.
+// onGroup reports whether the cursor is on the Closed group row.
+func (l *sprintList) onGroup(d *todo.Document) bool {
+	rows := l.rows(d)
+	l.sync(rows)
+	return len(rows) > 0 && rows[l.cursor].group
+}
+
+// selectID puts the cursor on the sprint with the given ID, when d has it,
+// unfolding the Closed group for a done one.
 func (l *sprintList) selectID(d *todo.Document, id string) {
-	if i := slices.IndexFunc(l.rows(d), func(s *todo.Sprint) bool { return s.ID == id }); i >= 0 {
-		l.cursor, l.selID, l.none = i, id, false
+	if s, ok := d.SprintByID(id); ok && s.Status == todo.SprintDone {
+		l.closedOpen = true
 	}
+	l.selectKey(d, id)
 }
 
-// deselect leaves no row selected (see none).
-func (l *sprintList) deselect() {
-	l.none, l.selID = true, ""
+// selectGroup puts the cursor on the Closed group row, when d has one.
+func (l *sprintList) selectGroup(d *todo.Document) { l.selectKey(d, groupKey) }
+
+func (l *sprintList) selectKey(d *todo.Document, key string) {
+	if i := slices.IndexFunc(l.rows(d), func(r sprintListRow) bool { return r.key() == key }); i >= 0 {
+		l.cursor, l.selID = i, key
+	}
 }
 
 // window returns the index of the first of height rows to show out of n, the
@@ -135,62 +160,89 @@ func scrollWindow(offset, cursor, n, height int) int {
 	return max(off, 0)
 }
 
-// reconcile follows the cursor's sprint through a change of d and keeps it
-// inside the height rows shown, as the tree's reconcileOffset does.
+// rowLines is how many lines every row of the sidebar takes.
+const rowLines = 2
+
+// fitRows is how many rows fit in height lines (at least one).
+func fitRows(height int) int { return max(height/rowLines, 1) }
+
+// reconcile follows the cursor's row through a change of d and keeps it inside
+// the rows that fit height lines, as the tree's reconcileOffset does.
 func (l *sprintList) reconcile(d *todo.Document, height int) {
 	rows := l.rows(d)
 	l.sync(rows)
-	l.offset = l.window(len(rows), max(height, 1))
+	l.offset = l.window(len(rows), fitRows(height))
 }
 
-// view renders the rows of d that fit width x height, the cursor's always
-// among them (highlighted unless no row is selected): per sprint a status
-// glyph, the name, the status, the goal and its top-level task counts as
-// "Next · In Progress · Done", in aligned columns. A list without sprints
-// renders a dim line saying so.
+// view renders the rows of d that fit width x height lines, the cursor's
+// always among them (marked and highlighted). Every row is two lines. A sprint
+// shows a status glyph, its name and its top-level task counts "Next·In
+// Progress·Done" right-aligned, then its goal; the group row shows a fold
+// glyph, "Closed" and the number of done sprints. Names and goals are cut with
+// "…" to the width: nothing wraps. A list without sprints renders a dim line
+// saying so.
 func (l *sprintList) view(d *todo.Document, width, height int) string {
 	rows := l.rows(d)
 	if len(rows) == 0 {
 		return "  " + helpTextStyle.Render("no sprints yet")
 	}
 	l.sync(rows)
-	names, goals := make([]string, len(rows)), make([]string, len(rows))
-	nameW, goalW := 0, 0
-	for i, s := range rows {
-		names[i] = ansi.Truncate(todo.Printable(s.Name), maxNameWidth, "…")
-		goals[i] = ansi.Truncate(todo.Printable(s.Goal), maxGoalWidth, "…")
-		nameW = max(nameW, ansi.StringWidth(names[i]))
-		goalW = max(goalW, ansi.StringWidth(goals[i]))
-	}
-	height = max(height, 1)
-	l.offset = l.window(len(rows), height)
-	start := l.offset
-	end := min(start+height, len(rows))
-	lines := make([]string, 0, end-start)
-	for i := start; i < end; i++ {
-		s := rows[i]
-		glyph, glyphStyle := "●", progStyle
-		if s.Status == todo.SprintDone {
-			glyph, glyphStyle = "✓", doneStyle
-		}
-		c := d.ColumnCounts(s.ID)
-		counts := fmt.Sprintf("%d · %d · %d", c[todo.ColNext], c[todo.ColInProgress], c[todo.ColDone])
-		name, status, goal := padRight(names[i], nameW), padRight(s.Status.String(), 4), padRight(goals[i], goalW)
-		var line string
-		if i == l.cursor && !l.none {
-			line = selectedRowStyle.Render("❯ " + glyph + " " + name + "   " + status + "   " + goal + "   " + counts)
-		} else {
-			line = "  " + glyphStyle.Render(glyph) + " " + categoryStyle.Render(name) + "   " +
-				helpTextStyle.Render(status) + "   " + plainStyle.Render(goal) + "   " + helpTextStyle.Render(counts)
-		}
-		lines = append(lines, ansi.Truncate(line, width, ""))
+	l.offset = l.window(len(rows), fitRows(height))
+	end := min(l.offset+fitRows(height), len(rows))
+	lines := make([]string, 0, rowLines*(end-l.offset))
+	for i := l.offset; i < end; i++ {
+		first, second := l.rowLines(d, rows[i], width, i == l.cursor)
+		lines = append(lines, first, second)
 	}
 	return strings.Join(lines, "\n")
 }
 
-// padRight pads s with spaces to w terminal cells.
-func padRight(s string, w int) string {
-	return s + strings.Repeat(" ", max(w-ansi.StringWidth(s), 0))
+// doneSprints counts the done sprints of d.
+func doneSprints(d *todo.Document) (n int) {
+	for _, s := range d.Sprints {
+		if s.Status == todo.SprintDone {
+			n++
+		}
+	}
+	return n
+}
+
+// rowLines renders the two lines of row r, width cells wide.
+func (l *sprintList) rowLines(d *todo.Document, r sprintListRow, width int, cur bool) (first, second string) {
+	marker := "  "
+	if cur {
+		marker = "❯ "
+	}
+	var glyph, name, counts, goal string
+	var glyphStyle, nameStyle = progStyle, categoryStyle
+	switch {
+	case r.group:
+		glyph, name, nameStyle, glyphStyle = "▸", "Closed", helpTextStyle, helpTextStyle
+		if l.closedOpen {
+			glyph = "▾"
+		}
+		counts = fmt.Sprint(doneSprints(d))
+	default:
+		s := r.sprint
+		glyph, name, goal = "●", todo.Printable(s.Name), todo.Printable(s.Goal)
+		if s.Status == todo.SprintDone {
+			glyph, glyphStyle, nameStyle = "✓", doneStyle, helpTextStyle
+		}
+		c := d.ColumnCounts(s.ID)
+		counts = fmt.Sprintf("%d·%d·%d", c[todo.ColNext], c[todo.ColInProgress], c[todo.ColDone])
+	}
+	// marker, glyph, space, name, gap, counts
+	name = ansi.Truncate(name, max(width-4-1-ansi.StringWidth(counts), 1), "…")
+	gap := strings.Repeat(" ", max(width-4-ansi.StringWidth(name)-ansi.StringWidth(counts), 1))
+	goal = ansi.Truncate(goal, max(width-4, 1), "…")
+	if cur {
+		first = selectedRowStyle.Render(marker + glyph + " " + name + gap + counts)
+		second = selectedRowStyle.Render("    " + goal)
+	} else {
+		first = marker + glyphStyle.Render(glyph) + " " + nameStyle.Render(name) + gap + helpTextStyle.Render(counts)
+		second = "    " + helpTextStyle.Render(goal)
+	}
+	return ansi.Truncate(first, width, ""), ansi.Truncate(second, width, "")
 }
 
 // moveSprints moves the sidebar's cursor by delta rows, keeps it shown, and
@@ -270,7 +322,11 @@ func (m model) toggleSprintClosed() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	id, closing := s.ID, s.Status == todo.SprintOpen
-	m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
+	// A sprint that is about to be closed must stay in the rows, so the Closed
+	// group unfolds first (and folds back if the store refuses).
+	was := m.sprints.closedOpen
+	m.sprints.closedOpen = m.sprints.closedOpen || closing
+	if !m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
 		if !closing {
 			return st.ReopenSprint(ctx, id)
 		}
@@ -279,7 +335,10 @@ func (m model) toggleSprintClosed() (tea.Model, tea.Cmd) {
 			err = fmt.Errorf("can't close: %w", err) // a refusal, shown as the status
 		}
 		return res, err
-	})
+	}) {
+		m.sprints.closedOpen = was
+		m.sprints.reconcile(m.doc, m.sprintListHeight())
+	}
 	return m, nil
 }
 
@@ -316,27 +375,34 @@ func (m model) doDeleteSprint() (tea.Model, tea.Cmd) {
 		return st.DeleteSprint(ctx, id)
 	})
 	if _, ok := m.doc.SprintByID(id); !ok && next != "" {
-		m.selectInList(next)
+		m.selectRow(next)
 		m.followList()
 	}
 	return m, nil
 }
 
-// rowAfterDelete is the sprint the sidebar falls back to when sprint id is
-// deleted: the row that takes its index, clamped to the last one. "" when no
-// other row is left.
+// rowAfterDelete is the key of the row the sidebar falls back to when sprint
+// id is deleted: the row that takes its index, clamped to the last one (the
+// Closed group row goes with the last done sprint). "" when no other row is
+// left.
 func (m *model) rowAfterDelete(id string) string {
-	var rest []*todo.Sprint
+	var rest []string
 	at := 0
-	for i, s := range m.sprints.rows(m.doc) {
-		if s.ID == id {
+	lastDone := false
+	if s, ok := m.doc.SprintByID(id); ok {
+		lastDone = s.Status == todo.SprintDone && doneSprints(m.doc) == 1
+	}
+	for i, r := range m.sprints.rows(m.doc) {
+		switch {
+		case r.key() == id:
 			at = i
-			continue
+		case r.group && lastDone:
+		default:
+			rest = append(rest, r.key())
 		}
-		rest = append(rest, s)
 	}
 	if len(rest) == 0 {
 		return ""
 	}
-	return rest[min(at, len(rest)-1)].ID
+	return rest[min(at, len(rest)-1)]
 }
