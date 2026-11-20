@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/candy-tools/todo/internal/todo"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -128,12 +127,12 @@ func TestBSwitchesScreens(t *testing.T) {
 func TestBoardHeaderMarksDoneSprint(t *testing.T) {
 	m, _ := threeSprints(t)
 	openBoard(&m, "s00000b")
-	m = send(m, tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = press(m, "3")
 	if h := m.header(100); !strings.Contains(h, "Sprints › B ✓ › Done") {
 		t.Errorf("header = %q, want B marked done in the crumb", h)
 	}
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "closed — c in the sidebar reopens it") || !strings.Contains(v, "[Done 1]") {
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "closed — c in the sidebar reopens it") || !strings.Contains(v, "[Done 1]") ||
+		!strings.Contains(v, "B ✓ closed") {
 		t.Errorf("board head = %s, want B marked closed", v)
 	}
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"C", "bDone"}) {

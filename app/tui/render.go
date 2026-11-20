@@ -60,12 +60,17 @@ func (m model) mainView(dim bool) string {
 }
 
 // boardTitle is the title of the Sprints workspace's board pane: the shown
-// sprint's name, or "Board" when it shows none.
+// sprint's name, marked "✓ closed" when it is done, or "Board" when it shows
+// none.
 func (m model) boardTitle() string {
-	if s, ok := m.doc.SprintByID(m.view.sprint); ok {
-		return todo.Printable(s.Name)
+	s, ok := m.doc.SprintByID(m.view.sprint)
+	switch {
+	case !ok:
+		return "Board"
+	case s.Status == todo.SprintDone:
+		return todo.Printable(s.Name) + " ✓ closed"
 	}
-	return "Board"
+	return todo.Printable(s.Name)
 }
 
 // boardPane renders the Sprints workspace's board pane, width wide: the
@@ -80,25 +85,33 @@ func (m model) boardPane(width int) string {
 	return "  " + helpTextStyle.Render("no open sprints")
 }
 
-// boardBody renders the shown sprint's board, width wide: its head over its
-// tree.
+// boardBody renders the shown sprint's board, width wide: as much of its head
+// as fits (see boardHeadRows) over its tree.
 func (m model) boardBody(width int) string {
 	s, ok := m.doc.SprintByID(m.view.sprint)
 	if !ok {
 		return m.tree.view(width, m.treeViewHeight())
 	}
 	head := boardHead(s, m.doc.ColumnCounts(s.ID), m.view.column, width)
-	return strings.Join(head, "\n") + "\n" + m.tree.view(width, m.treeViewHeight())
+	head = head[len(head)-m.boardHeadRows():]
+	return strings.Join(append(head, m.tree.view(width, m.treeViewHeight())), "\n")
+}
+
+// boardHeadRows is how many of the board head's lines show: all of them, less
+// as many as a short pane needs to keep one task row. The head gives up its
+// lines from the top, the goal first, then the progress, then the tab bar.
+func (m model) boardHeadRows() int {
+	return min(boardChrome, m.paneRows()-1)
 }
 
 // treeViewHeight is how many task rows the tree pane can show at the current
-// terminal size — the height handed to tree.view — less the board head on a
-// sprint board. WindowSizeMsg stores it on the
-// tree so its scroll math (reconcileOffset) matches what mainView renders; the
-// two must agree or the viewport clamp would fight the offset.
+// terminal size — the height handed to tree.view — less the board head's rows
+// on a sprint board. Update stores it on the trees (see fitTrees) so their
+// scroll math (reconcileOffset) matches what mainView renders; the two must
+// agree or the viewport clamp would fight the offset.
 func (m model) treeViewHeight() int {
 	if m.view.onBoard() {
-		return max(m.paneRows()-boardChrome, 1)
+		return m.paneRows() - m.boardHeadRows()
 	}
 	return m.paneRows()
 }
@@ -172,7 +185,7 @@ func (m model) crumb() string {
 	}
 	s, ok := m.doc.SprintByID(m.view.sprint)
 	if !ok {
-		return "Sprints › Closed"
+		return "Sprints"
 	}
 	name := todo.Printable(s.Name)
 	if s.Status == todo.SprintDone {
@@ -181,11 +194,12 @@ func (m model) crumb() string {
 	return "Sprints › " + name + " › " + m.view.column.Title()
 }
 
-// backlogSelection is the item the Backlog's crumb is about: the category
-// under the sidebar's cursor in the split view, else the item in the tree.
+// backlogSelection is the item the Backlog's crumb is about: in the split
+// view the category under the sidebar's cursor (none on All), whichever pane
+// has the keys, else the item in the tree.
 func (m model) backlogSelection() *todo.Item {
 	t := &m.tree
-	if m.splitShown() && m.sideFocus {
+	if m.splitShown() {
 		t = &m.side
 	}
 	if t.onPlaceholder() {

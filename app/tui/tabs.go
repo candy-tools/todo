@@ -71,49 +71,71 @@ func tabKey(key string, current todo.Column) (todo.Column, bool) {
 // the goal, the progress and the tab bar.
 const boardChrome = 3
 
-// barCells is the width of the progress bar in the board head.
-const barCells = 20
+// barCells is the width of the progress bar in the board head, and
+// minBarCells the narrowest it shrinks to so the readiness fits beside it.
+const (
+	barCells    = 20
+	minBarCells = 8
+)
 
 // boardHead renders the lines above a sprint's tree, exactly boardChrome of
 // them, width wide: its goal, its progress with whether it can be closed, and
 // the tab bar.
 func boardHead(s *todo.Sprint, counts map[todo.Column]int, active todo.Column, width int) []string {
+	return []string{
+		goalLine(s, width),
+		progressLine(s, counts, width),
+		ansi.Truncate("  "+tabBar(counts, active), width, ""),
+	}
+}
+
+// goalLine renders the board head's goal line, width wide: the sprint's goal,
+// or "—" when it has none, cut with "…".
+func goalLine(s *todo.Sprint, width int) string {
+	goal := todo.Printable(s.Goal)
+	if goal == "" {
+		goal = "—"
+	}
+	const goalLabel = "  Goal  "
+	line := headerHintSty.Render(goalLabel) + plainStyle.Render(ansi.Truncate(goal, max(width-ansi.StringWidth(goalLabel), 0), "…"))
+	return ansi.Truncate(line, width, "")
+}
+
+// progressLine renders the board head's progress line, width wide: the done
+// tasks as a bar and a count, then whether the sprint can be closed. The bar
+// shrinks, down to minBarCells, so the readiness reads in full; when it still
+// does not fit, the readiness is cut with "…".
+func progressLine(s *todo.Sprint, counts map[todo.Column]int, width int) string {
 	total := 0
 	for _, c := range todo.SprintColumns() {
 		total += counts[c]
 	}
 	done := counts[todo.ColDone]
 
-	goal := todo.Printable(s.Goal)
-	if goal == "" {
-		goal = "—"
-	}
-	const goalLabel = "  Goal  "
-	goalLine := headerHintSty.Render(goalLabel) + plainStyle.Render(ansi.Truncate(goal, max(width-ansi.StringWidth(goalLabel), 0), "…"))
-
-	filled := 0
-	if total > 0 {
-		filled = done * barCells / total
-	}
-	bar := doneStyle.Render(strings.Repeat("█", filled)) + headerHintSty.Render(strings.Repeat("░", barCells-filled))
-	var ready string
+	ready, readyStyle := "", headerHintSty
 	switch {
 	case s.Status == todo.SprintDone:
-		ready = headerHintSty.Render("closed — c in the sidebar reopens it")
+		ready = "closed — c in the sidebar reopens it"
 	case total == 0:
-		ready = headerHintSty.Render("no tasks yet")
+		ready = "no tasks yet"
 	case done < total:
-		ready = headerHintSty.Render(fmt.Sprintf("close blocked: %d not done", total-done))
+		ready = fmt.Sprintf("close blocked: %d not done", total-done)
 	default:
-		ready = doneStyle.Render("ready to close (c in the sidebar)")
+		ready, readyStyle = "ready to close (c in the sidebar)", doneStyle
 	}
-	progress := headerHintSty.Render("  Done  ") + bar + fmt.Sprintf(" %d/%d   ", done, total) + ready
 
-	return []string{
-		ansi.Truncate(goalLine, width, ""),
-		ansi.Truncate(progress, width, ""),
-		ansi.Truncate("  "+tabBar(counts, active), width, ""),
+	const label = "  Done  "
+	count := fmt.Sprintf(" %d/%d   ", done, total)
+	fixed := ansi.StringWidth(label) + ansi.StringWidth(count)
+	cells := min(max(width-fixed-ansi.StringWidth(ready), minBarCells), barCells)
+	filled := 0
+	if total > 0 {
+		filled = done * cells / total
 	}
+	bar := doneStyle.Render(strings.Repeat("█", filled)) + headerHintSty.Render(strings.Repeat("░", cells-filled))
+	// What does not fit is the readiness's end (or, on a pane too narrow for
+	// the bar, more): cut it with "…".
+	return ansi.Truncate(headerHintSty.Render(label)+bar+count+readyStyle.Render(ready), width, "…")
 }
 
 // tabBar renders a sprint board's tabs: every tab's title and the task count
