@@ -41,7 +41,9 @@ const (
 //   - An item is grabbed (tree.grabbed or side.grabbed) only in modeMain and
 //     only on the focused tree, m.focused().
 //   - sideFocus implies split.
-//   - listFocus means something only in the Sprints workspace (view.onBoard).
+//   - listFocus means something only in the Sprints workspace (view.onBoard),
+//     and holds there while the sidebar's cursor is on no sprint (the Closed
+//     group row, an empty list): there is no board to take the keys.
 //   - On screenPlan the unified view is off and the trees show nothing.
 //   - An external reload is applied in modeMain and modeSearch, and deferred
 //     in the modal modes and while an item is grabbed (see handleReload).
@@ -414,9 +416,13 @@ func (m model) updateScreenKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 // updateViewKey handles the keys that change how the trees show the list,
 // from the Sprints workspace's sidebar too, where they act on the board: /
 // (search), f (state filter), u (unified view), v (split view, which the
-// Sprints workspace does not show) and L (the board as tabs or columns). The
-// bool reports whether the key was one of them.
+// Sprints workspace does not show) and L (the board as tabs or columns). On
+// the Closed group row, which shows no board, /, f and L do nothing. The bool
+// reports whether the key was one of them.
 func (m model) updateViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	if k := msg.String(); m.onClosedRow() && (k == "/" || k == "f" || k == "L") {
+		return m, nil, true // the Closed row shows no board to search, filter or lay out
+	}
 	switch msg.String() {
 	case "/":
 		next, cmd := m.openSearch()

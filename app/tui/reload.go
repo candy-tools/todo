@@ -207,7 +207,9 @@ func (m *model) applyReload(msg storeReloadedMsg) {
 // with the sidebar focused on it. A workspace that shows no sprint takes the
 // first open one when one appears (unless the unified view is over it). Under
 // the unified view only the hidden sprint falls back: the view stays on. The
-// view is not stored: the list that changed is no write of this session.
+// view is not stored: the list that changed is no write of this session. A
+// cursor on the Closed group row stays there, beside its pane, whatever sprint
+// the workspace falls back to.
 func (m *model) leaveGoneSprint() {
 	if m.view.screen != screenSprint {
 		return
@@ -234,19 +236,28 @@ func (m *model) leaveGoneSprint() {
 		m.switchScreen(screenSprint, id)
 		m.listFocus = true
 	}
+	if m.onGroupRow() {
+		m.selectRow(groupKey)
+		return
+	}
 	m.selectInList(id)
 }
 
 // cursorOnShown keeps the sidebar and the board agreeing after a change of the
 // list: the cursor stays on the shown sprint, unfolding Closed when it was
-// closed elsewhere, unless it is on the Closed group row, which keeps the last
-// sprint shown (and which, when the group is gone, goes to the shown sprint).
+// closed elsewhere, unless it is on the Closed group row, whose pane lists the
+// closed sprints while the stored view keeps the last sprint shown (and which,
+// when the group is gone, goes to the shown sprint).
 func (m *model) cursorOnShown() {
-	if m.sprints.selID == groupKey && doneSprints(m.doc) > 0 {
+	if m.onGroupRow() {
 		return
 	}
 	m.selectInList(m.view.sprint)
 }
+
+// onGroupRow reports whether the sidebar's cursor was on the Closed group row
+// and the list still has that row, before the cursor is synced to the list.
+func (m *model) onGroupRow() bool { return m.sprints.selID == groupKey && doneSprints(m.doc) > 0 }
 
 // noteExternal drops the undo snapshots and says so in the footer, after the
 // model took a list that someone else changed.

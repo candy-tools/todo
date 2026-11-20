@@ -317,6 +317,12 @@ func (m *model) followList() {
 // onList reports whether the keys go to the Sprints workspace's sidebar.
 func (m *model) onList() bool { return m.view.onBoard() && m.listFocus }
 
+// onClosedRow reports whether the Sprints workspace's sidebar cursor is on the
+// Closed group row. The pane beside it then lists the closed sprints instead
+// of a board (see closedPane), so the board's keys do nothing, and the stored
+// view keeps the last sprint shown.
+func (m *model) onClosedRow() bool { return m.view.onBoard() && m.sprints.onGroup(m.doc) }
+
 // splitShown reports whether the split view is on screen: it is on, and
 // neither the Sprints workspace, whose sidebar is the sprint list, nor
 // Planning is shown.
@@ -382,7 +388,9 @@ func nextOpenAfter(d *todo.Document, id string) (string, bool) {
 // view's own folds; the main tree's selected item stays selected when the
 // destination shows it, else its cursor goes to the top row. The screen and
 // its tab are kept, so turning it off returns to them. The keys go to the
-// trees, not the Sprints workspace's sidebar.
+// trees, not the Sprints workspace's sidebar — unless, back in the workspace,
+// its cursor is on no sprint (the Closed group row, an empty list): no sprint,
+// no board to take them (see focusBoard).
 func (m *model) setUnified(on bool) {
 	if m.view.all == on {
 		return
@@ -390,7 +398,7 @@ func (m *model) setUnified(on bool) {
 	sel := m.tree.selectedID()
 	from := m.view.key()
 	m.view.all = on
-	m.listFocus = false
+	m.listFocus = m.view.onBoard() && m.sprints.selected(m.doc) == nil
 	m.tree.pane = m.mainPane()
 	m.refreshSide()
 	m.tree.switchView(from)

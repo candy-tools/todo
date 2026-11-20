@@ -140,8 +140,8 @@ func TestSprintListDeleteFallsBackByIndex(t *testing.T) {
 	if !m.sprints.onGroup(m.doc) {
 		t.Errorf("after deleting C: the cursor should sit on the Closed row now at C's index")
 	}
-	if m.view.sprint != "s00000a" {
-		t.Errorf("board = %q, want A kept: the Closed row keeps the last sprint shown", m.view.sprint)
+	if m.view.sprint != "s00000a" || !inBoardPane(m, "Closed sprints") {
+		t.Errorf("board = %q, want A kept as the stored sprint and the Closed sprints pane shown:\n%s", m.view.sprint, ansi.Strip(m.View()))
 	}
 	m = press(m, "right", "down")
 	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000b" {
@@ -257,8 +257,8 @@ func TestClosedGroupFoldsDoneSprints(t *testing.T) {
 		t.Fatalf("folded: %q, want the Closed row and no B", view)
 	}
 	m = press(m, "down", "down") // A, C, Closed
-	if !m.sprints.onGroup(m.doc) || m.view.sprint != "s00000c" {
-		t.Fatalf("on the group row: onGroup %v board %q, want C kept", m.sprints.onGroup(m.doc), m.view.sprint)
+	if !m.sprints.onGroup(m.doc) || m.view.sprint != "s00000c" || !inBoardPane(m, "── ✓ B") {
+		t.Fatalf("on the group row: onGroup %v board %q, want C kept as the stored sprint and B listed:\n%s", m.sprints.onGroup(m.doc), m.view.sprint, ansi.Strip(m.View()))
 	}
 	m = press(m, "right", "down")
 	if s := m.sprints.selected(m.doc); s == nil || s.ID != "s00000b" || m.view.sprint != "s00000b" {
@@ -406,6 +406,122 @@ func TestDoneSprintsAreNestedUnderClosed(t *testing.T) {
 	}
 	if !strings.HasPrefix(lines[6], "    ✓ B") || ansi.StringWidth(lines[6]) > 30 {
 		t.Errorf("done row = %q, want it indented under Closed", lines[6])
+	}
+}
+
+// closedPair is open A (a Next task) beside two closed sprints, B (older, with
+// a goal) and D (newer, without one).
+func closedPair(t *testing.T) (model, string) {
+	t.Helper()
+	return newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{
+			{ID: "s00000a", Name: "A", Goal: "goal a", Status: "open"},
+			{ID: "s00000b", Name: "B", Goal: "goal b", Status: "done"},
+			{ID: "s00000d", Name: "D", Status: "done"},
+		},
+		seedTask{ID: "t000001", Title: "aNext", Status: "new", Sprint: "s00000a"},
+		seedTask{ID: "t000002", Title: "bDone", Status: "done", Sprint: "s00000b"},
+		seedTask{ID: "t000003", Title: "bDone2", Status: "done", Sprint: "s00000b"},
+		seedTask{ID: "t000004", Title: "dDone", Status: "done", Sprint: "s00000d"}))
+}
+
+// On the Closed row the pane beside the sidebar lists the closed sprints,
+// newest first, instead of a board; the stored view keeps the last sprint shown.
+func TestClosedRowShowsClosedSprintsPane(t *testing.T) {
+	m, path := closedPair(t)
+	m = press(m, "s", "down") // A, Closed
+	if !m.sprints.onGroup(m.doc) || m.view.sprint != "s00000a" {
+		t.Fatalf("setup: onGroup %v sprint %q", m.sprints.onGroup(m.doc), m.view.sprint)
+	}
+	for _, want := range []string{"Closed sprints", "── ✓ B", "goal b · 2 tasks", "── ✓ D", "— · 1 task"} {
+		if !inBoardPane(m, want) {
+			t.Errorf("the pane misses %q:\n%s", want, ansi.Strip(m.View()))
+		}
+	}
+	out := ansi.Strip(m.View())
+	if strings.Index(out, "✓ D") > strings.Index(out, "✓ B") {
+		t.Errorf("want the newer D above B:\n%s", out)
+	}
+	if inBoardPane(m, "aNext") || inBoardPane(m, "Goal") {
+		t.Errorf("A's board must not show beside the Closed row:\n%s", out)
+	}
+	m = press(m, "q")
+	if v := storedView(t, path); v.Screen != todo.ScreenSprint || v.Sprint != "s00000a" {
+		t.Errorf("stored view %+v, want A's board, the last sprint shown", v)
+	}
+}
+
+// The board's keys do nothing on the Closed row: there is no board.
+func TestClosedRowIgnoresBoardKeys(t *testing.T) {
+	m, _ := closedPair(t)
+	m = press(m, "s", "down")
+	m = press(m, "]", "2", "a", "A", "L", "/", "f", "e", "D")
+	if m.mode != modeMain || m.view.column != todo.ColNext || m.columns || m.view.filter != "" || !m.sprints.onGroup(m.doc) {
+		t.Errorf("mode %v column %v columns %v filter %q onGroup %v, want nothing changed", m.mode, m.view.column, m.columns, m.view.filter, m.sprints.onGroup(m.doc))
+	}
+	// Back from the unified view the sidebar keeps the keys: the Closed row has
+	// no board to take them.
+	m = press(m, "u", "u")
+	if !m.listFocus || !m.sprints.onGroup(m.doc) {
+		t.Fatalf("after u u: listFocus %v onGroup %v, want the sidebar focused on the Closed row", m.listFocus, m.sprints.onGroup(m.doc))
+	}
+	if m = press(m, "up"); m.view.sprint != "s00000a" || !m.listFocus {
+		t.Errorf("up: sprint %q listFocus %v, want A with the sidebar still focused", m.view.sprint, m.listFocus)
+	}
+}
+
+// The sidebar's footer on the Closed row offers the fold instead of the
+// sprint keys.
+func TestClosedRowFooterOffersFold(t *testing.T) {
+	m, _ := closedPair(t)
+	m = press(m, "s", "down")
+	f := ansi.Strip(m.footer(120))
+	for _, want := range []string{"←→: Fold", "n: New", "?: Help", "q: Quit"} {
+		if !strings.Contains(f, want) {
+			t.Errorf("footer = %q, misses %q", f, want)
+		}
+	}
+	for _, gone := range []string{"Edit", "Close/reopen", "Delete"} {
+		if strings.Contains(f, gone) {
+			t.Errorf("footer = %q, must not offer %q on the Closed row", f, gone)
+		}
+	}
+	if f := ansi.Strip(press(m, "up").footer(120)); strings.Contains(f, "Fold") || !strings.Contains(f, "Edit") {
+		t.Errorf("on a sprint row footer = %q, want the sprint keys", f)
+	}
+}
+
+// A short pane lists as many closed sprints as fit and says how many more.
+func TestClosedPaneSaysHowManyMore(t *testing.T) {
+	m, _ := closedPair(t)
+	m = press(m, "s", "down")
+	lines := strings.Split(ansi.Strip(m.closedPane(40, 3)), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[0], "✓ D") || !strings.Contains(lines[2], "… 1 more") {
+		t.Errorf("lines = %q, want D's two lines then … 1 more", lines)
+	}
+	for _, l := range strings.Split(ansi.Strip(m.closedPane(12, 20)), "\n") {
+		if ansi.StringWidth(l) > 12 {
+			t.Errorf("line %q is wider than 12", l)
+		}
+	}
+}
+
+// A reload that deletes the stored sprint while the cursor is on the Closed
+// row keeps the cursor there, beside the Closed sprints pane; the stored
+// sprint falls back to the first open one.
+func TestReloadOnClosedRowKeepsItWhenStoredSprintGoes(t *testing.T) {
+	m, path := newJSONModel(t, sprintJSON(t, nil,
+		[]seedSprint{
+			{ID: "s00000a", Name: "A", Status: "open"},
+			{ID: "s00000b", Name: "B", Status: "open"},
+			{ID: "s00000d", Name: "D", Status: "done"},
+		}))
+	m = press(m, "s", "down", "down") // A, B, Closed: B is the stored sprint
+	deleteSprintOnDisk(t, path, "s00000b")
+	m = pollOnce(t, m)
+	if !m.sprints.onGroup(m.doc) || !m.listFocus || m.view.sprint != "s00000a" || !inBoardPane(m, "Closed sprints") {
+		t.Errorf("onGroup %v listFocus %v sprint %q, want the cursor kept on the Closed row beside its pane, A stored:\n%s",
+			m.sprints.onGroup(m.doc), m.listFocus, m.view.sprint, ansi.Strip(m.View()))
 	}
 }
 

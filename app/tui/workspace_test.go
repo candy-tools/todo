@@ -100,6 +100,10 @@ func TestNoSprintsShowsEmptyBoard(t *testing.T) {
 	if !inBoardPane(m, "no sprints yet — n creates one") {
 		t.Errorf("the board pane should say there are no sprints:\n%s", ansi.Strip(m.View()))
 	}
+	// Back from the unified view the sidebar keeps the keys: there is no board.
+	if m = press(m, "u", "u"); !m.listFocus {
+		t.Error("after u u with no sprints the sidebar should have the keys")
+	}
 }
 
 func TestOnlyClosedSprintsShowNoOpenSprints(t *testing.T) {
@@ -110,8 +114,8 @@ func TestOnlyClosedSprintsShowNoOpenSprints(t *testing.T) {
 	if m.view.screen != screenSprint || m.view.sprint != "" || !m.sprints.onGroup(m.doc) || m.sprints.closedOpen {
 		t.Fatalf("only closed: screen %v sprint %q onGroup %v closedOpen %v, want no sprint shown and the cursor on the folded Closed row", m.view.screen, m.view.sprint, m.sprints.onGroup(m.doc), m.sprints.closedOpen)
 	}
-	if !inBoardPane(m, "no open sprints") || !strings.Contains(ansi.Strip(m.View()), "❯ ▸ Closed") {
-		t.Errorf("the board pane should say there are no open sprints, with the Closed row selected:\n%s", ansi.Strip(m.View()))
+	if !inBoardPane(m, "no open sprints") || !inBoardPane(m, "── ✓ B") || !strings.Contains(ansi.Strip(m.View()), "❯ ▸ Closed") {
+		t.Errorf("the pane should say there are no open sprints and list B, with the Closed row selected:\n%s", ansi.Strip(m.View()))
 	}
 	if v := storedView(t, path); v.Screen != todo.ScreenSprints || v.Sprint != "" {
 		t.Errorf("stored view %+v, want sprints", v)
