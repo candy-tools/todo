@@ -258,7 +258,7 @@ func TestHelpListsSprintKeys(t *testing.T) {
 		}
 	}
 	all := ansi.Strip(helpModal(200, 80, 0))
-	for _, want := range []string{"The Sprints workspace", "on a board focus the sprint list", "Unified view", "Close / reopen the sprint", "assign it to a sprint", "Send the task to another sprint or the Backlog"} {
+	for _, want := range []string{"The Sprints workspace", "else focus the sidebar", "Unified view", "Close / reopen the sprint", "assign it to a sprint", "Send the task to another sprint or the Backlog"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("help should say %q:\n%s", want, all)
 		}

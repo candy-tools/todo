@@ -79,12 +79,16 @@ func (m model) sprintClosed(id string) bool {
 // reopens it, restoring its subtasks from the snapshot when there is one. A
 // from Next sends the task back to the Backlog (it becomes open). On a backlog
 // task a opens the dialog that assigns it to a sprint, and A only hints. A
-// subtask (it follows its task), a task of a closed sprint and a task at Done's
-// edge only get a footer hint.
+// category (on the Backlog, a says to select a task to assign), a subtask (it
+// follows its task), a task of a closed sprint and a task at Done's edge only
+// get a footer hint.
 func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {
 	case it == nil:
+		return m, nil
+	case !it.IsTask() && delta > 0 && m.view.screen == screenBacklog && !m.view.all:
+		m.status = "select a task to assign it to a sprint"
 		return m, nil
 	case !it.IsTask():
 		m.status = "only tasks move between columns"

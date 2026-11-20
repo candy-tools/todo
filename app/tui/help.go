@@ -80,7 +80,7 @@ var helpSections = []helpSection{
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},
 		{"q", "Quit"},
-		{"esc", "Clear search / state filter; on a board focus the sprint list; else quit"},
+		{"esc", "Clear search / state filter; else focus the sidebar; else quit"},
 	}},
 }
 

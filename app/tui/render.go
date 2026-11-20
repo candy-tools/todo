@@ -54,12 +54,25 @@ func (m model) mainView(dim bool) string {
 	case m.splitShown():
 		sw := sidebarWidth(w)
 		left := titledBox("Categories", m.side.view(sw-2, m.treeViewHeight()), sw, bodyH, !dim && m.sideFocus)
-		right := titledBox("Tasks", m.tree.view(w-sw-2, m.treeViewHeight()), w-sw, bodyH, !dim && !m.sideFocus)
+		right := titledBox(m.treeTitle(), m.tree.view(w-sw-2, m.treeViewHeight()), w-sw, bodyH, !dim && !m.sideFocus)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	default:
-		body = titledBox("Tasks", m.tree.view(w-2, m.treeViewHeight()), w, bodyH, !dim)
+		body = titledBox(m.treeTitle(), m.tree.view(w-2, m.treeViewHeight()), w, bodyH, !dim)
 	}
 	return m.header(w) + "\n" + body + "\n" + m.footer(w)
+}
+
+// treeTitle is the title of the main tree's pane off the Sprints workspace:
+// "Tasks" in the unified view; on the Backlog, "Backlog", or in the split the
+// path of the sidebar's category ("Backlog" on All).
+func (m model) treeTitle() string {
+	if m.view.all {
+		return "Tasks"
+	}
+	if path := categoryPath(m.backlogSelection()); m.splitShown() && path != "" {
+		return path
+	}
+	return todo.ColBacklog.Title()
 }
 
 // boardTitle is the title of the Sprints workspace's board pane: "Closed
@@ -367,10 +380,43 @@ func (m model) footer(width int) string {
 			layout = "Tabs"
 		}
 		parts = append(parts, hint("tab", "Sprints"), hint("L", layout))
+	case m.view.screen == screenBacklog && !m.view.all:
+		parts = m.backlogHints()
 	case m.splitShown():
 		parts = append(parts, hint("tab", "Pane"))
 	}
-	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
+	return fitHints(parts, width)
+}
+
+// backlogHints are the Backlog's footer hints, the most important first: the
+// way to the help, between the split's panes, to a sprint and to the other
+// workspaces.
+func (m model) backlogHints() []string {
+	parts := []string{hint("?", "Help")}
+	split := "Split"
+	if m.splitShown() {
+		parts = append(parts, hint("tab", "Pane"))
+		split = "Single tree"
+	}
+	return append(parts, hint("a", "Assign"), hint("v", split), hint("s", "Sprints"), hint("p", "Plan"),
+		hint("/", "Search"), hint("q", "Quit"))
+}
+
+// fitHints joins the footer hints that fit width, from the first: those that
+// do not fit are dropped whole, never cut.
+func fitHints(parts []string, width int) string {
+	line := ""
+	for _, p := range parts {
+		next := line + "  " + p
+		if line == "" {
+			next = " " + p
+		}
+		if ansi.StringWidth(next) > width {
+			break
+		}
+		line = next
+	}
+	return line
 }
 
 // overallCounts totals done/total tasks across the whole document.

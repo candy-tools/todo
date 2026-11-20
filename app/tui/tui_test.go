@@ -536,7 +536,7 @@ func TestHeaderShowsVersion(t *testing.T) {
 func TestViewSmoke(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] alpha\n")
 	out := m.View()
-	for _, want := range []string{"todo", "Tasks", "Work", "alpha"} {
+	for _, want := range []string{"todo", "╭─ Backlog", "Work", "alpha"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("main view missing %q", want)
 		}

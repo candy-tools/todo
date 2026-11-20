@@ -88,7 +88,7 @@ func TestSplitLayout(t *testing.T) {
 	m, _ := newTestModel(t, splitDoc)
 	m = press(m, "v")
 	v := m.View()
-	if !strings.Contains(v, "Categories") || !strings.Contains(v, "Tasks") {
+	if !strings.Contains(v, "╭─ Categories") || !strings.Contains(v, "╭─ Work") {
 		t.Errorf("split view should show both panes:\n%s", v)
 	}
 	if got := m.footer(200); !strings.Contains(got, "Pane") {
