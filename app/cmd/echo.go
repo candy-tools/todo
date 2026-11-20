@@ -28,11 +28,21 @@ func echoItem(cmd *cobra.Command, doc *todo.Document, id string, text func()) er
 		text()
 		return nil
 	}
+	r, err := writtenDetail(doc, id)
+	if err != nil {
+		return err
+	}
+	return writeJSON(cmd.OutOrStdout(), r)
+}
+
+// writtenDetail is the record (with its subtasks) of the item id in doc, the
+// list a write left; an item missing from doc is an error.
+func writtenDetail(doc *todo.Document, id string) (record, error) {
 	it, ok := doc.ByID(id)
 	if !ok {
-		return fmt.Errorf("item %s is missing from the written list", id)
+		return record{}, fmt.Errorf("item %s is missing from the written list", id)
 	}
-	return writeJSON(cmd.OutOrStdout(), toDetail(doc, it, numberMap(doc)))
+	return toDetail(doc, it, numberMap(doc)), nil
 }
 
 // sprintOf is the jsonSprint for sp as doc has it.

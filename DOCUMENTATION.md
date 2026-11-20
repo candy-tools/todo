@@ -141,7 +141,8 @@ Other rules, as before:
   line, up to 50 characters), but no two tasks in a list may share one —
   compared ignoring case, so `app-001` and `APP-001` clash. Subtasks have no
   reference, so indenting a task under another task drops its reference (its
-  number is not reused). Search matches the reference too.
+  number is not reused, and lifting the subtask back out does not restore it);
+  `todo move --json` reports it as `droppedRef`. Search matches the reference too.
 - **Reference prefix.** A task created without a reference gets one generated
   from a prefix, `<PREFIX>-<n>` with `n` counted per prefix and padded to three
   digits (`WORK-001`, `WORK-002`, ..., `WORK-999`, `WORK-1000`). The prefix is the
@@ -420,7 +421,9 @@ marked optional are left out when empty):
 **`--json` on changes.** Add `--json` to any command that changes an item or a
 sprint (`import` has none) and it prints the result instead of the text line: `add`, `add-category`, `status`, `done`, `progress`,
 `defer`, `reopen`, `edit`, `move`, `assign` and `unassign` print the record of
-the item (with `subtasks`); `rm` prints `{"removed": <record>}`; `prune` prints
+the item (with `subtasks`), and `move` adds `droppedRef` with the reference a
+task indented under another task lost (left out when none was dropped); `rm`
+prints `{"removed": <record>}`; `prune` prints
 `{"removed": <count>}`; `sprint add`, `sprint edit`, `sprint close` and
 `sprint reopen` print the sprint object (`{id, name, goal, prefix (optional),
 status, counts}`); `sprint rm` prints `{"removed": <sprint>}`.
@@ -526,7 +529,8 @@ when empty.
 otherwise). Subcategories always stay ahead of tasks. The move rules match the
 TUI's: a task never goes to the top level and a category never under a task
 (exit code `5`); a task with subtasks cannot become a subtask, and one with a
-reference loses it (`move` prints `dropped reference <ref>`); a moved subtask
+reference loses it (`move` prints `dropped reference <ref>`, or under `--json`
+reports it as `droppedRef`); a moved subtask
 becomes a task and takes its state from its old parent.
 `reopen` takes a done task back to `working` (a subtask to `open`); a task that
 is not done keeps its state and nothing is written (with `--cascade` its

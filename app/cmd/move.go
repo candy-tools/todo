@@ -55,12 +55,27 @@ func moveCmd() *cobra.Command {
 				if now, ok := res.Doc.ByID(it.ID); ok {
 					it = now
 				}
-				return echoItem(cmd, res.Doc, it.ID, func() {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "move: %s  (%s)\n", todo.Printable(it.DisplayTitle()), placeName(it.Parent))
-					if oldRef != "" && it.Ref == "" {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "dropped reference %s\n", oldRef)
+				dropped := ""
+				if oldRef != "" && it.Ref == "" {
+					dropped = oldRef
+				}
+				if wantJSON(cmd) {
+					r, err := writtenDetail(res.Doc, it.ID)
+					if err != nil {
+						return err
 					}
-				})
+					// The record plus the reference a task indented under
+					// another task lost, omitted when nothing was dropped.
+					return writeJSON(cmd.OutOrStdout(), struct {
+						record
+						DroppedRef string `json:"droppedRef,omitempty"`
+					}{r, dropped})
+				}
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "move: %s  (%s)\n", todo.Printable(it.DisplayTitle()), placeName(it.Parent))
+				if dropped != "" {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "dropped reference %s\n", dropped)
+				}
+				return nil
 			})
 		},
 	}
