@@ -377,21 +377,29 @@ func (m model) footer(width int) string {
 	parts := []string{hint("?", "Help"), hint("/", "Search"), hint("q", "Quit")}
 	switch {
 	case m.view.onBoard():
-		// The column keys, then L where the board is wide enough for columns.
-		parts = []string{hint("?", "Help"), hint("tab", "Sprints"), hint("[ ] 1-3", "Column"), hint("a/A", "Next/prev column")}
-		switch {
-		case m.columnsShown():
-			parts = append(parts, hint("L", "Tabs"))
-		case m.boardWidth() >= minColumnsWidth:
-			parts = append(parts, hint("L", "Columns"))
-		}
-		parts = append(parts, hint("/", "Search"), hint("q", "Quit"))
+		parts = m.boardHints()
 	case m.view.screen == screenBacklog && !m.view.all:
 		parts = m.backlogHints()
 	case m.splitShown():
 		parts = append(parts, hint("tab", "Pane"))
 	}
 	return fitHints(parts, width)
+}
+
+// boardHints are the board's footer hints: the column keys, a/A to move a task
+// unless the sprint is closed, then L where the board is wide enough for columns.
+func (m model) boardHints() []string {
+	parts := []string{hint("?", "Help"), hint("tab", "Sprints"), hint("[ ] 1-3", "Column")}
+	if !m.sprintClosed(m.view.sprint) { // a closed sprint's tasks cannot move
+		parts = append(parts, hint("a/A", "Move task"))
+	}
+	switch {
+	case m.columnsShown():
+		parts = append(parts, hint("L", "Tabs"))
+	case m.boardWidth() >= minColumnsWidth:
+		parts = append(parts, hint("L", "Columns"))
+	}
+	return append(parts, hint("/", "Search"), hint("q", "Quit"))
 }
 
 // backlogHints are the Backlog's footer hints, the most important first: the

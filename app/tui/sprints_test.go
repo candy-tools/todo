@@ -598,10 +598,13 @@ func TestBoardFooterColumnHints(t *testing.T) {
 	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 30})
 	m = press(m, "s", "tab")
 	f := ansi.Strip(m.footer(200))
-	for _, want := range []string{"[ ] 1-3: Column", "a/A: Next/prev column"} {
+	for _, want := range []string{"[ ] 1-3: Column", "a/A: Move task"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("footer at 80 = %q, misses %q", f, want)
 		}
+	}
+	if strings.Contains(f, "Next/prev column") {
+		t.Errorf("footer at 80 = %q, the old a/A label is gone", f)
 	}
 	if strings.Contains(f, "L:") {
 		t.Errorf("footer at 80 = %q, L needs a wider board", f)
@@ -612,5 +615,18 @@ func TestBoardFooterColumnHints(t *testing.T) {
 	wide := send(m, tea.WindowSizeMsg{Width: 140, Height: 30})
 	if f := ansi.Strip(wide.footer(200)); !strings.Contains(f, "L: Columns") {
 		t.Errorf("footer at 140 = %q, want L: Columns", f)
+	}
+}
+
+func TestClosedSprintBoardFooterHasNoMoveHint(t *testing.T) {
+	m, _ := threeSprints(t)
+	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = press(m, "K", "down", "down", "enter", "tab") // the closed sprint B
+	if m.view.sprint != "s00000b" {
+		t.Fatalf("board = %q, want the closed sprint B", m.view.sprint)
+	}
+	f := ansi.Strip(m.footer(200))
+	if strings.Contains(f, "a/A:") || !strings.HasPrefix(f, " ?: Help") {
+		t.Errorf("closed board footer = %q, want no a/A hint and Help first", f)
 	}
 }
