@@ -749,14 +749,15 @@ changes only the lines that changed.
   mostly coding agents: it says the file is managed by the todo CLI, should not
   be edited directly, points readers at `todo next --json`,
   `todo show --id <id|ref> --json` and `todo list --flat`, and says to change
-  it with todo commands. Opening the TUI writes todo's note, first in the file, when the
-  file has none or a different one, and a new file starts with it. Other
-  writes, and every CLI command, keep whatever note the file holds. A file
-  with a different note, or none, loads as usual.
+  it with todo commands. Every change, from a CLI command or the TUI, writes
+  todo's note first in a file that has none, and a new file starts with it. A
+  file with a different note keeps it. Opening or reading a list never writes
+  it. A file with a different note, or none, loads as usual.
 - `version` is the format version (now `7`). A file with a higher version is
   refused: `list was written by a newer todo`. A version `3` to `6` file loads
-  as it is and is written back as version `7` on the next change, or when the
-  TUI opens it, after which todo versions older than this one refuse it.
+  as it is and is written back as version `7` on the next change (opening it
+  in the TUI alone does not), after which todo versions older than this one
+  refuse it.
   **Upgrade:** version `3`, `4` and `5` files (from before sprints) have tasks
   in Next, In Progress or Done with no sprint, which version `6` and later
   forbid. On load, todo puts every such top-level

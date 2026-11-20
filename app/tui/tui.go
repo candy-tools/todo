@@ -157,10 +157,6 @@ const BusyTimeout = 750 * time.Millisecond
 // automatic TODO.md import summary) is shown in the footer at start; it may be
 // empty. The caller makes st with BusyTimeout.
 func Run(st *todo.Store, notice string) error {
-	// Put the note for agents in the file before loading it. The note is not
-	// worth failing the start for: a missing file gets it on its first save,
-	// and an invalid one fails the load below with its own error.
-	_, _ = st.WriteNote(context.Background())
 	m, err := newModel(st, notice)
 	if err != nil {
 		return err
@@ -192,7 +188,8 @@ func quitWarning(m model) string {
 // snapshots) with notice as the initial footer status. A multi-line notice (an
 // import summary followed by its warnings) is joined onto the single footer
 // line. Split out from Run so tests can drive the model without starting a real
-// terminal program.
+// terminal program. It is all of Run's startup, and it only reads: opening a
+// list to look at it leaves the file as it is.
 func newModel(st *todo.Store, notice string) (model, error) {
 	doc, fp, err := st.Load(context.Background())
 	if err != nil {

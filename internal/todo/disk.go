@@ -23,8 +23,9 @@ const fileVersion = 7
 // for whoever opens the file instead of running todo: mostly coding agents,
 // which otherwise edit it in place and can leave it invalid (an id outside the
 // alphabet, a dangling reference), so that every todo write fails until
-// someone repairs it. A new file gets it, and the TUI writes it at startup
-// (Store.WriteNote); other writes keep the note the file holds.
+// someone repairs it. Every write puts it in a file that has no note, a new
+// one included, and keeps a different note the file holds. Reading never
+// writes it: a list only looked at stays as it is.
 const fileComment = "This file is managed by the todo CLI. Do not edit it directly, by hand or with a script. " +
 	"Read it with todo: `todo next --json` (what to work on), `todo show --id <id|ref> --json` (one task), " +
 	"`todo list --flat` (every item as flat JSON records). " +

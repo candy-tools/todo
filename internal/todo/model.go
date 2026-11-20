@@ -247,7 +247,7 @@ type Document struct {
 	// session opens on it.
 	View View
 	// Comment is the file's "_comment" note, kept as the file holds it ("" for
-	// none). Only a new file and Store.WriteNote set todo's own note.
+	// none). A write to a file with no note sets todo's own (fileComment).
 	Comment string
 	// RefPrefix is the list's reference prefix, "" for none: the last resort
 	// of Document.PrefixFor.

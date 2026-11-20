@@ -99,9 +99,9 @@ func newRootCommand() *cobra.Command {
 			}
 			// A missing list file shows as an empty list, and nothing is
 			// created until the first write (unless TODO.md is imported
-			// first); an existing one gets todo's note at startup (see
-			// tui.Run). Its writes wait only tui.BusyTimeout for another
-			// writer, so a stuck one elsewhere does not freeze the UI.
+			// first); opening an existing one does not write it. Its writes
+			// wait only tui.BusyTimeout for another writer, so a stuck one
+			// elsewhere does not freeze the UI.
 			st, notice, err := openList(path, isDefault, todo.WithBusyTimeout(tui.BusyTimeout))
 			if err != nil {
 				return err

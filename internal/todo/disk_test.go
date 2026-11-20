@@ -68,9 +68,10 @@ func TestDiskRoundTripExample(t *testing.T) {
 // commentLine is the line todo's "_comment" note takes, first in the file.
 const commentLine = `  "_comment": "` + todo.FileComment + "\",\n"
 
-// The store writes the list in one fixed form: two-space indented, keys in
-// field order, categories before tasks, subtasks inline, empty optional
-// fields left out and a trailing newline.
+// The store writes the list in one fixed form: two-space indented, todo's
+// note first (the seed has none), keys in field order, categories before
+// tasks, subtasks inline, empty optional fields left out and a trailing
+// newline.
 func TestDiskFileFormat(t *testing.T) {
 	path := todotest.SeedJSON(t, `{"version":4,"categories":[{"id":"c000000","title":"A"},`+
 		`{"id":"c000001","title":"B","parent":"c000000"}],"tasks":[{"id":"t000001","category":"c000000","ref":"APP-001",`+
@@ -79,8 +80,7 @@ func TestDiskFileFormat(t *testing.T) {
 	if _, err := s.Edit(context.Background(), "c000001", todo.Changes{Title: new("B2")}); err != nil {
 		t.Fatal(err)
 	}
-	const want = `{
-  "version": 7,
+	const want = "{\n" + commentLine + `  "version": 7,
   "sprints": [
     {
       "id": "0000000",
@@ -153,9 +153,6 @@ func TestDiskEmptyListArrays(t *testing.T) {
 	}
 }
 
-// noteCases are list files holding another note than todo's, or none.
-var noteCases = map[string]string{"changed": `  "_comment": "edited",` + "\n", "missing": ""}
-
 // noteFile is a version 7 list file with note (a whole "_comment" line, or
 // "") and one category, aaaaaaa, in the form the store writes.
 func noteFile(note string) string {
@@ -172,22 +169,41 @@ func noteFile(note string) string {
 `
 }
 
-// A save keeps the note the file holds, another one or none: only a new file
-// and WriteNote put todo's note in.
-func TestDiskSaveKeepsNote(t *testing.T) {
-	for name, note := range noteCases {
+// A save puts todo's note in a file that has none, and keeps a different note
+// the file holds; the rest of the file is written as it was.
+func TestDiskSaveNote(t *testing.T) {
+	edited := `  "_comment": "edited",` + "\n"
+	for name, tc := range map[string]struct{ note, want string }{
+		"missing": {"", commentLine},
+		"changed": {edited, edited},
+		"todo's":  {commentLine, commentLine},
+	} {
 		t.Run(name, func(t *testing.T) {
-			path := todotest.SeedJSON(t, noteFile(note))
+			path := todotest.SeedJSON(t, noteFile(tc.note))
 			s := todo.NewStore(path)
 			for _, title := range []string{"B", "A"} {
 				if _, err := s.Edit(context.Background(), "aaaaaaa", todo.Changes{Title: new(title)}); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if got := readFile(t, path); got != noteFile(note) {
-				t.Errorf("file =\n%s\nwant it as it was\n%s", got, noteFile(note))
+			if got := readFile(t, path); got != noteFile(tc.want) {
+				t.Errorf("file =\n%s\nwant\n%s", got, noteFile(tc.want))
 			}
 		})
+	}
+}
+
+// Loading a list writes nothing: a file without todo's note, in an older
+// version, keeps its bytes, and no lock file is made beside it.
+func TestDiskLoadLeavesFileAlone(t *testing.T) {
+	const v6 = `{"version": 6, "sprints": [], "categories": [{"id": "aaaaaaa", "title": "A"}], "tasks": []}`
+	path := todotest.SeedJSON(t, v6)
+	loadList(t, path)
+	if got := readFile(t, path); got != v6 {
+		t.Errorf("file =\n%s\nwant it as it was\n%s", got, v6)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(path)); len(entries) != 1 {
+		t.Errorf("the directory holds %d files after a load, want only the list", len(entries))
 	}
 }
 
@@ -199,50 +215,6 @@ func TestDiskNewFileGetsNote(t *testing.T) {
 	}
 	if got := readFile(t, path); !strings.HasPrefix(got, "{\n"+commentLine) {
 		t.Errorf("file does not start with todo's note:\n%s", got)
-	}
-}
-
-// WriteNote puts todo's note in place of another one or none, and leaves the
-// rest of the file as it was.
-func TestWriteNote(t *testing.T) {
-	for name, note := range noteCases {
-		t.Run(name, func(t *testing.T) {
-			path := todotest.SeedJSON(t, noteFile(note))
-			res, err := todo.NewStore(path).WriteNote(context.Background())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !res.Written {
-				t.Error("Written = false, want true")
-			}
-			if got := readFile(t, path); got != noteFile(commentLine) {
-				t.Errorf("file =\n%s\nwant\n%s", got, noteFile(commentLine))
-			}
-		})
-	}
-}
-
-// WriteNote does not write a file that already holds todo's note.
-func TestWriteNoteAlreadyThere(t *testing.T) {
-	path := todotest.SeedJSON(t, noteFile(commentLine))
-	res, err := todo.NewStore(path).WriteNote(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Written {
-		t.Error("Written = true, want false")
-	}
-}
-
-// WriteNote never creates a list file, nor its lock file.
-func TestWriteNoteMissingFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".todo.json")
-	if _, err := todo.NewStore(path).WriteNote(context.Background()); !errors.Is(err, todo.ErrListMissing) {
-		t.Errorf("WriteNote = %v, want ErrListMissing", err)
-	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
-		t.Errorf("WriteNote created %d files, want none", len(entries))
 	}
 }
 
@@ -428,8 +400,7 @@ func TestListFileErrorMessages(t *testing.T) {
 
 // refsFile is a list file in the form the store writes, with the reference
 // settings: a list prefix and counters, a category prefix and a sprint prefix.
-const refsFile = `{
-  "version": 7,
+const refsFile = "{\n" + commentLine + `  "version": 7,
   "refs": {
     "prefix": "TODO",
     "last": {
@@ -460,7 +431,6 @@ const refsFile = `{
 // The reference settings survive a load and a write unchanged.
 func TestDiskRefsRoundTrip(t *testing.T) {
 	path := todotest.SeedJSON(t, refsFile)
-	// The seed has no note: saves keep the note the file holds.
 	s := todo.NewStore(path)
 	before := readFile(t, path)
 	for _, title := range []string{"B", "A"} {
