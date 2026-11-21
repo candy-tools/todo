@@ -7,11 +7,17 @@ import (
 
 // Matches reports whether query occurs, case-insensitively, in the item's
 // title — or, for a task, in its reference or description. The query is a
-// plain substring (grep-like), not a pattern. An empty query never matches;
-// callers treat an empty query as "no filter" (see VisibleItems).
+// plain substring (grep-like), not a pattern. A query that is exactly the
+// item's id (ignoring case and surrounding space) matches too, so an id an
+// agent printed finds its item; a partial id does not, as ids are short random
+// strings. An empty query never matches; callers treat an empty query as "no
+// filter" (see VisibleItems).
 func (it *Item) Matches(query string) bool {
 	if query == "" {
 		return false
+	}
+	if it.ID != "" && strings.EqualFold(strings.TrimSpace(query), it.ID) {
+		return true
 	}
 	q := strings.ToLower(query)
 	if strings.Contains(strings.ToLower(it.Title), q) {

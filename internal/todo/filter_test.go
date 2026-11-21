@@ -56,6 +56,33 @@ func TestMatchesDescription(t *testing.T) {
 	}
 }
 
+// An agent prints raw ids, so searching one finds the item. Only the whole id
+// matches: ids are short random strings, and a partial query hitting them
+// would drag unrelated items into every search.
+func TestMatchesWholeID(t *testing.T) {
+	task := newTask("Groceries", "", todo.Open)
+	task.ID = "xsjawph"
+	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Home", ID: "fhsbxnt"}
+
+	for _, q := range []string{"xsjawph", "XSJAWPH", " xsjawph "} {
+		if !task.Matches(q) {
+			t.Errorf("task: query %q should match its id", q)
+		}
+	}
+	if !cat.Matches("fhsbxnt") {
+		t.Errorf("category: a query equal to its id should match")
+	}
+	for _, q := range []string{"xsj", "jawp", "x"} {
+		if task.Matches(q) {
+			t.Errorf("task: partial id %q should not match", q)
+		}
+	}
+	unsaved := newTask("Draft", "", todo.Open)
+	if unsaved.Matches(" ") {
+		t.Errorf("a blank query should not match an item without an id")
+	}
+}
+
 func TestVisibleItemsEmptyQueryReturnsNil(t *testing.T) {
 	d, _, _, _, _, _, _, _ := buildFilterTree()
 	if d.VisibleItems("") != nil {

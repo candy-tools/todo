@@ -14,7 +14,7 @@ import (
 func TestSwitcherMarksWorkspaceAndCrumb(t *testing.T) {
 	m, _ := threeSprints(t)
 	h := ansi.Strip(m.header(120))
-	if !strings.Contains(h, "[b Backlog]") || !strings.Contains(h, "s Sprints") || !strings.Contains(h, "p Planning") ||
+	if !strings.Contains(h, "[b Backlog]") || !strings.Contains(h, "s Sprints") || strings.Contains(h, "Planning") ||
 		!strings.Contains(h, "Backlog › C · 1 tasks waiting") {
 		t.Fatalf("backlog header %q", h)
 	}

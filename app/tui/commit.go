@@ -140,8 +140,6 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 	// The write read and validated the file, so earlier poll failures are
 	// over: a later one counts from zero.
 	m.clearPollErr()
-	// The notice goes first, so a status the adopt sets (Planning left for a
-	// gone sprint) wins over it.
 	if external {
 		m.noteExternal()
 	}

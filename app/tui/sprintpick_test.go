@@ -163,7 +163,7 @@ func pickerRows(m model) []string {
 }
 
 // A long or unprintable sprint name is drawn safe and cut with "…", so the
-// dialog never gets wider than the terminal; Planning's K shares the dialog.
+// dialog never gets wider than the terminal.
 func TestSprintPickerCutsLongNames(t *testing.T) {
 	long := strings.Repeat("n", 200)
 	m, _ := newJSONModel(t, sprintJSON(t, nil,

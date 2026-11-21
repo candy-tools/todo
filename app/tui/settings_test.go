@@ -65,11 +65,11 @@ func TestSettingsInvalidPrefix(t *testing.T) {
 	}
 }
 
-// S opens the settings on every screen, the Sprints sidebar and Planning
-// included, but not while a dialog is open: there it is just a key.
+// S opens the settings on every screen, the Sprints sidebar included, but not
+// while a dialog is open: there it is just a key.
 func TestSettingsKeyEverywhereButDialogs(t *testing.T) {
 	m, _ := threeSprints(t)
-	for _, keys := range [][]string{{"b"}, {"s"}, {"s", "tab"}, {"p"}} {
+	for _, keys := range [][]string{{"b"}, {"s"}, {"s", "tab"}} {
 		got := press(m, append(keys, "S")...)
 		if got.mode != modeForm || got.form.kind != formSettings {
 			t.Errorf("%v then S: mode %v kind %v, want the settings dialog", keys, got.mode, got.form.kind)

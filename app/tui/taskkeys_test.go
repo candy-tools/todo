@@ -248,12 +248,13 @@ func TestHelpListsSprintKeys(t *testing.T) {
 			desc[b.keys] = append(desc[b.keys], b.desc)
 		}
 	}
-	for _, keys := range []string{"b", "s", "p", "k", "K", "q", "u", "a A", "a", "A", "o", "t", "1–3", "[  ]", "tab", "n", "e", "c", "d", "enter  e", "enter  tab", "D", "→ a", "← A", "r", "k K"} {
+	for _, keys := range []string{"b", "s", "k", "K", "q", "u", "a A", "a", "A", "o", "t", "1–3", "[  ]", "tab", "n", "e", "c", "d", "enter  e", "enter  tab", "D"} {
 		if len(desc[keys]) == 0 {
 			t.Errorf("help has no row for %q", keys)
 		}
 	}
-	for _, gone := range []string{"↑ ↓  w s", "1–4", "x", "p P", "P"} {
+	// Planning is gone, and its keys with it.
+	for _, gone := range []string{"↑ ↓  w s", "1–4", "x", "p P", "P", "p", "→ a", "← A", "r", "k K"} {
 		if len(desc[gone]) > 0 {
 			t.Errorf("help still lists %q", gone)
 		}
@@ -264,13 +265,8 @@ func TestHelpListsSprintKeys(t *testing.T) {
 			t.Errorf("help should say %q:\n%s", want, all)
 		}
 	}
-	if len(desc["p"]) == 0 {
-		t.Error("help has no row for p")
-	}
-	for _, d := range desc["p"] {
-		if !strings.Contains(d, "Planning") {
-			t.Errorf("p is the Planning screen: %q", d)
-		}
+	if strings.Contains(all, "Planning") {
+		t.Errorf("help still mentions Planning:\n%s", all)
 	}
 	for _, k := range desc["k"] {
 		if strings.Contains(strings.ToLower(k), "all states") || strings.Contains(strings.ToLower(k), "unified") {
