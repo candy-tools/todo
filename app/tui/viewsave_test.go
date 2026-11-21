@@ -104,10 +104,9 @@ func lookOnlyList(t *testing.T, view map[string]any) string {
 // Opening a list and quitting without a key that changes the view leaves the
 // file as it was, and creates no lock file, even when the app opens on another
 // view than the stored one names: the sprint list opens on the first open
-// sprint, and a sprint that is gone opens on it too. Leaving through Planning
-// does not store it either, nor do the keys that only show again the view the
-// file opens on: tab and enter to the board, p then esc or p back from
-// Planning, and s.
+// sprint, and a sprint that is gone opens on it too. Nor do the keys that only
+// show again the view the file opens on store it: tab and enter to the board,
+// and s.
 func TestOpenAndQuitLeavesFileAlone(t *testing.T) {
 	sprintList := map[string]any{"screen": "sprints"}
 	gone := map[string]any{"screen": "sprint", "sprint": "s00000z"}
@@ -119,17 +118,12 @@ func TestOpenAndQuitLeavesFileAlone(t *testing.T) {
 		{"sprint list", sprintList, nil},
 		{"gone sprint", gone, nil},
 		{"gone sprint, split", map[string]any{"screen": "sprint", "sprint": "s00000z", "split": true}, nil},
-		{"sprint list, via Planning", sprintList, []string{"p"}},
 		{"no view", nil, nil},
 		{"sprint list, tab", sprintList, []string{"tab"}},
 		{"sprint list, enter", sprintList, []string{"enter"}},
-		{"sprint list, p esc", sprintList, []string{"p", "esc"}},
-		{"sprint list, p p", sprintList, []string{"p", "p"}},
 		{"sprint list, s", sprintList, []string{"s"}},
 		{"gone sprint, tab", gone, []string{"tab"}},
 		{"gone sprint, enter", gone, []string{"enter"}},
-		{"gone sprint, p esc", gone, []string{"p", "esc"}},
-		{"gone sprint, p p", gone, []string{"p", "p"}},
 		{"gone sprint, s", gone, []string{"s"}},
 	}
 	for _, c := range cases {

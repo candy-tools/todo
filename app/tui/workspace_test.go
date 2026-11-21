@@ -29,6 +29,26 @@ func deleteSprintOnDisk(t *testing.T, path, id string) {
 	}
 }
 
+// finishAndCloseOnDisk completes sprint id's tasks and closes it through a
+// second store on path, as another session would.
+func finishAndCloseOnDisk(t *testing.T, path, id string) {
+	t.Helper()
+	ctx := context.Background()
+	st := openSecond(t, path)
+	doc, _, err := st.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range doc.SprintTasks(id) {
+		if _, err := st.SetState(ctx, it.ID, todo.Done, todo.StateOptions{Cascade: true}); err != nil {
+			t.Fatalf("complete %s: %v", it.ID, err)
+		}
+	}
+	if _, err := st.CloseSprint(ctx, id); err != nil {
+		t.Fatalf("close %s: %v", id, err)
+	}
+}
+
 // openBoard opens the Sprints workspace on sprint id with the board focused,
 // as k then tab do.
 func openBoard(m *model, id string) {
@@ -121,7 +141,7 @@ func TestTinyTerminalFitsTwoPanes(t *testing.T) {
 	for _, w := range []int{20, 30} {
 		m, _ := threeSprints(t)
 		m = send(m, tea.WindowSizeMsg{Width: w, Height: 20})
-		for _, keys := range [][]string{{"s"}, {"s", "down", "down"}, {"s", "tab", "L"}, {"b", "v"}, {"p"}} {
+		for _, keys := range [][]string{{"s"}, {"s", "down", "down"}, {"s", "tab", "L"}, {"b", "v"}} {
 			for i, line := range strings.Split(press(m, keys...).View(), "\n") {
 				if lw := ansi.StringWidth(line); lw > w {
 					t.Errorf("width %d after %v: line %d is %d wide: %q", w, keys, i, lw, ansi.Strip(line))

@@ -37,8 +37,8 @@ task as its description. Tasks outside any header are gathered under an
 is reported as a warning and dropped.
 
 Work is organized in **sprints** (see Sprints below). There are two workspaces —
-the **Backlog** and the **Sprints** workspace, which has a board per sprint — and
-a temporary **Planning** screen (see Workspaces below). The Backlog and each
+the **Backlog** and the **Sprints** workspace, which has a board per sprint (see
+Workspaces below). The Backlog and each
 sprint board show a collapsible **category/task tree**. Tasks that carry a
 description are marked with a small `≡` glyph; press `enter` (or `e`) on any item
 to open its dialog, which shows the item's column, state and subtask progress and
@@ -99,7 +99,7 @@ the Backlog or in exactly one sprint, and every write enforces that:
 
 A sprint state on a task with no sprint, or a backlog state on a task in a
 sprint, is refused. Setting a state never moves a task in or out of a sprint:
-only assigning does (`a` / `o` / Planning in the TUI, `todo assign` / `todo unassign` on
+only assigning does (`a` / `o` in the TUI, `todo assign` / `todo unassign` on
 the command line).
 
 Sprint rules:
@@ -181,8 +181,7 @@ Moving a task between columns and sprints:
   in that column's first state. `A` on a Next task sends it back to the Backlog
   (it becomes `open`) and the footer says `moved to Backlog`.
 - On a backlog task, `a` opens a picker of the open sprints and assigns the
-  task to the one you choose (it becomes `new`). `A` does nothing there. To
-  pull several tasks into one sprint, use Planning (`p`, see Workspaces).
+  task to the one you choose (it becomes `new`). `A` does nothing there.
 - `o` opens a "send to" picker on a sprint task: the Backlog and the other open
   sprints. A sprint keeps the task's state; the Backlog makes it `open`. It is
   how unfinished work leaves a sprint before you close it. The footer says
@@ -204,30 +203,26 @@ Moving a task between columns and sprints:
 
 ## Workspaces
 
-The header's second line is a switcher, `b Backlog   s Sprints   p Planning`,
-with the workspace you are in bracketed (`[s Sprints]`), followed by a
-breadcrumb that says where you are:
+The header's second line is a switcher, `b Backlog   s Sprints`, with the
+workspace you are in bracketed (`[s Sprints]`), followed by a breadcrumb that
+says where you are:
 
 ```text
- b Backlog   [s Sprints]   p Planning   Sprints › Sprint 14 › Next
+ b Backlog   [s Sprints]   Sprints › Sprint 14 › Next
 ```
 
 The breadcrumb reads `Backlog › Work › Reviews · N tasks waiting` (the category
 under the cursor), `Sprints › Sprint 14 › Next` (a closed sprint is marked `✓`),
-`All states · N tasks` in the unified view, or, in Planning,
-`Sprint 14 · N in Next · N in the Backlog`. The footer shows a few keys of
+or `All states · N tasks` in the unified view. The footer shows a few keys of
 where you are, most important first, and drops the last ones whole on a narrow
 terminal; everything else is in the `?` dialog:
 
 - the Backlog: `?` help, `tab` pane (in the split), `a` assign, `v` split (or
-  `v` single tree in the split), `s` sprints, `p` plan, `/` search, `q` quit;
+  `v` single tree in the split), `s` sprints, `/` search, `q` quit;
 - a sprint board: `?` help, `tab` sprints, `[ ] 1-3` section, `a/A` move task
   (not on a closed sprint), `/` search, `q` quit;
 - the Sprints sidebar: `?` help, `n` new, `e` edit, `c` close/reopen, `d`
   delete, `tab` board, `q` quit;
-- Planning: the focused side's keys (`→/a` pull in on the Backlog side, `←/A`
-  back and `r` ready on the sprint side; `tab` the other side, `k` other
-  sprint, `esc` done) and `?` help;
 - the unified view: `?` help, `/` search, `q` quit, and `tab` pane when split.
 
 ### Backlog (`b`)
@@ -236,8 +231,7 @@ The category tree of the tasks in no sprint, in a pane titled **Backlog**. `v`
 splits it into a categories sidebar and the task list (see Views); `tab` then
 moves the keys between the two panes, and `esc` in the task list goes back to
 the categories. `a` on a task assigns it to a sprint (a picker of the open
-sprints; on a category it says `select a task to assign it to a sprint`); `p`
-opens Planning to pull several in.
+sprints; on a category it says `select a task to assign it to a sprint`).
 
 ### Sprints (`s`)
 
@@ -300,44 +294,17 @@ another section, the cursor stays where it was, on the task that took its
 place, and the footer says where the task went (`moved to Done — done`). Each
 sprint board remembers its own folds and selection.
 
-### Planning (`p`)
-
-A temporary screen for pulling tasks into a sprint: the Backlog on the left,
-grouped by category, and the planned sprint on the right, its three columns
-(Next, In Progress, Done) each under a header with its task count. From the Backlog or the Sprints
-workspace, `p` plans the sprint on screen when it is open, else the last one
-you viewed while it is open, else the first open one (with no open sprint it
-says `no open sprints — press s, then n to create one`). It starts with the
-keys on the Backlog side. Planning itself is never saved: todo reopens on the
-view you had before (entering Planning saves the sprint you browsed to in the
-sidebar).
-
-| Key | Action |
-|-----|--------|
-| `↑` / `↓`, `PgUp` / `PgDn` | Move the selection on the focused side |
-| `→` / `a` | Backlog side: pull the task into the sprint (it becomes `new`) |
-| `←` / `A` | Sprint side: send a Next task back to the Backlog (it becomes `open`) |
-| `r` | Sprint side: toggle a task between `new` and `ready` |
-| `tab` / `shift+tab` | Switch between the Backlog side and the sprint side |
-| `k` / `K` | Plan the next open sprint / pick a sprint: an open one becomes the planned sprint, a closed one leaves Planning for its board |
-| `p` / `esc` | Leave Planning for the planned sprint's board, on Next |
-
-`b`, `s`, `q`, `?` and `S` work as everywhere. If another session deletes or closes
-the planned sprint, Planning closes on the Sprints workspace and the footer
-says `the planned sprint is gone or closed`.
-
 ### Moving around
 
 | Key | Goes to |
 |-----|---------|
 | `b` | The Backlog |
 | `s` | The Sprints workspace, on the last sprint you viewed, else the first open one |
-| `p` | Planning |
 | `k` | The next open sprint, wrapping around; from the Backlog, the last sprint you viewed while it is open, else the first open one |
-| `K` | A dialog listing every sprint, closed ones marked `✓`; `enter` opens its board (in Planning, an open sprint becomes the planned one and a closed one leaves Planning for its board) |
+| `K` | A dialog listing every sprint, closed ones marked `✓`; `enter` opens its board |
 | `q` | Quit, from every screen — a dialog asks first, on Yes: `enter` quits, `esc` stays (`ctrl+c` quits at once) |
-| `esc` | Clear the search, then the state filter; then, on a board, back to the sprint sidebar, and in a split's task list, back to the categories; in Planning, leave it; else ask to quit, like `q` |
-| `tab` / `shift+tab` | Switch pane: the Backlog's split panes, the Sprints sidebar and board, Planning's two sides |
+| `esc` | Clear the search, then the state filter; then, on a board, back to the sprint sidebar, and in a split's task list, back to the categories; else ask to quit, like `q` |
+| `tab` / `shift+tab` | Switch pane: the Backlog's split panes, the Sprints sidebar and board |
 | `[` / `]`, `1`–`3` | On a sprint board, switch between Next / In Progress / Done |
 
 `k` and `K` with no sprint to go to show a hint instead (`no open sprints —
@@ -349,13 +316,12 @@ longer exists, opens the Sprints workspace on the first open sprint.
 
 Two view toggles change how the tasks are laid out. They are independent and
 can be combined. Both are saved in the list file (see Storage), so todo opens
-on the view you left, for everyone who opens that list. (Planning is not
-saved.)
+on the view you left, for everyone who opens that list.
 
 **Unified view (`u`).** On the Backlog or a sprint board, shows every task,
 whatever its state and sprint, in one tree; each task shows its sprint's
 reference and name next to its state, and the breadcrumb becomes `All states · N tasks`. Press
-`u` again to return to the screen you came from; `b`, `s`, `p`, `k` and `K`
+`u` again to return to the screen you came from; `b`, `s`, `k` and `K`
 leave it and go where they say. In this view:
 
 - categories can be added, renamed, moved and deleted, as in Backlog, since
@@ -640,11 +606,10 @@ Errors go to stderr.
 | `f` | Filter the view by state: tick states with `space`, `enter` applies, `esc` clears the filter |
 | `b` | Go to the Backlog |
 | `s` | Go to the Sprints workspace (sprint sidebar + board) |
-| `p` | Planning: the Backlog beside a sprint — see Workspaces |
 | `k` | Last viewed sprint while it is open, else the first open one; on a sprint board, the next open sprint |
 | `K` | Pick a sprint to go to |
 | `q` | Quit, from every screen — a dialog asks first, on Yes: `enter` quits, `esc` stays (`ctrl+c` quits at once) |
-| `tab` / `shift+tab` | Switch pane: Backlog split panes, Sprints sidebar / board, Planning sides |
+| `tab` / `shift+tab` | Switch pane: Backlog split panes, Sprints sidebar / board |
 | `[` / `]` | Previous / next section (sprint board); on the Sprints sidebar, the first sprint of the previous / next section |
 | `1`–`3` | Jump to Next / In Progress / Done (sprint board); on the Sprints sidebar, `1` / `2` jump to the first Open / Done sprint |
 | `u` | Unified view: every task, any sprint / back — see Views |

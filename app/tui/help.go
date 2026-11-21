@@ -32,7 +32,6 @@ var helpSections = []helpSection{
 	{"Screens", []helpBinding{
 		{"b", "The Backlog"},
 		{"s", "The Sprints workspace (sprint list + board)"},
-		{"p", "Planning: Backlog beside a sprint"},
 		{"k", "Last viewed open sprint; on a board, the next open one"},
 		{"K", "Pick a sprint to go to"},
 		{"[  ]", "Previous / next section (sprint board)"},
@@ -64,14 +63,6 @@ var helpSections = []helpSection{
 		{"enter  tab", "Focus the board (tab on the board: back to the list)"},
 		{"[  ]", "Previous / next section of sprints"},
 		{"1 2", "Jump to the Open / Done sprints"},
-	}},
-	{"Planning", []helpBinding{
-		{"p", "Open Planning / leave it for the sprint's board (also esc)"},
-		{"→ a", "Pull the Backlog task into the sprint (as new)"},
-		{"← A", "Send a Next task back to the Backlog"},
-		{"r", "Toggle a sprint task between new and ready"},
-		{"k K", "Plan the next open sprint / pick a sprint"},
-		{"tab", "Switch between the Backlog and the sprint side"},
 	}},
 	{"Views", []helpBinding{
 		{"v", "Split: categories sidebar + task list (opens on the selection)"},

@@ -44,17 +44,20 @@ func TestBacklogPaneTitles(t *testing.T) {
 func TestBacklogFooterHints(t *testing.T) {
 	m, _ := newTestModel(t, splitDoc)
 	f := ansi.Strip(m.footer(80))
-	for _, want := range []string{"?: Help", "a: Assign", "v: Split", "s: Sprints", "p: Plan", "/: Search", "q: Quit"} {
+	for _, want := range []string{"?: Help", "a: Assign", "v: Split", "s: Sprints", "/: Search", "q: Quit"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("single tree footer = %q, misses %q", f, want)
 		}
 	}
 	m = splitAll(m)
 	f = ansi.Strip(m.footer(80))
-	for _, want := range []string{"?: Help", "tab: Pane", "a: Assign", "v: Single tree", "s: Sprints", "p: Plan"} {
+	for _, want := range []string{"?: Help", "tab: Pane", "a: Assign", "v: Single tree", "s: Sprints"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("split footer = %q, misses %q", f, want)
 		}
+	}
+	if strings.Contains(f, "p: Plan") {
+		t.Errorf("split footer = %q, Planning is gone", f)
 	}
 	if strings.Contains(f, "v: Split") {
 		t.Errorf("split footer = %q, v goes back to the single tree there", f)

@@ -628,9 +628,9 @@ func TestSidebarFooterDropsDeadHints(t *testing.T) {
 	}
 }
 
-// At 60 cells the sidebar's and Planning's footers drop whole hints, Help
-// first, never cutting one.
-func TestSidebarAndPlanFootersFitWholeHints(t *testing.T) {
+// At 60 cells the sidebar's footer drops whole hints, Help first, never
+// cutting one.
+func TestSidebarFooterFitsWholeHints(t *testing.T) {
 	check := func(name, f string, w int) {
 		t.Helper()
 		if ansi.StringWidth(f) > w || !strings.HasPrefix(f, " ?: Help") {
@@ -645,13 +645,6 @@ func TestSidebarAndPlanFootersFitWholeHints(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
 	check("sidebar", ansi.Strip(m.footer(60)), 60)
-	m = press(m, "p")
-	check("planning left", ansi.Strip(m.footer(60)), 60)
-	if f := ansi.Strip(m.footer(200)); !strings.Contains(f, "q: Quit") {
-		t.Errorf("planning footer = %q, misses q: Quit", f)
-	}
-	m = press(m, "tab")
-	check("planning right", ansi.Strip(m.footer(60)), 60)
 }
 
 // The board footer leads with Help and the section keys; the columns layout

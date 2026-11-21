@@ -184,7 +184,7 @@ func progressLine(s *todo.Sprint, counts map[todo.Column]int, width int) string 
 
 // switcherBar renders the header's second line: the workspace switcher, the
 // active workspace bracketed and accented, then the breadcrumb, e.g.
-// " b Backlog   [s Sprints]   p Planning   Sprints › A › Next".
+// " b Backlog   [s Sprints]   Sprints › A › Next".
 func switcherBar(active screen, crumb string, width int) string {
 	entries := []struct {
 		on         bool
@@ -192,7 +192,6 @@ func switcherBar(active screen, crumb string, width int) string {
 	}{
 		{active == screenBacklog, "b", "Backlog"},
 		{active == screenSprint, "s", "Sprints"},
-		{active == screenPlan, "p", "Planning"},
 	}
 	var b strings.Builder
 	b.WriteString(" ")
