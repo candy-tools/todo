@@ -440,9 +440,9 @@ func (m model) updateViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 // updateSprintList handles the keys of the Sprints workspace's sidebar: the
-// arrows move the selection and [ ] 1 2 jump it to a section's first sprint,
+// arrows move the selection and [ ] 1–4 jump it to a section's first sprint,
 // showing its sprint's board; enter and tab focus the board, n adds a sprint,
-// e edits the selected one, c closes or reopens it and d deletes it. Every
+// e edits the selected one and d deletes it. Every
 // other key does nothing there.
 func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -452,8 +452,6 @@ func (m model) updateSprintList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s := m.sprints.selected(m.doc); s != nil {
 			return m.openSprintForm(s)
 		}
-	case "c":
-		return m.toggleSprintClosed()
 	case "d":
 		return m.openDeleteSprint()
 	case "up":

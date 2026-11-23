@@ -80,7 +80,7 @@ func TestDiskFileFormat(t *testing.T) {
 	if _, err := s.Edit(context.Background(), "c000001", todo.Changes{Title: new("B2")}); err != nil {
 		t.Fatal(err)
 	}
-	const want = "{\n" + commentLine + `  "version": 8,
+	const want = "{\n" + commentLine + `  "version": 9,
   "refs": {
     "last": {
       "SPRINT": 1
@@ -90,8 +90,7 @@ func TestDiskFileFormat(t *testing.T) {
     {
       "id": "0000000",
       "ref": "SPRINT-001",
-      "name": "Imported",
-      "status": "open"
+      "name": "Imported"
     }
   ],
   "categories": [
@@ -154,7 +153,7 @@ func TestDiskEmptyListArrays(t *testing.T) {
 	if _, err := s.Delete(context.Background(), find(loadList(t, path), "A").ID); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := readFile(t, path), "{\n"+commentLine+"  \"version\": 8,\n  \"sprints\": [],\n  \"categories\": [],\n  \"tasks\": []\n}\n"; got != want {
+	if got, want := readFile(t, path), "{\n"+commentLine+"  \"version\": 9,\n  \"sprints\": [],\n  \"categories\": [],\n  \"tasks\": []\n}\n"; got != want {
 		t.Errorf("file = %q, want %q", got, want)
 	}
 }
@@ -162,7 +161,7 @@ func TestDiskEmptyListArrays(t *testing.T) {
 // noteFile is a version 7 list file with note (a whole "_comment" line, or
 // "") and one category, aaaaaaa, in the form the store writes.
 func noteFile(note string) string {
-	return "{\n" + note + `  "version": 8,
+	return "{\n" + note + `  "version": 9,
   "sprints": [],
   "categories": [
     {
@@ -291,7 +290,7 @@ func TestDiskTaskOrderBeforeSubcategories(t *testing.T) {
 
 func TestUnmarshalNewerVersion(t *testing.T) {
 	var l todo.DiskList
-	err := json.Unmarshal([]byte(`{"version":9,"extra":1}`), &l)
+	err := json.Unmarshal([]byte(`{"version":10,"extra":1}`), &l)
 	if !errors.Is(err, todo.ErrNewerFormat) {
 		t.Errorf("err = %v, want ErrNewerFormat", err)
 	}
@@ -358,15 +357,15 @@ func TestListFileErrorMessages(t *testing.T) {
 		{"version a fraction", `{"version": 3.5, "categories": [], "tasks": []}`,
 			`invalid list file: "version" must be a whole number, not 3.5`},
 		{"version missing", `{"categories": [], "tasks": []}`,
-			`invalid list file: no "version" field; this todo reads format version 8`},
+			`invalid list file: no "version" field; this todo reads format version 9`},
 		{"version null", `{"version": null, "categories": [], "tasks": []}`,
-			`invalid list file: no "version" field; this todo reads format version 8`},
+			`invalid list file: no "version" field; this todo reads format version 9`},
 		{"older version", `{"version": 2, "categories": [], "tasks": []}`,
 			"invalid list file: unsupported format version 2"},
 		{"older version with other fields", `{"version": 2, "items": []}`,
 			"invalid list file: unsupported format version 2"},
-		{"newer version", `{"version": 9, "categories": [], "tasks": [], "tags": []}`,
-			"list was written by a newer todo (format version 9); upgrade todo"},
+		{"newer version", `{"version": 10, "categories": [], "tasks": [], "tags": []}`,
+			"list was written by a newer todo (format version 10); upgrade todo"},
 		{"unknown top-level field", strings.Replace(good, `{"version": 3,`, `{"version": 3, "tags": [],`, 1),
 			`invalid list file: unknown field "tags"`},
 		{"unknown category field", strings.Replace(good, `"title": "C"`, `"title": "C", "color": "red"`, 1),
@@ -407,7 +406,7 @@ func TestListFileErrorMessages(t *testing.T) {
 // refsFile is a list file in the form the store writes, with the reference
 // settings: a list prefix, the sprint prefix and counters, a category prefix
 // and a sprint reference.
-const refsFile = "{\n" + commentLine + `  "version": 8,
+const refsFile = "{\n" + commentLine + `  "version": 9,
   "refs": {
     "prefix": "TODO",
     "sprintPrefix": "SPR",
@@ -422,8 +421,7 @@ const refsFile = "{\n" + commentLine + `  "version": 8,
       "id": "sssssss",
       "ref": "SPR-001",
       "name": "S1",
-      "goal": "g",
-      "status": "open"
+      "goal": "g"
     }
   ],
   "categories": [

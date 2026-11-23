@@ -16,19 +16,8 @@ func (s *Store) EditSprint(ctx context.Context, id string, c SprintChanges) (Wri
 	return s.write(ctx, func(d *Document) (bool, error) { return d.EditSprint(id, c) })
 }
 
-// CloseSprint closes sprint id. While tasks of it are not done it fails with a
-// SprintNotDoneError; a missing sprint is ErrSprintNotFound.
-func (s *Store) CloseSprint(ctx context.Context, id string) (WriteResult, error) {
-	return s.change(ctx, func(d *Document) error { return d.CloseSprint(id) })
-}
-
-// ReopenSprint reopens sprint id. A missing sprint is ErrSprintNotFound.
-func (s *Store) ReopenSprint(ctx context.Context, id string) (WriteResult, error) {
-	return s.change(ctx, func(d *Document) error { return d.ReopenSprint(id) })
-}
-
-// DeleteSprint removes the done sprint id and all its tasks, as
-// Document.DeleteSprint does. An open sprint fails with ErrSprintOpen; a
+// DeleteSprint removes sprint id and all its tasks, as Document.DeleteSprint
+// does. A sprint with tasks not done fails with a SprintNotDoneError; a
 // missing one with ErrSprintNotFound.
 func (s *Store) DeleteSprint(ctx context.Context, id string) (WriteResult, error) {
 	return s.change(ctx, func(d *Document) error { return d.DeleteSprint(id) })

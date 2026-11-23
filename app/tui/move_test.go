@@ -380,17 +380,16 @@ func TestIndentAcrossSprintsRefused(t *testing.T) {
 	}
 }
 
-// In a closed sprint tasks can be reordered but not nested or lifted.
-func TestNestInClosedSprintShowsHint(t *testing.T) {
-	m, path := closedBoard(t)
-	before := storeFP(t, m)
+// In a done sprint a subtask can be lifted out, as in any other.
+func TestLiftInDoneSprintAllowed(t *testing.T) {
+	m, path := doneBoard(t)
 	m = press(m, "right") // unfold shipped
 	m = selectTitle(t, m, "part")
 	m = press(m, "m", "left")
-	if m.status != todo.ErrSprintClosed.Error() || m.err != nil {
-		t.Errorf("status %q err %v, want the reopen hint", m.status, m.err)
+	if m.status != "" || m.err != nil {
+		t.Errorf("status %q err %v, want the lift done", m.status, m.err)
 	}
-	if storeFP(t, m) != before || !storedItem(t, path, "part").IsSubtask() {
-		t.Error("a refused lift wrote to the store")
+	if storedItem(t, path, "part").IsSubtask() {
+		t.Error("part is still a subtask")
 	}
 }

@@ -50,32 +50,29 @@ func TestSwitcherBarTruncates(t *testing.T) {
 	}
 }
 
-func TestBoardHeadReadiness(t *testing.T) {
-	open := &todo.Sprint{Name: "A", Goal: "ship it", Status: todo.SprintOpen}
-	lines := boardHead(open, map[todo.Column]int{todo.ColNext: 1, todo.ColDone: 3}, 80, boardChrome)
+func TestBoardHeadShowsState(t *testing.T) {
+	s := &todo.Sprint{Name: "A", Goal: "ship it"}
+	lines := boardHead(s, todo.SprintReady, map[todo.Column]int{todo.ColNext: 1, todo.ColDone: 3}, 80, boardChrome)
 	if len(lines) != boardChrome {
 		t.Fatalf("%d lines, want %d", len(lines), boardChrome)
 	}
 	if l := ansi.Strip(lines[0]); !strings.Contains(l, "ship it") {
 		t.Errorf("goal line %q", l)
 	}
-	if l := ansi.Strip(lines[1]); !strings.Contains(l, "3/4") || !strings.Contains(l, "close blocked: 1 not done") {
+	if l := ansi.Strip(lines[1]); !strings.Contains(l, "3/4") || !strings.Contains(l, "◉ Ready") {
 		t.Errorf("progress line %q", l)
 	}
-	l := ansi.Strip(boardHead(open, map[todo.Column]int{todo.ColDone: 2}, 80, boardChrome)[1])
-	if !strings.Contains(l, "ready to close (c in the sidebar)") {
-		t.Errorf("all done: %q", l)
+	for st, want := range map[todo.SprintStatus]string{
+		todo.SprintOpen: "◌ Open", todo.SprintInProgress: "◐ In Progress", todo.SprintDone: "✓ Done",
+	} {
+		if l := ansi.Strip(boardHead(s, st, map[todo.Column]int{todo.ColDone: 2}, 80, boardChrome)[1]); !strings.Contains(l, want) {
+			t.Errorf("%v: %q, want %q", st, l, want)
+		}
 	}
-	l = ansi.Strip(boardHead(open, map[todo.Column]int{}, 80, boardChrome)[1])
-	if !strings.Contains(l, "no tasks yet") {
+	if l := ansi.Strip(boardHead(s, todo.SprintOpen, map[todo.Column]int{}, 80, boardChrome)[1]); !strings.Contains(l, "no tasks yet") || strings.Contains(l, "Open") {
 		t.Errorf("empty: %q", l)
 	}
-	done := &todo.Sprint{Name: "B", Status: todo.SprintDone}
-	l = ansi.Strip(boardHead(done, map[todo.Column]int{todo.ColDone: 2}, 80, boardChrome)[1])
-	if !strings.Contains(l, "closed — c in the sidebar reopens it") {
-		t.Errorf("done: %q", l)
-	}
-	if l := ansi.Strip(boardHead(&todo.Sprint{Name: "G"}, nil, 80, boardChrome)[0]); !strings.Contains(l, "—") {
+	if l := ansi.Strip(boardHead(&todo.Sprint{Name: "G"}, todo.SprintOpen, nil, 80, boardChrome)[0]); !strings.Contains(l, "—") {
 		t.Errorf("no goal: %q", l)
 	}
 }
@@ -88,7 +85,7 @@ func longBoard(t *testing.T, n, width, height int) model {
 	for i := range n {
 		tasks = append(tasks, seedTask{ID: fmt.Sprintf("t%06d", i+1), Title: fmt.Sprintf("task%02d", i), Status: "new", Sprint: "s00000a"})
 	}
-	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Goal: "goal a", Status: "open"}}, tasks...))
+	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Goal: "goal a"}}, tasks...))
 	return send(m, tea.WindowSizeMsg{Width: width, Height: height})
 }
 
@@ -205,26 +202,27 @@ func TestBoardHeadYieldsOnShortTerminal(t *testing.T) {
 	}
 }
 
-// At 80 columns the bar shrinks so the readiness reads in full; a pane too
-// narrow even for the smallest bar cuts it with an ellipsis.
-func TestBoardHeadFitsReadiness(t *testing.T) {
+// The bar shrinks so the state reads in full; a pane too narrow even for the
+// smallest bar cuts it with an ellipsis.
+func TestBoardHeadFitsState(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	openBoard(&m, "s00000a")
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "close blocked: 1 not done") {
-		t.Errorf("80 columns: readiness cut:\n%s", v)
+	openBoard(&m, "s00000c")
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "◐ In Progress") {
+		t.Errorf("80 columns: state cut:\n%s", v)
 	}
-	open := &todo.Sprint{Name: "A", Status: todo.SprintOpen}
-	ready := map[todo.Column]int{todo.ColDone: 2}
-	l := ansi.Strip(boardHead(open, ready, 56, boardChrome)[1])
-	if !strings.Contains(l, "ready to close (c in the sidebar)") || ansi.StringWidth(l) > 56 {
-		t.Errorf("56 cells: %q", l)
+	s := &todo.Sprint{Name: "A"}
+	counts := map[todo.Column]int{todo.ColDone: 2}
+	// "  Done  " (8), " 2/2   " (7) and "◐ In Progress" (13) leave 8 cells.
+	l := ansi.Strip(boardHead(s, todo.SprintInProgress, counts, 36, boardChrome)[1])
+	if !strings.HasSuffix(l, "◐ In Progress") || ansi.StringWidth(l) > 36 {
+		t.Errorf("36 cells: %q", l)
 	}
 	if !strings.Contains(l, strings.Repeat("█", 8)) || strings.Contains(l, strings.Repeat("█", 9)) {
-		t.Errorf("56 cells: want an 8-cell bar, got %q", l)
+		t.Errorf("36 cells: want an 8-cell bar, got %q", l)
 	}
-	for _, w := range []int{40, 24, 23, 10} {
-		l := ansi.Strip(boardHead(open, ready, w, boardChrome)[1])
+	for _, w := range []int{35, 24, 10} {
+		l := ansi.Strip(boardHead(s, todo.SprintInProgress, counts, w, boardChrome)[1])
 		if !strings.HasSuffix(l, "…") || ansi.StringWidth(l) > w {
 			t.Errorf("%d cells: want the line cut with …, got %q", w, l)
 		}
@@ -234,8 +232,8 @@ func TestBoardHeadFitsReadiness(t *testing.T) {
 func TestDoneSprintBoardTitle(t *testing.T) {
 	m, _ := threeSprints(t)
 	openBoard(&m, "s00000b")
-	if got := m.boardTitle(); got != "SPRINT-002 B ✓ closed" {
-		t.Errorf("done sprint title %q, want %q", got, "SPRINT-002 B ✓ closed")
+	if got := m.boardTitle(); got != "SPRINT-002 B ✓ done" {
+		t.Errorf("done sprint title %q, want %q", got, "SPRINT-002 B ✓ done")
 	}
 	openBoard(&m, "s00000a")
 	if got := m.boardTitle(); got != "SPRINT-001 A" {
@@ -289,7 +287,7 @@ func TestCrumbWithoutShownSprint(t *testing.T) {
 func TestSidebarKeepsFullHeight(t *testing.T) {
 	var sprints []seedSprint
 	for i := range 15 {
-		sprints = append(sprints, seedSprint{ID: fmt.Sprintf("s%06d", i), Name: fmt.Sprintf("S%02d", i), Goal: fmt.Sprintf("goal%02d", i), Status: "open"})
+		sprints = append(sprints, seedSprint{ID: fmt.Sprintf("s%06d", i), Name: fmt.Sprintf("S%02d", i), Goal: fmt.Sprintf("goal%02d", i)})
 	}
 	m, _ := newJSONModel(t, sprintJSON(t, nil, sprints))
 	m = send(m, tea.WindowSizeMsg{Width: 100, Height: 25}) // 20 pane rows: the Open rule, 9 sprint rows and a line
@@ -297,13 +295,13 @@ func TestSidebarKeepsFullHeight(t *testing.T) {
 	lines := strings.Split(ansi.Strip(m.View()), "\n")
 	last := lines[headerHeight+m.sprintListHeight()] // under the top border
 	side := []rune(last)[:sidebarWidth(100)]
-	if s := strings.Trim(string(side), "│ "); !strings.HasPrefix(s, "● SPRINT-010 S09") {
+	if s := strings.Trim(string(side), "│ "); !strings.HasPrefix(s, "◌ SPRINT-010 S09") {
 		t.Errorf("sidebar's last line %q, want the 10th sprint's name", s)
 	}
 }
 
 func TestBoardHeadOnEmptySprint(t *testing.T) {
-	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Status: "open"}}))
+	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A"}}))
 	m = press(m, "s")
 	if v := ansi.Strip(m.View()); !strings.Contains(v, "no tasks yet") || !strings.Contains(v, "nothing in this sprint") {
 		t.Errorf("empty sprint board:\n%s", v)

@@ -6,17 +6,6 @@ import (
 	"testing"
 )
 
-// closedSprint returns a done sprint holding one done task, and that task.
-func (f *sprintFixture) closedSprint(name string) (sprint, task string) {
-	f.t.Helper()
-	sprint = f.sprint(name)
-	task = f.task(name+" task", Done, sprint)
-	if err := f.d.CloseSprint(sprint); err != nil {
-		f.t.Fatal(err)
-	}
-	return sprint, task
-}
-
 // unchanged fails the test when d no longer renders as before.
 func (f *sprintFixture) unchanged(before *Document) {
 	f.t.Helper()
@@ -51,26 +40,6 @@ func TestAddToMissingSprint(t *testing.T) {
 	}
 }
 
-func TestAddToClosedSprint(t *testing.T) {
-	f := newSprintFixture(t)
-	s, _ := f.closedSprint("S")
-	before := f.d.Clone()
-	if _, err := f.d.AppendTask(Fields{Title: "t", Sprint: s}, Done, f.cat); !errors.Is(err, ErrSprintClosed) {
-		t.Fatalf("err = %v, want ErrSprintClosed", err)
-	}
-	f.unchanged(before)
-}
-
-func TestAddSubtaskInClosedSprint(t *testing.T) {
-	f := newSprintFixture(t)
-	_, task := f.closedSprint("S")
-	before := f.d.Clone()
-	if _, err := f.d.AppendTask(Fields{Title: "x"}, Done, task); !errors.Is(err, ErrSprintClosed) {
-		t.Fatalf("err = %v, want ErrSprintClosed", err)
-	}
-	f.unchanged(before)
-}
-
 func TestAddSubtaskWithSprintRefused(t *testing.T) {
 	f := newSprintFixture(t)
 	s := f.sprint("S")
@@ -103,30 +72,6 @@ func TestSetStateDeferredOnSprintTask(t *testing.T) {
 	f.unchanged(before)
 }
 
-func TestReopenTaskInClosedSprint(t *testing.T) {
-	f := newSprintFixture(t)
-	s := f.sprint("S")
-	task := f.task("t", Done, s)
-	sub := f.sub(task, Done)
-	if err := f.d.CloseSprint(s); err != nil {
-		t.Fatal(err)
-	}
-	before := f.d.Clone()
-	if _, err := f.d.SetState(task, Working, StateOptions{Restore: DoneStates{sub: Open}}); !errors.Is(err, ErrSprintClosed) {
-		t.Errorf("reopen: err = %v, want ErrSprintClosed", err)
-	}
-	if _, err := f.d.SetState(task, Working, StateOptions{Cascade: true}); !errors.Is(err, ErrSprintClosed) {
-		t.Errorf("cascade: err = %v, want ErrSprintClosed", err)
-	}
-	if _, err := f.d.SetState(sub, Open, StateOptions{}); !errors.Is(err, ErrSprintClosed) {
-		t.Errorf("subtask: err = %v, want ErrSprintClosed", err)
-	}
-	f.unchanged(before)
-	if changed, err := f.d.SetState(task, Done, StateOptions{Cascade: true}); err != nil || changed {
-		t.Errorf("Done again = %v, %v; want no change, no error", changed, err)
-	}
-}
-
 func TestMoveCategoryKeepsSprint(t *testing.T) {
 	f := newSprintFixture(t)
 	other, err := f.d.AddCategory("D", "", f.cat)
@@ -140,14 +85,6 @@ func TestMoveCategoryKeepsSprint(t *testing.T) {
 	}
 	if it := f.item(task); it.Sprint != s || it.Status != Working {
 		t.Errorf("task = %q %v, want %q working", it.Sprint, it.Status, s)
-	}
-	// Category moves stay allowed in a closed sprint.
-	closed, done := f.closedSprint("Closed")
-	if err := f.d.Move(done, other, ""); err != nil {
-		t.Fatalf("category move in a closed sprint: %v", err)
-	}
-	if it := f.item(done); it.Sprint != closed || it.Status != Done {
-		t.Errorf("closed task = %q %v", it.Sprint, it.Status)
 	}
 }
 
@@ -210,37 +147,41 @@ func TestLiftDoneSubtaskOfBacklogTaskRefused(t *testing.T) {
 	f.unchanged(before)
 }
 
-func TestNestInClosedSprintRefused(t *testing.T) {
-	f := newSprintFixture(t)
-	s := f.sprint("S")
-	a, b := f.task("a", Done, s), f.task("b", Done, s)
-	sub := f.sub(a, Done)
-	f.sub(a, Done)
-	if err := f.d.CloseSprint(s); err != nil {
-		t.Fatal(err)
-	}
-	before := f.d.Clone()
-	if err := f.d.Move(b, a, ""); !errors.Is(err, ErrSprintClosed) {
-		t.Errorf("nest: err = %v, want ErrSprintClosed", err)
-	}
-	if err := f.d.Move(sub, f.cat, ""); !errors.Is(err, ErrSprintClosed) {
-		t.Errorf("lift: err = %v, want ErrSprintClosed", err)
-	}
-	if err := f.d.Move(sub, b, ""); !errors.Is(err, ErrSprintClosed) {
-		t.Errorf("re-nest: err = %v, want ErrSprintClosed", err)
-	}
-	f.unchanged(before)
-	// Reordering stays allowed: the subtask goes after its sibling.
-	if err := f.d.MoveLast(sub, a); err != nil {
-		t.Errorf("reorder in a closed sprint: %v", err)
-	}
-}
-
 func TestStepInOntoHiddenOtherSprintTaskRefused(t *testing.T) {
 	f := newSprintFixture(t)
 	f.task("other", New, f.sprint("Other"))
 	mine := f.task("mine", New, f.sprint("Mine"))
 	if _, _, err := f.d.StepPlacement(mine, StepIn, nil); !errors.Is(err, ErrSprintMembership) {
 		t.Fatalf("err = %v, want ErrSprintMembership", err)
+	}
+}
+
+// A sprint whose tasks are all done is not frozen: its tasks reopen, nest and
+// lift, and it takes new tasks, which move its state back.
+func TestDoneSprintStaysEditable(t *testing.T) {
+	f := newSprintFixture(t)
+	s := f.sprint("S")
+	a, b := f.task("a", Done, s), f.task("b", Done, s)
+	sub := f.sub(a, Done)
+	if got := f.d.SprintStatus(s); got != SprintDone {
+		t.Fatalf("status = %v, want done", got)
+	}
+	if err := f.d.Move(b, a, ""); err != nil {
+		t.Errorf("nest: %v", err)
+	}
+	if err := f.d.Move(sub, f.cat, ""); err != nil {
+		t.Errorf("lift: %v", err)
+	}
+	if _, err := f.d.SetState(a, Working, StateOptions{}); err != nil {
+		t.Errorf("reopen: %v", err)
+	}
+	if got := f.d.SprintStatus(s); got != SprintInProgress {
+		t.Errorf("status after reopen = %v, want progress", got)
+	}
+	if _, err := f.d.AppendTask(Fields{Title: "new", Sprint: s}, New, f.cat); err != nil {
+		t.Errorf("add: %v", err)
+	}
+	if got := f.d.SprintStatus(s); got != SprintOpen {
+		t.Errorf("status after add = %v, want open", got)
 	}
 }

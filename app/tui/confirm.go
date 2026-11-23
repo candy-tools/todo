@@ -31,8 +31,8 @@ var (
 	// deleteLabels word the destructive dialogs (delete, clear done, delete
 	// sprint); they open on the safe Cancel button.
 	deleteLabels = confirmLabels{title: "Confirm delete", yes: "Delete", no: "Cancel", yesKeys: "y"}
-	// quitLabels word the quit dialog, which opens on Yes so enter quits.
-	quitLabels = confirmLabels{title: "Confirm quit", yes: "Yes", no: "No", yesKeys: "y/enter"}
+	// quitLabels word the quit dialog, which opens on No so enter stays.
+	quitLabels = confirmLabels{title: "Confirm quit", yes: "Yes", no: "No", yesKeys: "y"}
 )
 
 // confirmModal renders a confirm dialog worded by l, with the confirming
@@ -92,10 +92,11 @@ const (
 	confirmQuit                              // quit the app
 )
 
-// askQuit opens the quit dialog, focused on Yes so enter quits and esc stays.
-// q, and esc with nothing left to clear, come here; ctrl+c quits at once.
+// askQuit opens the quit dialog, focused on No so a stray enter stays; y
+// quits. q, and esc with nothing left to clear, come here; ctrl+c quits at
+// once.
 func (m model) askQuit() (tea.Model, tea.Cmd) {
-	m.confirmOnYes = true
+	m.confirmOnYes = false
 	m.confirmAction = confirmQuit
 	m.mode = modeConfirm
 	return m, nil

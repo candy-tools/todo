@@ -17,9 +17,9 @@ func twoSprints(t *testing.T) (model, string) {
 	t.Helper()
 	return newJSONModel(t, sprintJSON(t, nil,
 		[]seedSprint{
-			{ID: "s000001", Name: "Sprint 1", Status: "open"},
-			{ID: "s000002", Name: "Sprint 2", Status: "open"},
-			{ID: "s000003", Name: "Old", Status: "done"},
+			{ID: "s000001", Name: "Sprint 1"},
+			{ID: "s000002", Name: "Sprint 2"},
+			{ID: "s000003", Name: "Old"},
 		},
 		seedTask{ID: "t000001", Title: "backlogTask", Status: "open"},
 		seedTask{ID: "t000002", Title: "working", Status: "working", Sprint: "s000001"},
@@ -42,8 +42,10 @@ func TestKJumpsToChosenSprintIncludingDone(t *testing.T) {
 	if m.mode != modeSprintPick || m.sprintPick.title != "Go to sprint" {
 		t.Fatalf("K: mode %v title %q, want the jump dialog", m.mode, m.sprintPick.title)
 	}
-	if got, want := strings.Join(rowLabels(m), ","), "SPRINT-001 Sprint 1,SPRINT-002 Sprint 2,✓ SPRINT-003 Old"; got != want {
-		t.Fatalf("rows = %q, want %q (open first, done marked)", got, want)
+	// In the sidebar's order: Sprint 2 (no task, Open), Sprint 1 (In
+	// Progress), then Old (Done, marked).
+	if got, want := strings.Join(rowLabels(m), ","), "SPRINT-002 Sprint 2,SPRINT-001 Sprint 1,✓ SPRINT-003 Old"; got != want {
+		t.Fatalf("rows = %q, want %q (sidebar order, done marked)", got, want)
 	}
 	m = press(m, "down", "down", "enter")
 	if m.mode != modeMain || m.view.screen != screenSprint || m.view.sprint != "s000003" {
@@ -167,7 +169,7 @@ func pickerRows(m model) []string {
 func TestSprintPickerCutsLongNames(t *testing.T) {
 	long := strings.Repeat("n", 200)
 	m, _ := newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s000001", Name: long, Status: "open"}, {ID: "s000002", Name: "B", Status: "open"}},
+		[]seedSprint{{ID: "s000001", Name: long}, {ID: "s000002", Name: "B"}},
 		seedTask{ID: "t000001", Title: "backlogTask", Status: "open"}))
 	m = send(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	// A valid list cannot hold such a name any more; an older one could.
@@ -239,7 +241,7 @@ func TestNoOpenSprintHints(t *testing.T) {
 	}
 
 	m, _ = newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s000001", Name: "Only", Status: "open"}},
+		[]seedSprint{{ID: "s000001", Name: "Only"}},
 		seedTask{ID: "t000001", Title: "x", Status: "new", Sprint: "s000001"}))
 	m.switchScreen(screenSprint, "s000001")
 	m.tree.selectID("t000001")

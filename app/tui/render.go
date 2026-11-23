@@ -73,15 +73,15 @@ func (m model) treeTitle() string {
 }
 
 // boardTitle is the title of the Sprints workspace's board pane: the shown
-// sprint's name, marked "✓ closed" when it is done, or "Board" when it shows
-// none.
+// sprint's name, marked "✓ done" when its tasks are all done, or "Board"
+// when it shows none.
 func (m model) boardTitle() string {
 	s, ok := m.doc.SprintByID(m.view.sprint)
 	switch {
 	case !ok:
 		return "Board"
-	case s.Status == todo.SprintDone:
-		return sprintLabel(s) + " ✓ closed"
+	case m.doc.SprintStatus(s.ID) == todo.SprintDone:
+		return sprintLabel(s) + " ✓ done"
 	}
 	return sprintLabel(s)
 }
@@ -110,7 +110,7 @@ func (m model) boardBody(width int) string {
 	if !ok {
 		return m.tree.view(width, m.treeViewHeight())
 	}
-	head := boardHead(s, m.doc.ColumnCounts(s.ID), width, m.boardHeadRows())
+	head := boardHead(s, m.doc.SprintStatus(s.ID), m.doc.ColumnCounts(s.ID), width, m.boardHeadRows())
 	return strings.Join(append(head, m.tree.view(width, m.treeViewHeight())), "\n")
 }
 
@@ -213,7 +213,7 @@ func (m model) crumb() string {
 		return "Sprints"
 	}
 	name := sprintLabel(s)
-	if s.Status == todo.SprintDone {
+	if m.doc.SprintStatus(s.ID) == todo.SprintDone {
 		name += " ✓"
 	}
 	return "Sprints › " + name
@@ -261,7 +261,7 @@ func (m model) footer(width int) string {
 		// selected sprint's, when there is one.
 		parts := []string{hint("?", "Help"), hint("n", "New")}
 		if m.sprints.selected(m.doc) != nil {
-			parts = append(parts, hint("e", "Edit"), hint("c", "Close/reopen"), hint("d", "Delete"), hint("tab", "Board"))
+			parts = append(parts, hint("e", "Edit"), hint("d", "Delete"), hint("tab", "Board"))
 		}
 		return fitHints(append(parts, hint("q", "Quit")), width)
 	case m.focused().grabbed:
@@ -302,13 +302,10 @@ func (m model) footer(width int) string {
 }
 
 // boardHints are the board's footer hints: the section keys, then a/A to move
-// a task unless the sprint is closed.
+// a task.
 func (m model) boardHints() []string {
-	parts := []string{hint("?", "Help"), hint("tab", "Sprints"), hint("[ ] 1-3", "Section")}
-	if !m.sprintClosed(m.view.sprint) { // a closed sprint's tasks cannot move
-		parts = append(parts, hint("a/A", "Move task"))
-	}
-	return append(parts, hint("/", "Search"), hint("q", "Quit"))
+	return []string{hint("?", "Help"), hint("tab", "Sprints"), hint("[ ] 1-3", "Section"),
+		hint("a/A", "Move task"), hint("/", "Search"), hint("q", "Quit")}
 }
 
 // backlogHints are the Backlog's footer hints, the most important first: the

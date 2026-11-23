@@ -72,7 +72,7 @@ func TestSprintAddPrintsRef(t *testing.T) {
 	ref := sprintAddRef(t, path, "Alpha", "--goal", "ship it")
 	doc, _, _ := todo.NewStore(path).Load(context.Background())
 	sp, ok := doc.SprintByID(sprintIDOf(t, path, ref))
-	if !ok || sp.Name != "Alpha" || sp.Goal != "ship it" || sp.Status != todo.SprintOpen {
+	if !ok || sp.Name != "Alpha" || sp.Goal != "ship it" || doc.SprintStatus(sp.ID) != todo.SprintOpen {
 		t.Errorf("printed ref %q -> %+v", ref, sp)
 	}
 }
@@ -80,10 +80,8 @@ func TestSprintAddPrintsRef(t *testing.T) {
 func TestSprintListHidesDoneUnlessAll(t *testing.T) {
 	path := todotest.Seed(t, "")
 	addSprint(t, path, "Alpha", "--goal", "g1")
-	addSprint(t, path, "Beta")
-	if _, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "beta"); err != nil {
-		t.Fatal(err)
-	}
+	beta := addSprint(t, path, "Beta")
+	sprintTask(t, path, "b", beta, todo.Done) // every task done: Beta is done
 	out, err := runCmd(t, "sprint", "list", "--file", path)
 	if err != nil {
 		t.Fatal(err)
@@ -149,45 +147,60 @@ func TestSprintEditByName(t *testing.T) {
 	}
 }
 
-func TestSprintCloseRefusedExit2(t *testing.T) {
+func TestSprintListJSONDerivedStatus(t *testing.T) {
 	path := todotest.Seed(t, "")
-	id := addSprint(t, path, "Alpha")
-	for _, n := range []string{"a", "b", "c"} {
-		sprintTask(t, path, n, id, todo.New)
+	cases := []struct {
+		name   string
+		states []todo.Status
+		want   string
+	}{
+		{"Empty", nil, "open"},
+		{"Fresh", []todo.Status{todo.Ready, todo.New}, "open"},
+		{"Prepared", []todo.Status{todo.Ready, todo.Ready}, "ready"},
+		{"Mixed", []todo.Status{todo.Ready, todo.Done}, "ready"},
+		{"Busy", []todo.Status{todo.Working, todo.Review, todo.Done}, "progress"},
+		{"Finished", []todo.Status{todo.Done, todo.Done}, "done"},
 	}
-	_, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "Alpha")
-	if err == nil || codeOf(t, err) != exitUsage {
-		t.Fatalf("err = %v", err)
+	for _, c := range cases {
+		id := addSprint(t, path, c.name)
+		for i, st := range c.states {
+			sprintTask(t, path, c.name+string(rune('a'+i)), id, st)
+		}
 	}
-	if want := `cannot close "SPRINT-001 Alpha": 3 tasks not done`; err.Error() != want {
-		t.Errorf("message = %q, want %q", err.Error(), want)
+	out, err := runCmd(t, "sprint", "list", "--file", path, "--all", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []struct{ Name, Status string }
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if len(got) != len(cases) {
+		t.Fatalf("got %+v", got)
+	}
+	for i, c := range cases {
+		if got[i].Name != c.name || got[i].Status != c.want {
+			t.Errorf("%s: status %q, want %q", c.name, got[i].Status, c.want)
+		}
 	}
 }
 
-func TestSprintReopen(t *testing.T) {
+func TestSprintCloseAndReopenAreGone(t *testing.T) {
 	path := todotest.Seed(t, "")
-	id := addSprint(t, path, "Alpha")
-	if _, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", id); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runCmd(t, "sprint", "reopen", "--file", path, "--sprint", id); err != nil {
-		t.Fatal(err)
-	}
-	doc, _, _ := todo.NewStore(path).Load(context.Background())
-	if sp, _ := doc.SprintByID(id); sp.Status != todo.SprintOpen {
-		t.Errorf("status = %v", sp.Status)
+	addSprint(t, path, "Alpha")
+	for _, sub := range []string{"close", "reopen"} {
+		if _, err := runCmd(t, "sprint", sub, "--file", path, "--sprint", "Alpha"); err == nil {
+			t.Errorf("sprint %s must no longer be a command", sub)
+		}
 	}
 }
 
-func TestSprintRmDeletesClosedSprintAndTasks(t *testing.T) {
+func TestSprintRmDeletesDoneSprintAndTasks(t *testing.T) {
 	path := todotest.Seed(t, "")
 	id := addSprint(t, path, "Alpha")
 	keep := addSprint(t, path, "Keep")
 	sprintTask(t, path, "a", id, todo.Done)
 	sprintTask(t, path, "k", keep, todo.New)
-	if _, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "Alpha"); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := runCmd(t, "sprint", "rm", "--file", path, "--sprint", "Alpha"); err != nil {
 		t.Fatal(err)
 	}
@@ -203,13 +216,14 @@ func TestSprintRmDeletesClosedSprintAndTasks(t *testing.T) {
 	}
 }
 
-func TestSprintRmRefusedWhileOpen(t *testing.T) {
+func TestSprintRmRefusedWhileTasksNotDone(t *testing.T) {
 	path := todotest.Seed(t, "")
 	id := addSprint(t, path, "Alpha")
 	sprintTask(t, path, "a", id, todo.Done)
+	sprintTask(t, path, "b", id, todo.Review)
 	before := bytesOf(t, path)
 	_, err := runCmd(t, "sprint", "rm", "--file", path, "--sprint", "Alpha")
-	if err == nil || codeOf(t, err) != exitUsage || err.Error() != todo.ErrSprintOpen.Error() {
+	if err == nil || codeOf(t, err) != exitUsage || err.Error() != "1 task not done" {
 		t.Errorf("err = %v", err)
 	}
 	if string(bytesOf(t, path)) != string(before) {
@@ -217,16 +231,29 @@ func TestSprintRmRefusedWhileOpen(t *testing.T) {
 	}
 }
 
+func TestSprintRmEmptySprint(t *testing.T) {
+	path := todotest.Seed(t, "")
+	id := addSprint(t, path, "Alpha")
+	out, err := runCmd(t, "sprint", "rm", "--file", path, "--sprint", "Alpha")
+	if err != nil || strings.TrimSpace(out) != "rm: SPRINT-001 Alpha" {
+		t.Fatalf("out %q err %v", out, err)
+	}
+	doc, _, _ := todo.NewStore(path).Load(context.Background())
+	if _, ok := doc.SprintByID(id); ok {
+		t.Error("the empty sprint is still there")
+	}
+}
+
 func TestSprintUnknownExit3(t *testing.T) {
 	path := todotest.Seed(t, "")
-	for _, args := range [][]string{{"edit", "--set-goal", "x"}, {"close"}, {"reopen"}, {"rm"}} {
+	for _, args := range [][]string{{"edit", "--set-goal", "x"}, {"rm"}} {
 		sub := args[0]
 		_, err := runCmd(t, append([]string{"sprint", args[0], "--file", path, "--sprint", "nope"}, args[1:]...)...)
 		if err == nil || codeOf(t, err) != exitNotFound || err.Error() != "no sprint nope" {
 			t.Errorf("%s: err = %v", sub, err)
 		}
 	}
-	_, err := runCmd(t, "sprint", "close", "--file", path)
+	_, err := runCmd(t, "sprint", "rm", "--file", path)
 	if err == nil || codeOf(t, err) != exitUsage {
 		t.Errorf("missing --sprint: %v", err)
 	}

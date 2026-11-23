@@ -65,14 +65,6 @@ func (m model) reopen(it *todo.Item, st todo.Status) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// sprintClosed reports whether id names a closed sprint. Its tasks keep their
-// sprint and state, and it takes no new task, until it is reopened, so the keys
-// that would change them only say so in the footer (todo.ErrSprintClosed).
-func (m model) sprintClosed(id string) bool {
-	s, ok := m.doc.SprintByID(id)
-	return ok && s.Status == todo.SprintDone
-}
-
 // shiftColumn is a/A: it moves the selected top-level task delta columns along
 // its sprint's board (no wrap), into the target column's first state. Into
 // Done it completes the task (cascade and undo snapshot); out of Done it
@@ -80,8 +72,7 @@ func (m model) sprintClosed(id string) bool {
 // from Next sends the task back to the Backlog (it becomes open). On a backlog
 // task a opens the dialog that assigns it to a sprint, and A only hints. A
 // category (on the Backlog, a says to select a task to assign), a subtask (it
-// follows its task), a task of a closed sprint and a task at Done's edge only
-// get a footer hint.
+// follows its task) and a task at Done's edge only get a footer hint.
 func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {
@@ -92,9 +83,6 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 		return m, nil
 	case !it.IsTask():
 		m.status = "only tasks move between columns"
-		return m, nil
-	case m.sprintClosed(it.SprintID()):
-		m.status = todo.ErrSprintClosed.Error()
 		return m, nil
 	case it.IsSubtask():
 		m.status = "subtasks move with their task"
@@ -134,8 +122,8 @@ func (m model) shiftColumn(delta int) (tea.Model, tea.Cmd) {
 // (a top-level task's Backlog or sprint states, by its membership; open or
 // done for a subtask), the cursor on its current state. On a task completed in
 // this session the cursor starts on the state it had before, so t then enter
-// undoes an accidental complete. Categories have no state, and the tasks of a
-// closed sprint keep theirs, so they get a footer hint instead.
+// undoes an accidental complete. Categories have no state, so they get a
+// footer hint instead.
 func (m model) openStatePicker() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {
@@ -143,9 +131,6 @@ func (m model) openStatePicker() (tea.Model, tea.Cmd) {
 		return m, nil
 	case !it.IsTask():
 		m.status = "only tasks have a state"
-		return m, nil
-	case m.sprintClosed(it.SprintID()):
-		m.status = todo.ErrSprintClosed.Error()
 		return m, nil
 	}
 	m.pick, m.pickItem = newStatePicker(it), it

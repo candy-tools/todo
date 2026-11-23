@@ -75,8 +75,22 @@ task's row also names its state and, when it has subtasks, how many are done.
 A sprint is a named batch of work with an optional goal. Work flows through
 it: you **plan** by pulling tasks from the Backlog into a sprint (they become
 `new`), **refine** them to `ready`, **execute** them (`working`, `review`,
-`followup`) and **close** the sprint once every task is `done`. A sprint is
-either `open` or `done` (closed); there are no dates.
+`followup`) until every task is `done`. There are no dates.
+
+A sprint's **status** is never set by hand: it follows its tasks. A sprint
+reaches a level only once **all** its top-level tasks have reached it:
+
+| Sprint status | When |
+|---------------|------|
+| `open` | a task is still `new`, or the sprint has no tasks |
+| `ready` | every task is `ready` or further along |
+| `progress` (In Progress) | every task is `working`, `review`, `followup` or `done` |
+| `done` | every task is `done`, its subtasks included |
+
+So a sprint with four tasks only becomes Ready once all four are `ready` (or
+beyond): three `done` tasks and one `ready` one make it Ready. A `done` task
+with a subtask not done counts as in progress. Moving a task back, or adding a
+new one, moves the sprint back too.
 
 The TUI shows the work in two workspaces (see Workspaces below):
 
@@ -107,18 +121,13 @@ Sprint rules:
 - **Assigning** a backlog task to a sprint makes it `new`. A task assigned from
   one sprint to another keeps its state. Unassigning returns it to the Backlog
   as `open`. Its subtasks keep their open/done state and travel with it.
-- **Closing** is refused while any task of the sprint (subtasks included) is
-  not done: `can't close: N tasks not done`. Send the unfinished tasks to
-  another open sprint or back to the Backlog first. A closed sprint can be
-  reopened.
 - **Deleting** a sprint removes it together with all its tasks and their
-  subtasks; nothing goes back to the Backlog. Only a closed sprint can be
-  deleted, so a sprint is only ever deleted once its work is finished: an open
-  one is refused with `the sprint is open; close it before deleting it`.
-- **A closed sprint is frozen.** Assigning to it, adding a task to it, moving a
-  task out of it and setting one of its tasks to a state other than done are
-  refused with `reopen the sprint first`. Editing a task's text, deleting a
-  task, removing its done tasks and moving tasks between categories still work.
+  subtasks; nothing goes back to the Backlog. Only a done sprint, or one with
+  no tasks, can be deleted, so a sprint is only ever deleted once its work is
+  finished: one with unfinished work is refused with `N tasks not done`. Send
+  the unfinished tasks to another sprint or back to the Backlog first.
+- **A done sprint is not frozen.** Its tasks can still be reopened, moved and
+  added to; the sprint's status follows them.
 - **References.** Every sprint gets a reference when it is created,
   `<PREFIX>-<n>` (`TODO-001`, `TODO-002`, …), shown before its name on every
   screen. It never changes, and its number is never reused. Names may repeat, so
@@ -180,11 +189,11 @@ Moving a task between columns and sprints:
 - On a sprint board, `a` / `A` move it to the next / previous column; it lands
   in that column's first state. `A` on a Next task sends it back to the Backlog
   (it becomes `open`) and the footer says `moved to Backlog`.
-- On a backlog task, `a` opens a picker of the open sprints and assigns the
+- On a backlog task, `a` opens a picker of the sprints not done and assigns the
   task to the one you choose (it becomes `new`). `A` does nothing there.
-- `o` opens a "send to" picker on a sprint task: the Backlog and the other open
-  sprints. A sprint keeps the task's state; the Backlog makes it `open`. It is
-  how unfinished work leaves a sprint before you close it. The footer says
+- `o` opens a "send to" picker on a sprint task: the Backlog and the other
+  sprints not done. A sprint keeps the task's state; the Backlog makes it
+  `open`. It is how unfinished work leaves a sprint. The footer says
   where the task went (`moved to Sprint 14 — working`). It does nothing on a
   subtask.
 - `t` opens a dialog listing the states that apply to the task (the backlog
@@ -198,8 +207,6 @@ Moving a task between columns and sprints:
 - `m` grabs a task to reorder it (see Keys); grab mode steps over tasks hidden in
   the view (on a sprint board, those of the other sections), and moves a task at
   most one category per key press.
-- On a closed sprint's board every key that would change a task's sprint or
-  state, `o` included, answers `reopen the sprint first`.
 
 ## Workspaces
 
@@ -212,17 +219,17 @@ says where you are:
 ```
 
 The breadcrumb reads `Backlog › Work › Reviews · N tasks waiting` (the category
-under the cursor), `Sprints › Sprint 14 › Next` (a closed sprint is marked `✓`),
+under the cursor), `Sprints › Sprint 14 › Next` (a done sprint is marked `✓`),
 or `All states · N tasks` in the unified view. The footer shows a few keys of
 where you are, most important first, and drops the last ones whole on a narrow
 terminal; everything else is in the `?` dialog:
 
 - the Backlog: `?` help, `tab` pane (in the split), `a` assign, `v` split (or
   `v` single tree in the split), `s` sprints, `/` search, `q` quit;
-- a sprint board: `?` help, `tab` sprints, `[ ] 1-3` section, `a/A` move task
-  (not on a closed sprint), `/` search, `q` quit;
-- the Sprints sidebar: `?` help, `n` new, `e` edit, `c` close/reopen, `d`
-  delete, `tab` board, `q` quit;
+- a sprint board: `?` help, `tab` sprints, `[ ] 1-3` section, `a/A` move task,
+  `/` search, `q` quit;
+- the Sprints sidebar: `?` help, `n` new, `e` edit, `d` delete, `tab` board,
+  `q` quit;
 - the unified view: `?` help, `/` search, `q` quit, and `tab` pane when split.
 
 ### Backlog (`b`)
@@ -238,18 +245,22 @@ sprints; on a category it says `select a task to assign it to a sprint`).
 A sidebar of sprints on the left, the selected sprint's board on the right.
 Each sidebar row shows the sprint's reference and name, its task counts (Next · In Progress ·
 Done) and its goal (`—` without one); names and goals are cut with `…`, never
-wrapped. The sidebar has two sections, each opened by a coloured rule with its
-title and how many sprints it holds, like the board's: `━━ Open 2 ━━━━` (cyan,
-the board's Next colour) over the open sprints in creation order, then
-`━━ Done 2 ━━━━` (green) over the closed ones, newest first. An empty section
-shows as its rule alone.
+wrapped. The sidebar has four sections, one per sprint status (see Sprints),
+each opened by a coloured rule with its title and how many sprints it holds,
+like the board's: `━━ Open ━━` (plain), `━━ Ready ━━` (cyan, the board's Next
+colour), `━━ In Progress ━━` (orange) and `━━ Done ━━` (green). Each lists its
+sprints in creation order, Done newest first, with the status's glyph: `◌`
+open, `◉` ready, `◐` in progress, `✓` done. An empty section shows as its rule
+alone. A sprint changes section by itself as its tasks move on.
 
 ```text
-━━ Open 2 ━━━━━━━━━━
-❯ ● TODO-003 Sprint 15   3·1·0
-    Ship the importer
-  ● TODO-004 Sprint 16   0·0·0
+━━ Open 1 ━━━━━━━━━━
+  ◌ TODO-004 Sprint 16   0·0·0
     —
+━━ Ready 0 ━━━━━━━━━
+━━ In Progress 1 ━━━
+❯ ◐ TODO-003 Sprint 15   0·3·1
+    Ship the importer
 ━━ Done 2 ━━━━━━━━━━
   ✓ TODO-002 Sprint 14   0·0·7
     Refs and prefixes
@@ -258,26 +269,24 @@ shows as its rule alone.
 ```
 
 The rules are never selected: the arrows move the selection from sprint to
-sprint, across both sections, and show that sprint's board at once — a closed
-sprint's too, frozen (see Sprint rules). `[` / `]` jump to the first sprint of
-the previous / next section that holds sprints, and `1` / `2` to the first
-open / closed one (`nothing in Done` when it is empty), scrolling the section
-as close to the top as the sidebar allows. With every sprint closed the
-workspace opens on the newest. todo reopens on the last sprint whose board you
+sprint, across the sections, and show that sprint's board at once. `[` / `]`
+jump to the first sprint of the previous / next section that holds sprints,
+and `1` to `4` to the first one in Open, Ready, In Progress or Done
+(`nothing in Ready` when it is empty), scrolling the section as close to the
+top as the sidebar allows. With every sprint done the workspace opens on the
+newest. todo reopens on the last sprint whose board you
 saw.
 
 The keys start on the sidebar: `n` creates a sprint (a form with Name and
-Goal), `e` edits its name and goal, `c` closes an open sprint or reopens a
-closed one, and `d` deletes a closed sprint and all its tasks after a
-confirmation that says how many tasks go with it. A refused close or delete
-says why in the footer (`can't close: 3 tasks not done`; `d` on an open sprint
-is refused at once). `enter` or `tab` moves the keys onto the
+Goal), `e` edits its name and goal, and `d` deletes a done or empty sprint
+and all its tasks after a confirmation that says how many tasks go with it.
+`d` on a sprint with unfinished work is refused at once, in the footer
+(`can't delete: 3 tasks not done`). `enter` or `tab` moves the keys onto the
 board, and `tab` or `esc` on the board brings them back to the sidebar.
 
 Above the board's tree is a **head** of three lines: the sprint's goal, a
-progress bar of the done tasks with whether the sprint can be closed (`close
-blocked: 3 not done`, `ready to close`, `no tasks yet`, or `closed` for a done
-sprint), and a rule that sets the head apart from the tasks. On a short
+progress bar of the done tasks with the sprint's status (`◉ Ready`,
+`◐ In Progress`, …, or `no tasks yet`), and a rule that sets the head apart from the tasks. On a short
 terminal the head yields rows to the tree so the cursor stays visible: the goal
 first, then the rule.
 
@@ -301,8 +310,8 @@ sprint board remembers its own folds and selection.
 | `b` | The Backlog |
 | `s` | The Sprints workspace, on the last sprint you viewed, else the first open one |
 | `k` | The next open sprint, wrapping around; from the Backlog, the last sprint you viewed while it is open, else the first open one |
-| `K` | A dialog listing every sprint, closed ones marked `✓`; `enter` opens its board |
-| `q` | Quit, from every screen — a dialog asks first, on Yes: `enter` quits, `esc` stays (`ctrl+c` quits at once) |
+| `K` | A dialog listing every sprint in sidebar order, done ones marked `✓`; `enter` opens its board |
+| `q` | Quit, from every screen — a dialog asks first, on No: `y` quits, `enter` or `esc` stays (`tab` then `enter` quits too) (`ctrl+c` quits at once) |
 | `esc` | Clear the search, then the state filter; then, on a board, back to the sprint sidebar, and in a split's task list, back to the categories; else ask to quit, like `q` |
 | `tab` / `shift+tab` | Switch pane: the Backlog's split panes, the Sprints sidebar and board |
 | `[` / `]`, `1`–`3` | On a sprint board, switch between Next / In Progress / Done |
@@ -384,9 +393,10 @@ todo list --flat [--kind task] [--status working,review] [--sprint "…"] [--col
 
 `todo next [--sprint <ref|id|name>] [--json]` prints
 `{"sprints":[{id, ref, name, goal, status, counts, inProgress, next}]}`: for
-each open sprint (or the one named, open or closed) its reference `ref`, its
-`status` (`open` or `done`; the text header starts with the reference and name
-and adds `(closed)` for a done sprint), its `counts` (`next`,
+each sprint not done (or the one named, done or not) its reference `ref`, its
+`status` (`open`, `ready`, `progress` or `done`, derived from its tasks; the
+text header starts with the reference and name and adds `(done)` for a done
+sprint), its `counts` (`next`,
 `progress`, `done`), the tasks `inProgress`, and the tasks `next` (`ready`
 before `new`), each a record. `inProgress` and `next` hold top-level tasks only;
 subtasks show through `doneCount`/`totalCount`. `todo show` prints one record
@@ -428,7 +438,7 @@ sprint (`import` has none) and it prints the result instead of the text line:
 `subtasks`), and `move` adds `droppedRef` with the reference a task indented
 under another task lost (left out when none was dropped); `rm` prints
 `{"removed": <record>}`; `prune` prints `{"removed": <count>}`; `sprint add`,
-`sprint edit`, `sprint close` and `sprint reopen` print the sprint object
+and `sprint edit` print the sprint object
 (`{id, ref, name, goal, status, counts}`); `sprint rm` prints
 `{"removed": <sprint>}`.
 
@@ -471,9 +481,10 @@ it). `sprint` is the id of the sprint the task is in (a subtask shows its
 parent's; left out for a backlog task). `--column` without `--sprint` covers
 that column across every sprint; `--column backlog` with `--sprint` is a usage
 error. `todo sprint list --json` is an array of
-`{id, name, goal, prefix (optional), status, counts}`, where `status` is `open`
-or `done` and `counts` has the `next`, `progress` and `done` task counts.
-`--all` includes closed sprints.
+`{id, name, goal, prefix (optional), status, counts}`, where `status` is `open`,
+`ready`, `progress` or `done` (derived from the tasks, see Sprints) and
+`counts` has the `next`, `progress` and `done` task counts. It lists the
+sprints not done; `--all` includes done ones.
 
 **Breaking change:** JSON `status` now says `"working"` where it used to say
 `"progress"`. On input, `progress` is still accepted as an alias of `working`.
@@ -507,9 +518,7 @@ todo prune --all                 # drop them in every sprint and the backlog
 
 todo sprint add    --name "Sprint 13" [--goal "ship sprint support"]   # prints the new reference, e.g. TODO-013
 todo sprint edit   --sprint TODO-013 [--set-name "…"] [--set-goal "…"]
-todo sprint close  --sprint TODO-013
-todo sprint reopen --sprint TODO-013
-todo sprint rm     --sprint TODO-013             # a closed sprint, with all its tasks
+todo sprint rm     --sprint TODO-013             # a done or empty sprint, with all its tasks
 todo assign        --sprint TODO-013 --number 4
 todo unassign      --number 4
 ```
@@ -559,11 +568,10 @@ task in another sprint moves there and keeps its state; `unassign` returns it
 to the backlog as `open`. `status`, `done`, `progress`, `defer` and `reopen`
 never change a task's sprint, so `status --to working` on a backlog task fails
 with `task is not in a sprint (use todo assign)`, and a backlog state on a
-sprint task is refused too. `sprint close` is refused while tasks are not done
-(`cannot close "TODO-001 S1": 1 task not done`); `sprint rm` deletes a closed sprint
-together with all its tasks and is refused while the sprint is open;
-changing the state of a task in a closed sprint fails with `reopen the sprint
-first`. All of these exit with code `2`; an unknown sprint exits `3`.
+sprint task is refused too. `sprint rm` deletes a done or empty sprint together
+with all its tasks and is refused while tasks are not done (`1 task not done`).
+There is no `sprint close` or `sprint reopen`: a sprint's status follows its
+tasks. All of these exit with code `2`; an unknown sprint exits `3`.
 
 The two prunes differ on subtasks. `prune --sprint` (like `D` on a sprint
 board) removes only the sprint's top-level tasks that are done with every
@@ -608,10 +616,10 @@ Errors go to stderr.
 | `s` | Go to the Sprints workspace (sprint sidebar + board) |
 | `k` | Last viewed sprint while it is open, else the first open one; on a sprint board, the next open sprint |
 | `K` | Pick a sprint to go to |
-| `q` | Quit, from every screen — a dialog asks first, on Yes: `enter` quits, `esc` stays (`ctrl+c` quits at once) |
+| `q` | Quit, from every screen — a dialog asks first, on No: `y` quits, `enter` or `esc` stays (`tab` then `enter` quits too) (`ctrl+c` quits at once) |
 | `tab` / `shift+tab` | Switch pane: Backlog split panes, Sprints sidebar / board |
 | `[` / `]` | Previous / next section (sprint board); on the Sprints sidebar, the first sprint of the previous / next section |
-| `1`–`3` | Jump to Next / In Progress / Done (sprint board); on the Sprints sidebar, `1` / `2` jump to the first Open / Done sprint |
+| `1`–`3` | Jump to Next / In Progress / Done (sprint board); on the Sprints sidebar, `1`–`4` jump to the first Open / Ready / In Progress / Done sprint |
 | `u` | Unified view: every task, any sprint / back — see Views |
 | `a` / `A` | Move the task to the next / previous column (it takes that column's first state) |
 | `a` | On a backlog task: assign it to a sprint (picker of open sprints); on a Backlog category it says to select a task |
@@ -623,7 +631,7 @@ Errors go to stderr.
 | `enter` / `e` | Open / edit the selected item's dialog — its column/state/progress plus its editable title, reference, description & plan (a category's reference prefix) |
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it); on a sprint board, in that sprint |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
-| `c` | Add a category (a subcategory when a category is selected) — Backlog and unified view only; on the Sprints sidebar, `c` closes / reopens the sprint |
+| `c` | Add a category (a subcategory when a category is selected) — Backlog and unified view only |
 | `d` | Delete the selected item (and its subtree) — asks to confirm |
 | `D` | On a sprint board, remove that sprint's completed tasks (keeping any with unfinished sub-tasks) — asks to confirm |
 | `v` | Backlog split view: categories sidebar + task list / back to the single tree — see Views |
@@ -632,8 +640,8 @@ Errors go to stderr.
 | `esc` | Clear an active search, then the state filter; when there is neither, on a sprint board back to the sprint sidebar, in a split's task list back to the categories, else ask to quit, like `q` |
 
 On the **Sprints sidebar**: `n` creates a sprint, `e` edits its name and goal,
-`c` closes or reopens it, `d` deletes it, `[` / `]` and `1` / `2` jump between
-the Open and Done sections, and `enter` or `tab` focuses its board. A sprint's
+`d` deletes it (done or empty only), `[` / `]` and `1` to `4` jump between
+the Open, Ready, In Progress and Done sections, and `enter` or `tab` focuses its board. A sprint's
 reference is given when it is created and cannot be edited.
 
 Tasks always live under a category — there are no root-level tasks. In the
@@ -707,7 +715,7 @@ changes only the lines that changed.
 ```json
 {
   "_comment": "This file is managed by the todo CLI. Do not edit it directly, …",
-  "version": 8,
+  "version": 9,
   "refs": {
     "prefix": "TODO",
     "sprintPrefix": "SP",
@@ -726,8 +734,7 @@ changes only the lines that changed.
       "id": "a1b2c3d",
       "ref": "SP-013",
       "name": "Sprint 13",
-      "goal": "ship sprint support",
-      "status": "open"
+      "goal": "ship sprint support"
     }
   ],
   "categories": [
@@ -772,9 +779,9 @@ changes only the lines that changed.
   todo's note first in a file that has none, and a new file starts with it. A
   file with a different note keeps it. Opening or reading a list never writes
   it. A file with a different note, or none, loads as usual.
-- `version` is the format version (now `8`). A file with a higher version is
-  refused: `list was written by a newer todo`. A version `3` to `7` file loads
-  as it is and is written back as version `8` on the next change (opening it
+- `version` is the format version (now `9`). A file with a higher version is
+  refused: `list was written by a newer todo`. A version `3` to `8` file loads
+  as it is and is written back as version `9` on the next change (opening it
   in the TUI alone does not), after which todo versions older than this one
   refuse it.
   **Upgrade:** version `3`, `4` and `5` files (from before sprints) have tasks
@@ -798,9 +805,10 @@ changes only the lines that changed.
 - `sprints` is always written, possibly empty, in creation order (which is the
   `k` rotation order). A sprint has an `id`, a `ref` (its reference, unique
   among tasks and sprints, ignoring case), a `name` (several sprints may share
-  one), a `goal` (optional) and a `status`, `open` or `done`. Version 7 sprints
-  had an optional `prefix`. It is still read, then ignored and dropped on the
-  next write. Their tasks keep the references they already have.
+  one) and a `goal` (optional). Version 7 sprints had an optional `prefix`, and
+  sprints up to version 8 a `status` (`open` or `done`). Both are still read,
+  then ignored and dropped on the next write: a sprint's status now follows its
+  tasks. Their tasks keep the references they already have.
 - `categories` have an `id`, a `title` and, for a nested one, the `parent`
   category's id, and an optional `prefix`, the reference prefix for tasks
   created in it. Array order is the order among siblings.

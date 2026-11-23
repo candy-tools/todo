@@ -43,20 +43,14 @@ func TestStoreSprintWritesPersist(t *testing.T) {
 		t.Error("pruned task still there")
 	}
 
-	mustOK(t)(s.CloseSprint(ctx, a))
-	if sp, _ := load(t, s).SprintByID(a); sp.Status != SprintDone {
-		t.Error("sprint not closed")
-	}
-	mustOK(t)(s.ReopenSprint(ctx, a))
-	if sp, _ := load(t, s).SprintByID(a); sp.Status != SprintOpen {
-		t.Error("sprint not reopened")
-	}
-	if _, err := s.DeleteSprint(ctx, a); !errors.Is(err, ErrSprintOpen) {
-		t.Fatalf("DeleteSprint of the open sprint = %v, want ErrSprintOpen", err)
-	}
 	mustOK(t)(s.Assign(ctx, ids.t1, a))
+	if _, err := s.DeleteSprint(ctx, a); !errors.Is(err, ErrSprintNotDone) {
+		t.Fatalf("DeleteSprint of a sprint not done = %v, want ErrSprintNotDone", err)
+	}
 	mustOK(t)(s.SetState(ctx, ids.t1, Done, StateOptions{Cascade: true}))
-	mustOK(t)(s.CloseSprint(ctx, a))
+	if got := load(t, s).SprintStatus(a); got != SprintDone {
+		t.Errorf("sprint status = %v, want done", got)
+	}
 	mustOK(t)(s.DeleteSprint(ctx, a))
 	doc := load(t, s)
 	if _, ok := doc.SprintByID(a); ok {
@@ -76,8 +70,6 @@ func TestStoreSprintMissingID(t *testing.T) {
 	_, _, pruneErr := s.PruneSprint(ctx, missing)
 	for name, err := range map[string]error{
 		"edit":   errOf(s.EditSprint(ctx, missing, SprintChanges{Name: &name})),
-		"close":  errOf(s.CloseSprint(ctx, missing)),
-		"reopen": errOf(s.ReopenSprint(ctx, missing)),
 		"delete": errOf(s.DeleteSprint(ctx, missing)),
 		"assign": errOf(s.Assign(ctx, ids.t1, missing)),
 		"prune":  pruneErr,

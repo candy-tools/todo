@@ -41,41 +41,85 @@ func sprintLabel(s *todo.Sprint) string {
 // a long one never pushes the rest off the row.
 const maxNameWidth = 30
 
-// sprintSection is a section of the Sprints sidebar: the open sprints, then
-// the done ones.
+// sprintSection is a section of the Sprints sidebar: one per sprint state
+// (see todo.SprintStatus), in the order the states progress.
 type sprintSection int
 
 const (
 	sectionOpen sprintSection = iota
+	sectionReady
+	sectionInProgress
 	sectionDone
 )
 
 // sprintSections lists the sidebar's sections in the order it shows them.
-var sprintSections = []sprintSection{sectionOpen, sectionDone}
+var sprintSections = []sprintSection{sectionOpen, sectionReady, sectionInProgress, sectionDone}
 
-// sectionOf is the sidebar section sprint s is listed in.
-func sectionOf(s *todo.Sprint) sprintSection {
-	if s.Status == todo.SprintDone {
+// sectionFor is the sidebar section of sprint state st.
+func sectionFor(st todo.SprintStatus) sprintSection {
+	switch st {
+	case todo.SprintReady:
+		return sectionReady
+	case todo.SprintInProgress:
+		return sectionInProgress
+	case todo.SprintDone:
 		return sectionDone
 	}
 	return sectionOpen
 }
 
-// title is the section's name, on its rule and in the footer.
-func (s sprintSection) title() string {
-	if s == sectionDone {
-		return "Done"
+// status is the sprint state the section lists.
+func (s sprintSection) status() todo.SprintStatus {
+	switch s {
+	case sectionReady:
+		return todo.SprintReady
+	case sectionInProgress:
+		return todo.SprintInProgress
+	case sectionDone:
+		return todo.SprintDone
 	}
-	return "Open"
+	return todo.SprintOpen
 }
 
-// style is the colour of the section's rule: a board's Next cyan for the open
-// sprints, its Done green for the done ones.
-func (s sprintSection) style() lipgloss.Style {
-	if s == sectionDone {
-		return columnStyle(todo.ColDone)
+// sectionOf is the sidebar section sprint s of d is listed in: the one of its
+// state, which its tasks decide.
+func sectionOf(d *todo.Document, s *todo.Sprint) sprintSection {
+	return sectionFor(d.SprintStatus(s.ID))
+}
+
+// title is the section's name, on its rule and in the footer.
+func (s sprintSection) title() string { return s.status().Title() }
+
+// style is the colour of the section's rule.
+func (s sprintSection) style() lipgloss.Style { return sprintStatusStyle(s.status()) }
+
+// sprintStatusGlyph returns the glyph and colour of sprint state st, borrowed
+// from the task states it stands for: open ◌ (as New), ready ◉, in progress
+// ◐, done ✓.
+func sprintStatusGlyph(st todo.SprintStatus) (string, lipgloss.Style) {
+	switch st {
+	case todo.SprintReady:
+		return "◉", nextStyle
+	case todo.SprintInProgress:
+		return "◐", progStyle
+	case todo.SprintDone:
+		return "✓", doneStyle
 	}
-	return columnStyle(todo.ColNext)
+	return "◌", nextStyle
+}
+
+// sprintStatusStyle is the colour of sprint state st's section rule: plain
+// for Open, then the board's Next cyan, In Progress orange and Done green.
+func sprintStatusStyle(st todo.SprintStatus) lipgloss.Style {
+	switch st {
+	case todo.SprintReady:
+		return nextStyle
+	case todo.SprintInProgress:
+		return progStyle
+	case todo.SprintDone:
+		return doneStyle
+	}
+	return plainStyle
 }
 
 // step returns the section delta sections away from s, wrapping around the
@@ -85,19 +129,21 @@ func (s sprintSection) step(delta int) sprintSection {
 	return sprintSections[((int(s)+delta)%n+n)%n]
 }
 
-// sidebarRows lists the sprints of d as the sidebar shows them: the open ones
-// in creation order, then the done ones, newest first.
+// sidebarRows lists the sprints of d as the sidebar shows them, section by
+// section (see sprintSections): each in creation order, but the done ones
+// newest first.
 func sidebarRows(d *todo.Document) []*todo.Sprint {
-	var open, done []*todo.Sprint
+	by := make(map[sprintSection][]*todo.Sprint, len(sprintSections))
 	for _, s := range d.Sprints {
-		if sectionOf(s) == sectionDone {
-			done = append(done, s)
-		} else {
-			open = append(open, s)
-		}
+		sec := sectionOf(d, s)
+		by[sec] = append(by[sec], s)
 	}
-	slices.Reverse(done)
-	return append(open, done...)
+	slices.Reverse(by[sectionDone])
+	var rows []*todo.Sprint
+	for _, sec := range sprintSections {
+		rows = append(rows, by[sec]...)
+	}
+	return rows
 }
 
 // sidebarEntry is one entry the sidebar draws: a section's rule, or the
@@ -129,13 +175,13 @@ func linesOf(es []sidebarEntry) (n int) {
 // sidebarEntries lays rows (see sidebarRows) out under their sections' rules:
 // each section's rule, then its sprints. An empty section shows as its rule
 // alone, as a board's does.
-func sidebarEntries(rows []*todo.Sprint) []sidebarEntry {
+func sidebarEntries(d *todo.Document, rows []*todo.Sprint) []sidebarEntry {
 	es := make([]sidebarEntry, 0, len(rows)+len(sprintSections))
 	i := 0
 	for _, sec := range sprintSections {
 		at := len(es)
 		es = append(es, sidebarEntry{section: sec, row: -1})
-		for ; i < len(rows) && sectionOf(rows[i]) == sec; i++ {
+		for ; i < len(rows) && sectionOf(d, rows[i]) == sec; i++ {
 			es = append(es, sidebarEntry{section: sec, row: i})
 		}
 		es[at].count = len(es) - at - 1
@@ -188,7 +234,7 @@ func (l *sprintList) selected(d *todo.Document) *todo.Sprint {
 // none.
 func (l *sprintList) section(d *todo.Document) sprintSection {
 	if s := l.selected(d); s != nil {
-		return sectionOf(s)
+		return sectionOf(d, s)
 	}
 	return sectionOpen
 }
@@ -206,12 +252,12 @@ func (l *sprintList) selectID(d *todo.Document, id string) {
 // nothing, when sec holds no sprint.
 func (l *sprintList) showSection(d *todo.Document, sec sprintSection, height int) bool {
 	rows := sidebarRows(d)
-	i := slices.IndexFunc(rows, func(s *todo.Sprint) bool { return sectionOf(s) == sec })
+	i := slices.IndexFunc(rows, func(s *todo.Sprint) bool { return sectionOf(d, s) == sec })
 	if i < 0 {
 		return false
 	}
 	l.cursor, l.selID = i, rows[i].ID
-	l.offset = slices.IndexFunc(sidebarEntries(rows), func(e sidebarEntry) bool { return e.row == i }) - 1 // the rule
+	l.offset = slices.IndexFunc(sidebarEntries(d, rows), func(e sidebarEntry) bool { return e.row == i }) - 1 // the rule
 	l.reconcile(d, height)
 	return true
 }
@@ -226,7 +272,7 @@ func (l *sprintList) reconcile(d *todo.Document, height int) { l.layout(d, heigh
 func (l *sprintList) layout(d *todo.Document, height int) (rows []*todo.Sprint, es []sidebarEntry, cur int) {
 	rows = sidebarRows(d)
 	l.sync(rows)
-	es = sidebarEntries(rows)
+	es = sidebarEntries(d, rows)
 	cur = slices.IndexFunc(es, func(e sidebarEntry) bool { return e.row == l.cursor })
 	if cur < 0 {
 		l.offset = 0
@@ -306,7 +352,7 @@ func (l *sprintList) view(d *todo.Document, width, height int) string {
 }
 
 // sidebarRowLines renders the two lines of sprint s's row in the sidebar, width
-// cells wide: a status glyph (● open, ✓ done), its label (see sprintLabel) and its top-level task
+// cells wide: its state's glyph (see sprintStatusGlyph), its label (see sprintLabel) and its top-level task
 // counts "Next·In Progress·Done" right-aligned, then its goal ("—" without
 // one). Names and goals are cut with "…" to the width: nothing wraps.
 func sidebarRowLines(d *todo.Document, s *todo.Sprint, width int, cur bool) (first, second string) {
@@ -314,9 +360,11 @@ func sidebarRowLines(d *todo.Document, s *todo.Sprint, width int, cur bool) (fir
 	if cur {
 		marker = "❯ "
 	}
-	glyph, glyphStyle, nameStyle := "●", progStyle, categoryStyle
-	if s.Status == todo.SprintDone {
-		glyph, glyphStyle, nameStyle = "✓", doneStyle, helpTextStyle
+	st := d.SprintStatus(s.ID)
+	glyph, glyphStyle := sprintStatusGlyph(st)
+	nameStyle := categoryStyle
+	if st == todo.SprintDone {
+		nameStyle = helpTextStyle
 	}
 	name, goal := sprintLabel(s), todo.Printable(s.Goal)
 	if goal == "" {
@@ -339,9 +387,9 @@ func sidebarRowLines(d *todo.Document, s *todo.Sprint, width int, cur bool) (fir
 }
 
 // sidebarSectionKey maps a key of the Sprints sidebar to the section it jumps
-// to: ] and [ step from current, the section of the cursor's sprint, 1 and 2
-// name Open and Done. dir is the way ] (1) or [ (-1) steps, 0 for 1 and 2; ok
-// is false for any other key.
+// to: ] and [ step from current, the section of the cursor's sprint, 1 to 4
+// name Open, Ready, In Progress and Done. dir is the way ] (1) or [ (-1)
+// steps, 0 for a digit; ok is false for any other key.
 func sidebarSectionKey(key string, current sprintSection) (sec sprintSection, dir int, ok bool) {
 	switch key {
 	case "]":
@@ -357,7 +405,7 @@ func sidebarSectionKey(key string, current sprintSection) (sec sprintSection, di
 
 // jumpSprintSection moves the sidebar's cursor onto the first sprint of
 // section sec (see sidebarSectionKey) and shows its board, as jumpSection does
-// on a board: a step skips an empty section, wrapping around, and 1 or 2 on
+// on a board: a step skips an empty section, wrapping around, and a digit on
 // an empty one says so in the footer.
 func (m *model) jumpSprintSection(sec sprintSection, dir int) {
 	for range sprintSections {
@@ -441,39 +489,17 @@ func (m *model) submitSprint() {
 	}
 }
 
-// toggleSprintClosed closes the selected sprint when it is open, else reopens
-// it. A close the store refuses, as tasks are not done, says so in the footer
-// ("can't close: 3 tasks not done") rather than as a save error.
-func (m model) toggleSprintClosed() (tea.Model, tea.Cmd) {
-	s := m.sprints.selected(m.doc)
-	if s == nil {
-		return m, nil
-	}
-	// The sprint changes section; the cursor follows it there (see writeSprint).
-	id, closing := s.ID, s.Status == todo.SprintOpen
-	m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
-		if !closing {
-			return st.ReopenSprint(ctx, id)
-		}
-		res, err := st.CloseSprint(ctx, id)
-		if errors.Is(err, todo.ErrSprintNotDone) {
-			err = fmt.Errorf("can't close: %w", err) // a refusal, shown as the status
-		}
-		return res, err
-	})
-	return m, nil
-}
-
 // openDeleteSprint opens the confirm dialog for the selected sprint (focused on
-// the safe Cancel button). An open sprint is refused at once, in the footer:
-// only a closed one may be deleted. A no-op on an empty list.
+// the safe Cancel button). A sprint with tasks not done is refused at once, in
+// the footer ("can't delete: 3 tasks not done"): only a done or empty one may
+// be deleted. A no-op on an empty list.
 func (m model) openDeleteSprint() (tea.Model, tea.Cmd) {
 	s := m.sprints.selected(m.doc)
 	if s == nil {
 		return m, nil
 	}
-	if s.Status != todo.SprintDone {
-		m.status = todo.ErrSprintOpen.Error()
+	if n := m.doc.Unfinished(s.ID); n > 0 {
+		m.status = "can't delete: " + (&todo.SprintNotDoneError{Remaining: n}).Error()
 		return m, nil
 	}
 	m.deletingSprint = s
@@ -484,8 +510,8 @@ func (m model) openDeleteSprint() (tea.Model, tea.Cmd) {
 }
 
 // doDeleteSprint deletes the confirmed sprint and all its tasks. A sprint
-// reopened since the dialog opened is refused, and the footer says so rather
-// than reporting a save error.
+// with a task not done since the dialog opened (another writer reopened one)
+// is refused, and the footer says so rather than reporting a save error.
 func (m model) doDeleteSprint() (tea.Model, tea.Cmd) {
 	s := m.deletingSprint
 	m.deletingSprint = nil
@@ -499,7 +525,11 @@ func (m model) doDeleteSprint() (tea.Model, tea.Cmd) {
 	id := s.ID
 	next := m.rowAfterDelete(id)
 	m.writeSprint(func(ctx context.Context, st *todo.Store) (todo.WriteResult, error) {
-		return st.DeleteSprint(ctx, id)
+		res, err := st.DeleteSprint(ctx, id)
+		if errors.Is(err, todo.ErrSprintNotDone) {
+			err = fmt.Errorf("can't delete: %w", err) // a refusal, shown as the status
+		}
+		return res, err
 	})
 	if _, ok := m.doc.SprintByID(id); !ok && next != "" {
 		m.selectInList(next)

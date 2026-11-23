@@ -2,21 +2,36 @@ package todo
 
 import "fmt"
 
-// SprintStatus is a sprint's state. The list file stores it by name (see
-// String), so the names are pinned.
+// SprintStatus is a sprint's state. It is never stored: it is derived from
+// the states of the sprint's tasks (see Document.SprintStatus), so it moves on
+// by itself as they do. The levels are ordered: a sprint is at the lowest
+// level all its top-level tasks have reached.
 type SprintStatus int
 
 const (
-	// SprintOpen is a sprint that is being worked on.
-	SprintOpen SprintStatus = 0
-	// SprintDone is a closed sprint.
-	SprintDone SprintStatus = 1
+	// SprintOpen is a sprint with a task still New, or with no task at all.
+	SprintOpen SprintStatus = iota
+	// SprintReady is a sprint whose tasks are all Ready or further along.
+	SprintReady
+	// SprintInProgress is a sprint whose tasks are all in progress (Working,
+	// Review or Followup) or done.
+	SprintInProgress
+	// SprintDone is a sprint whose tasks and subtasks are all done.
+	SprintDone
 )
 
-var sprintStatusNames = map[SprintStatus]string{SprintOpen: "open", SprintDone: "done"}
+// SprintStatuses returns the sprint states in order, Open to Done.
+func SprintStatuses() []SprintStatus {
+	return []SprintStatus{SprintOpen, SprintReady, SprintInProgress, SprintDone}
+}
 
-// String returns the sprint status's name, "open" or "done", or
-// "sprintstatus(N)" for an unknown value so it stays visible.
+var sprintStatusNames = map[SprintStatus]string{
+	SprintOpen: "open", SprintReady: "ready", SprintInProgress: "progress", SprintDone: "done",
+}
+
+// String returns the sprint status's name, as the CLI shows it: open, ready,
+// progress or done; "sprintstatus(N)" for an unknown value so it stays
+// visible.
 func (s SprintStatus) String() string {
 	if n, ok := sprintStatusNames[s]; ok {
 		return n
@@ -24,24 +39,63 @@ func (s SprintStatus) String() string {
 	return fmt.Sprintf("sprintstatus(%d)", int(s))
 }
 
-// SprintStatusFromName parses a sprint status name; ok is false for an unknown
-// name.
-func SprintStatusFromName(name string) (SprintStatus, bool) {
-	for s, n := range sprintStatusNames {
-		if n == name {
-			return s, true
-		}
+// Title returns the sprint status's display title: Open, Ready, In Progress
+// or Done.
+func (s SprintStatus) Title() string {
+	switch s {
+	case SprintOpen:
+		return "Open"
+	case SprintReady:
+		return "Ready"
+	case SprintInProgress:
+		return "In Progress"
+	case SprintDone:
+		return "Done"
 	}
-	return SprintOpen, false
+	return s.String()
+}
+
+// sprintLevel is the sprint state top-level task t has reached: Done only
+// when its subtasks are done too, in progress for a done task with a subtask
+// not done.
+func sprintLevel(t *Item) SprintStatus {
+	switch {
+	case t.Status == Done:
+		for _, c := range t.Descendants() {
+			if c.Kind == Task && !c.IsDone() {
+				return SprintInProgress
+			}
+		}
+		return SprintDone
+	case t.Status.Column() == ColInProgress:
+		return SprintInProgress
+	case t.Status == Ready:
+		return SprintReady
+	}
+	return SprintOpen
+}
+
+// SprintStatus returns the state of sprint id, derived from its top-level
+// tasks: the lowest level they have all reached (see sprintLevel). A sprint
+// without tasks, or one d does not hold, is open.
+func (d *Document) SprintStatus(id string) SprintStatus {
+	tasks := d.SprintTasks(id)
+	if len(tasks) == 0 {
+		return SprintOpen
+	}
+	st := SprintDone
+	for _, t := range tasks {
+		st = min(st, sprintLevel(t))
+	}
+	return st
 }
 
 // Sprint is a time-boxed group of tasks. A top-level task joins one by its
 // Item.Sprint; its subtasks follow it.
 type Sprint struct {
-	ID     string
-	Name   string
-	Goal   string
-	Status SprintStatus
+	ID   string
+	Name string
+	Goal string
 	// Ref is the sprint's reference, "<prefix>-<n>" (TODO-001), given when it
 	// is created (see Document.SprintRefPrefix) and never changed. Unlike a
 	// name, which several sprints may share, it names one sprint.
@@ -106,11 +160,12 @@ func (d *Document) ResolveSprint(key string) []*Sprint {
 	return out
 }
 
-// OpenSprints returns the sprints that are not done, in creation order.
+// OpenSprints returns the sprints that are not done (see SprintStatus), in
+// creation order.
 func (d *Document) OpenSprints() []*Sprint {
 	var out []*Sprint
 	for _, s := range d.Sprints {
-		if s.Status == SprintOpen {
+		if d.SprintStatus(s.ID) != SprintDone {
 			out = append(out, s)
 		}
 	}

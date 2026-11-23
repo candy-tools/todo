@@ -8,7 +8,7 @@ import (
 )
 
 // quitsConfirmed presses key, which must open the quit dialog without quitting,
-// then confirms it with enter, and reports whether that quits.
+// then confirms it with y, and reports whether that quits.
 func quitsConfirmed(t *testing.T, m model, key string) bool {
 	t.Helper()
 	nm, cmd := m.Update(keyMsg(key))
@@ -19,19 +19,19 @@ func quitsConfirmed(t *testing.T, m model, key string) bool {
 	if m.mode != modeConfirm || m.confirmAction != confirmQuit {
 		t.Fatalf("%q: mode %v action %v, want the quit dialog", key, m.mode, m.confirmAction)
 	}
-	_, cmd = m.Update(keyMsg("enter"))
+	_, cmd = m.Update(keyMsg("y"))
 	return quits(cmd)
 }
 
-func TestQAsksBeforeQuittingWithYesFocused(t *testing.T) {
+func TestQAsksBeforeQuittingWithNoFocused(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
 	nm, cmd := m.Update(keyMsg("q"))
 	m = nm.(model)
 	if quits(cmd) {
 		t.Fatal("q must open the quit dialog, not quit at once")
 	}
-	if m.mode != modeConfirm || m.confirmAction != confirmQuit || !m.confirmOnYes {
-		t.Fatalf("q: mode %v action %v yes-focused %v, want the quit dialog on Yes", m.mode, m.confirmAction, m.confirmOnYes)
+	if m.mode != modeConfirm || m.confirmAction != confirmQuit || m.confirmOnYes {
+		t.Fatalf("q: mode %v action %v yes-focused %v, want the quit dialog on No", m.mode, m.confirmAction, m.confirmOnYes)
 	}
 	v := m.View()
 	for _, want := range []string{"Quit?", "Yes", "No"} {
@@ -42,8 +42,8 @@ func TestQAsksBeforeQuittingWithYesFocused(t *testing.T) {
 	if strings.Contains(v, "Delete") {
 		t.Error("the quit dialog must not borrow the delete dialog's labels")
 	}
-	if _, cmd := m.Update(keyMsg("enter")); !quits(cmd) {
-		t.Error("enter in the quit dialog (Yes focused) must quit")
+	if nm, cmd := m.Update(keyMsg("enter")); quits(cmd) || nm.(model).mode != modeMain {
+		t.Error("enter in the quit dialog (No focused) must stay")
 	}
 }
 
@@ -65,9 +65,9 @@ func TestQuitDialogKeys(t *testing.T) {
 	if nm, cmd := press(m, "q").Update(keyMsg("n")); quits(cmd) || nm.(model).mode != modeMain {
 		t.Error("n in the quit dialog must stay")
 	}
-	// tab moves the focus to No, so enter stays.
-	if nm, cmd := press(m, "q", "tab").Update(keyMsg("enter")); quits(cmd) || nm.(model).mode != modeMain {
-		t.Error("enter on No must stay")
+	// tab moves the focus to Yes, so enter quits.
+	if _, cmd := press(m, "q", "tab").Update(keyMsg("enter")); !quits(cmd) {
+		t.Error("enter on Yes must quit")
 	}
 }
 

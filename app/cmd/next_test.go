@@ -90,9 +90,7 @@ func TestNextAllOpenSprints(t *testing.T) {
 	sprintTask(t, path, "a", s1, todo.New)
 	sprintTask(t, path, "b", s0, todo.Done)
 	sprintTask(t, path, "c", s2, todo.Ready)
-	if _, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "S0"); err != nil {
-		t.Fatal(err)
-	}
+	// S0's only task is done, so S0 is done.
 	out, err := runCmd(t, "next", "--file", path, "--json")
 	if err != nil {
 		t.Fatal(err)
@@ -118,9 +116,7 @@ func TestNextOneSprint(t *testing.T) {
 	sprintTask(t, path, "a", s1, todo.New)
 	sprintTask(t, path, "c", s2, todo.Ready)
 	sprintTask(t, path, "b", s0, todo.Done)
-	if _, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "S0"); err != nil {
-		t.Fatal(err)
-	}
+	// S0's only task is done, so S0 is done.
 	for _, name := range []string{"S2", "S0"} {
 		out, err := runCmd(t, "next", "--file", path, "--sprint", name, "--json")
 		if err != nil {
@@ -133,7 +129,7 @@ func TestNextOneSprint(t *testing.T) {
 		if len(got.Sprints) != 1 || got.Sprints[0].Name != name {
 			t.Errorf("--sprint %s -> %+v", name, got.Sprints)
 		}
-		wantStatus := "open"
+		wantStatus := "ready" // S2's only task is Ready
 		if name == "S0" {
 			wantStatus = "done"
 		}
@@ -144,8 +140,8 @@ func TestNextOneSprint(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if closed := strings.Contains(strings.SplitN(text, "\n", 2)[0], "(closed)"); closed != (name == "S0") {
-			t.Errorf("--sprint %s header closed marker = %v: %q", name, closed, text)
+		if done := strings.Contains(strings.SplitN(text, "\n", 2)[0], "(done)"); done != (name == "S0") {
+			t.Errorf("--sprint %s header done marker = %v: %q", name, done, text)
 		}
 	}
 	if _, err := runCmd(t, "next", "--file", path, "--sprint", "nope"); codeOf(t, err) != exitNotFound {

@@ -260,8 +260,8 @@ func (m *model) selectInList(id string) {
 }
 
 // defaultSprint is the sprint the Sprints workspace shows when it has no
-// other to show: the sidebar's first, the first open one or, when every
-// sprint is closed, the newest; "" when the list has none.
+// other to show: the sidebar's first (see sidebarRows), the first not done
+// or, when every sprint is done, the newest; "" when the list has none.
 func (m *model) defaultSprint() string {
 	if rows := sidebarRows(m.doc); len(rows) > 0 {
 		return rows[0].ID
@@ -318,7 +318,7 @@ func (m *model) nextOpenSprint() (id string, ok bool) {
 // lastOpenSprint is the last viewed sprint while it is open, else the first
 // open one. ok is false when there is none.
 func (m *model) lastOpenSprint() (id string, ok bool) {
-	if s, ok := m.doc.SprintByID(m.lastSprint); ok && s.Status == todo.SprintOpen {
+	if _, ok := m.doc.SprintByID(m.lastSprint); ok && m.doc.SprintStatus(m.lastSprint) != todo.SprintDone {
 		return m.lastSprint, true
 	}
 	if open := m.doc.OpenSprints(); len(open) > 0 {
@@ -333,7 +333,7 @@ func (m *model) lastOpenSprint() (id string, ok bool) {
 func nextOpenAfter(d *todo.Document, id string) (string, bool) {
 	start := slices.IndexFunc(d.Sprints, func(s *todo.Sprint) bool { return s.ID == id })
 	for i := 1; i <= len(d.Sprints); i++ {
-		if s := d.Sprints[(start+i)%len(d.Sprints)]; s.Status == todo.SprintOpen {
+		if s := d.Sprints[(start+i)%len(d.Sprints)]; d.SprintStatus(s.ID) != todo.SprintDone {
 			return s.ID, true
 		}
 	}

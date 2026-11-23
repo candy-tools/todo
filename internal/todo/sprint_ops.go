@@ -78,40 +78,16 @@ func (d *Document) EditSprint(id string, c SprintChanges) (changed bool, err err
 	return changed, nil
 }
 
-// CloseSprint marks sprint id done. While tasks or subtasks of it are not done
-// it fails with a SprintNotDoneError.
-func (d *Document) CloseSprint(id string) error {
-	s, err := d.sprint(id)
-	if err != nil {
+// DeleteSprint removes sprint id together with all its tasks and their
+// subtasks. Only a done sprint (see SprintStatus), which holds only done
+// tasks, or one without tasks may be deleted: while tasks or subtasks of it
+// are not done it fails with a SprintNotDoneError.
+func (d *Document) DeleteSprint(id string) error {
+	if _, err := d.sprint(id); err != nil {
 		return err
 	}
 	if n := d.Unfinished(id); n > 0 {
 		return &SprintNotDoneError{Remaining: n}
-	}
-	s.Status = SprintDone
-	return nil
-}
-
-// ReopenSprint marks sprint id open again.
-func (d *Document) ReopenSprint(id string) error {
-	s, err := d.sprint(id)
-	if err != nil {
-		return err
-	}
-	s.Status = SprintOpen
-	return nil
-}
-
-// DeleteSprint removes the done sprint id together with all its tasks and
-// their subtasks, which a done sprint holds only done. An open sprint is
-// refused with ErrSprintOpen.
-func (d *Document) DeleteSprint(id string) error {
-	s, err := d.sprint(id)
-	if err != nil {
-		return err
-	}
-	if s.Status != SprintDone {
-		return ErrSprintOpen
 	}
 	for _, t := range d.SprintTasks(id) {
 		d.remove(t)
@@ -141,32 +117,21 @@ func (d *Document) sprintTask(taskID string) (*Item, error) {
 	return it, nil
 }
 
-// closedSprint reports whether id names a done sprint.
-func (d *Document) closedSprint(id string) bool {
-	s, ok := d.SprintByID(id)
-	return ok && s.Status == SprintDone
-}
-
 // Assign puts the top-level task taskID in sprint sprintID. A task from the
 // backlog becomes New; one from another sprint keeps its state. changed is
-// false, even for a done sprint, when the task is already there. A missing task is ErrNotFound and a
+// false when the task is already there. A missing task is ErrNotFound and a
 // missing sprint ErrSprintNotFound; a category is ErrNotTask and a subtask
-// ErrTooDeep; a done target sprint, or a done sprint the task is in now, is
-// ErrSprintClosed.
+// ErrTooDeep.
 func (d *Document) Assign(taskID, sprintID string) (changed bool, err error) {
 	it, err := d.sprintTask(taskID)
 	if err != nil {
 		return false, err
 	}
-	target, err := d.sprint(sprintID)
-	if err != nil {
+	if _, err := d.sprint(sprintID); err != nil {
 		return false, err
 	}
 	if it.Sprint == sprintID {
 		return false, nil
-	}
-	if target.Status == SprintDone || d.closedSprint(it.Sprint) {
-		return false, ErrSprintClosed
 	}
 	if it.Sprint == "" {
 		it.Status = New
@@ -176,8 +141,8 @@ func (d *Document) Assign(taskID, sprintID string) (changed bool, err error) {
 }
 
 // Unassign returns the top-level task taskID to the backlog, Open. A task
-// already there gives changed false. A task in a done sprint is refused with
-// ErrSprintClosed; a category is ErrNotTask and a subtask ErrTooDeep.
+// already there gives changed false. A category is ErrNotTask and a subtask
+// ErrTooDeep.
 func (d *Document) Unassign(taskID string) (changed bool, err error) {
 	it, err := d.sprintTask(taskID)
 	if err != nil {
@@ -185,9 +150,6 @@ func (d *Document) Unassign(taskID string) (changed bool, err error) {
 	}
 	if it.Sprint == "" {
 		return false, nil
-	}
-	if d.closedSprint(it.Sprint) {
-		return false, ErrSprintClosed
 	}
 	it.Sprint = ""
 	it.Status = Open
@@ -206,8 +168,7 @@ func (d *Document) sprintDone(id string) []*Item {
 }
 
 // PruneSprint removes the fully-done top-level tasks of sprint id, as Prune
-// does for the whole list, and returns how many tasks went. A done sprint may
-// be pruned.
+// does for the whole list, and returns how many tasks went.
 func (d *Document) PruneSprint(id string) int {
 	n := 0
 	for _, it := range d.sprintDone(id) {

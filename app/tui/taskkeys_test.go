@@ -85,7 +85,7 @@ func TestAANextBackToBacklog(t *testing.T) {
 
 func TestAMovesAlongSprintColumns(t *testing.T) {
 	m, path := newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s000001", Name: "Sprint 1", Status: "open"}},
+		[]seedSprint{{ID: "s000001", Name: "Sprint 1"}},
 		seedTask{ID: "t000001", Title: "x", Status: "ready", Sprint: "s000001"}))
 	m = onBoard(t, m, "s000001", todo.ColNext, "x")
 	for _, step := range []struct {
@@ -157,7 +157,7 @@ func TestTOffersMembershipStates(t *testing.T) {
 
 func TestDScopedToSprint(t *testing.T) {
 	m, path := newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s000001", Name: "Sprint 1", Status: "open"}, {ID: "s000002", Name: "Sprint 2", Status: "open"}},
+		[]seedSprint{{ID: "s000001", Name: "Sprint 1"}, {ID: "s000002", Name: "Sprint 2"}},
 		seedTask{ID: "t000001", Title: "done1", Status: "done", Sprint: "s000001"},
 		seedTask{ID: "t000002", Title: "done2", Status: "done", Sprint: "s000002"},
 		seedTask{ID: "t000003", Title: "open1", Status: "new", Sprint: "s000001"}))
@@ -248,22 +248,25 @@ func TestHelpListsSprintKeys(t *testing.T) {
 			desc[b.keys] = append(desc[b.keys], b.desc)
 		}
 	}
-	for _, keys := range []string{"b", "s", "k", "K", "q", "u", "a A", "a", "A", "o", "t", "1–3", "[  ]", "tab", "n", "e", "c", "d", "enter  e", "enter  tab", "D"} {
+	for _, keys := range []string{"b", "s", "k", "K", "q", "u", "a A", "a", "A", "o", "t", "1–3", "1–4", "[  ]", "tab", "n", "e", "c", "d", "enter  e", "enter  tab", "D"} {
 		if len(desc[keys]) == 0 {
 			t.Errorf("help has no row for %q", keys)
 		}
 	}
 	// Planning is gone, and its keys with it.
-	for _, gone := range []string{"↑ ↓  w s", "1–4", "x", "p P", "P", "p", "→ a", "← A", "r", "k K"} {
+	for _, gone := range []string{"↑ ↓  w s", "x", "p P", "P", "p", "→ a", "← A", "r", "k K"} {
 		if len(desc[gone]) > 0 {
 			t.Errorf("help still lists %q", gone)
 		}
 	}
 	all := ansi.Strip(helpModal(200, 80, 0))
-	for _, want := range []string{"The Sprints workspace", "else focus the sidebar", "Unified view", "Close / reopen the sprint", "assign it to a sprint", "Send the task to another sprint or the Backlog"} {
+	for _, want := range []string{"The Sprints workspace", "else focus the sidebar", "Unified view", "Jump to the Open / Ready / In Progress / Done sprints", "assign it to a sprint", "Send the task to another sprint or the Backlog"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("help should say %q:\n%s", want, all)
 		}
+	}
+	if strings.Contains(all, "Close / reopen") {
+		t.Errorf("help still offers closing a sprint by hand:\n%s", all)
 	}
 	if strings.Contains(all, "Planning") {
 		t.Errorf("help still mentions Planning:\n%s", all)
@@ -278,7 +281,7 @@ func TestHelpListsSprintKeys(t *testing.T) {
 func TestUnifiedRowsNameTheSprint(t *testing.T) {
 	long := strings.Repeat("L", 40)
 	m, _ := newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s000001", Name: "Sprint 1", Status: "open"}, {ID: "s000002", Name: long, Status: "open"}},
+		[]seedSprint{{ID: "s000001", Name: "Sprint 1"}, {ID: "s000002", Name: long}},
 		seedTask{ID: "t000001", Title: "backlogTask", Status: "open"},
 		seedTask{ID: "t000002", Title: "working", Status: "working", Sprint: "s000001"},
 		seedTask{ID: "t000003", Title: "longOne", Status: "new", Sprint: "s000002"}))

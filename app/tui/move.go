@@ -122,8 +122,7 @@ func (m *model) stepShown(it *todo.Item) func(id string) bool {
 }
 
 // noteRefusedStep shows, as the footer status, why the list refuses a step of
-// the grabbed item (see refusal): a lift or nesting in a closed sprint, a
-// nesting across sprints, a lifted task whose state needs a sprint. A step
+// the grabbed item (see refusal): a nesting across sprints, a lifted task whose state needs a sprint. A step
 // with nowhere to go (todo.ErrNowhere), or one that fails otherwise, changes
 // nothing and stays silent.
 func (m *model) noteRefusedStep(err error) {

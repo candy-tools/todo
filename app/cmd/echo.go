@@ -47,5 +47,5 @@ func writtenDetail(doc *todo.Document, id string) (record, error) {
 
 // sprintOf is the jsonSprint for sp as doc has it.
 func sprintOf(doc *todo.Document, sp *todo.Sprint) jsonSprint {
-	return jsonSprint{sp.ID, sp.Ref, sp.Name, sp.Goal, sp.Status.String(), sprintCounts(doc, sp.ID)}
+	return jsonSprint{sp.ID, sp.Ref, sp.Name, sp.Goal, doc.SprintStatus(sp.ID).String(), sprintCounts(doc, sp.ID)}
 }
