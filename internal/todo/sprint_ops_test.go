@@ -102,45 +102,6 @@ func TestEditSprintRenameKeepsTasks(t *testing.T) {
 	}
 }
 
-func TestCloseSprintCountsSubtasks(t *testing.T) {
-	f := newSprintFixture(t)
-	s := f.sprint("S")
-	task := f.task("t", Done, s)
-	sub := f.sub(task, Open)
-	err := f.d.CloseSprint(s)
-	var nd *SprintNotDoneError
-	if !errors.As(err, &nd) || nd.Remaining != 1 {
-		t.Fatalf("err = %v, want SprintNotDoneError{1}", err)
-	}
-	if sp, _ := f.d.SprintByID(s); sp.Status != SprintOpen {
-		t.Error("sprint closed despite the error")
-	}
-	f.item(sub).Status = Done
-	if err := f.d.CloseSprint(s); err != nil {
-		t.Fatal(err)
-	}
-	if sp, _ := f.d.SprintByID(s); sp.Status != SprintDone {
-		t.Error("sprint not done")
-	}
-}
-
-func TestReopenSprint(t *testing.T) {
-	f := newSprintFixture(t)
-	s := f.sprint("S")
-	if err := f.d.CloseSprint(s); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.d.ReopenSprint(s); err != nil {
-		t.Fatal(err)
-	}
-	if sp, _ := f.d.SprintByID(s); sp.Status != SprintOpen {
-		t.Error("sprint still done")
-	}
-	if err := f.d.ReopenSprint("zzzzzzz"); !errors.Is(err, ErrSprintNotFound) {
-		t.Errorf("err = %v", err)
-	}
-}
-
 func TestAssignBacklogTaskBecomesNew(t *testing.T) {
 	f := newSprintFixture(t)
 	s := f.sprint("S")
@@ -166,25 +127,6 @@ func TestAssignAcrossSprintsKeepsState(t *testing.T) {
 	}
 	if it := f.item(task); it.Sprint != b || it.Status != Working {
 		t.Errorf("task = %q %v", it.Sprint, it.Status)
-	}
-}
-
-func TestAssignClosedSprintRefused(t *testing.T) {
-	f := newSprintFixture(t)
-	open, closed := f.sprint("Open"), f.sprint("Closed")
-	doneTask := f.task("d", Done, closed)
-	if err := f.d.CloseSprint(closed); err != nil {
-		t.Fatal(err)
-	}
-	backlog := f.task("b", Open, "")
-	if _, err := f.d.Assign(backlog, closed); !errors.Is(err, ErrSprintClosed) {
-		t.Errorf("target closed: err = %v", err)
-	}
-	if _, err := f.d.Assign(doneTask, open); !errors.Is(err, ErrSprintClosed) {
-		t.Errorf("source closed: err = %v", err)
-	}
-	if it := f.item(doneTask); it.Sprint != closed {
-		t.Error("task moved despite the error")
 	}
 }
 
@@ -225,12 +167,10 @@ func TestUnassignBecomesOpen(t *testing.T) {
 	if changed, err := f.d.Unassign(task); err != nil || changed {
 		t.Errorf("backlog Unassign = %v, %v; want no change", changed, err)
 	}
+	// A done sprint's task leaves it as any other does.
 	doneTask := f.task("d", Done, s)
-	if err := f.d.CloseSprint(s); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.d.Unassign(doneTask); !errors.Is(err, ErrSprintClosed) {
-		t.Errorf("closed: err = %v", err)
+	if changed, err := f.d.Unassign(doneTask); err != nil || !changed {
+		t.Errorf("done sprint: Unassign = %v, %v", changed, err)
 	}
 }
 
@@ -257,13 +197,10 @@ func TestPruneSprintLeavesOtherSprints(t *testing.T) {
 	}
 }
 
-func TestAssignSameClosedSprintIsNoChange(t *testing.T) {
+func TestAssignSameDoneSprintIsNoChange(t *testing.T) {
 	f := newSprintFixture(t)
 	s := f.sprint("S")
 	task := f.task("t", Done, s)
-	if err := f.d.CloseSprint(s); err != nil {
-		t.Fatal(err)
-	}
 	if changed, err := f.d.Assign(task, s); err != nil || changed {
 		t.Errorf("Assign = %v, %v; want no change, no error", changed, err)
 	}
@@ -293,12 +230,16 @@ func TestSprintGoalIsOneLine(t *testing.T) {
 	}
 }
 
-func TestDeleteSprintRefusedWhileOpen(t *testing.T) {
+func TestDeleteSprintRefusedWhileNotDone(t *testing.T) {
 	f := newSprintFixture(t)
 	s := f.sprint("S")
 	task := f.task("t", Done, s)
-	if err := f.d.DeleteSprint(s); !errors.Is(err, ErrSprintOpen) || !errors.Is(err, ErrBadRequest) {
-		t.Fatalf("err = %v, want ErrSprintOpen", err)
+	f.sub(task, Open) // the task is done, but a subtask is not
+	f.task("u", Working, s)
+	err := f.d.DeleteSprint(s)
+	var nd *SprintNotDoneError
+	if !errors.Is(err, ErrSprintNotDone) || !errors.Is(err, ErrBadRequest) || !errors.As(err, &nd) || nd.Remaining != 2 {
+		t.Fatalf("err = %v, want SprintNotDoneError{2}", err)
 	}
 	if _, ok := f.d.SprintByID(s); !ok {
 		t.Error("sprint removed on error")
@@ -308,7 +249,7 @@ func TestDeleteSprintRefusedWhileOpen(t *testing.T) {
 	}
 }
 
-func TestDeleteClosedSprintRemovesItsTasks(t *testing.T) {
+func TestDeleteDoneSprintRemovesItsTasks(t *testing.T) {
 	f := newSprintFixture(t)
 	s := f.sprint("S")
 	keep := f.sprint("Keep")
@@ -316,9 +257,6 @@ func TestDeleteClosedSprintRemovesItsTasks(t *testing.T) {
 	sub := f.sub(task, Done)
 	other := f.task("other", Working, keep)
 	backlog := f.task("backlog", Open, "")
-	if err := f.d.CloseSprint(s); err != nil {
-		t.Fatal(err)
-	}
 	if err := f.d.DeleteSprint(s); err != nil {
 		t.Fatal(err)
 	}
@@ -344,16 +282,86 @@ func TestDeleteClosedSprintRemovesItsTasks(t *testing.T) {
 	}
 }
 
-func TestDeleteEmptyClosedSprint(t *testing.T) {
+func TestDeleteEmptySprint(t *testing.T) {
 	f := newSprintFixture(t)
 	s := f.sprint("S")
-	if err := f.d.CloseSprint(s); err != nil {
-		t.Fatal(err)
+	if got := f.d.SprintStatus(s); got != SprintOpen {
+		t.Errorf("empty sprint status = %v, want open", got)
 	}
 	if err := f.d.DeleteSprint(s); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.d.Sprints) != 0 {
 		t.Errorf("sprints = %v, want none", f.d.Sprints)
+	}
+}
+
+func TestDeleteMissingSprint(t *testing.T) {
+	f := newSprintFixture(t)
+	if err := f.d.DeleteSprint("zzzzzzz"); !errors.Is(err, ErrSprintNotFound) {
+		t.Errorf("err = %v, want ErrSprintNotFound", err)
+	}
+}
+
+func TestSprintStatusIsLowestTaskLevel(t *testing.T) {
+	tests := []struct {
+		name  string
+		tasks []Status
+		want  SprintStatus
+	}{
+		{"empty", nil, SprintOpen},
+		{"new and ready", []Status{New, Ready}, SprintOpen},
+		{"all ready", []Status{Ready, Ready}, SprintReady},
+		{"ready and done", []Status{Ready, Done}, SprintReady},
+		{"working and done", []Status{Working, Done}, SprintInProgress},
+		{"review and followup", []Status{Review, Followup}, SprintInProgress},
+		{"working, review, followup, done", []Status{Working, Review, Followup, Done}, SprintInProgress},
+		{"all done", []Status{Done, Done}, SprintDone},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSprintFixture(t)
+			s := f.sprint("S")
+			for _, st := range tc.tasks {
+				f.task("t", st, s)
+			}
+			f.task("backlog", Open, "") // the backlog never counts
+			if got := f.d.SprintStatus(s); got != tc.want {
+				t.Errorf("SprintStatus = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSprintStatusDoneNeedsDoneSubtasks(t *testing.T) {
+	f := newSprintFixture(t)
+	s := f.sprint("S")
+	task := f.task("t", Done, s)
+	sub := f.sub(task, Open)
+	if got := f.d.SprintStatus(s); got != SprintInProgress {
+		t.Errorf("done task with an open subtask: SprintStatus = %v, want progress", got)
+	}
+	f.item(sub).Status = Done
+	if got := f.d.SprintStatus(s); got != SprintDone {
+		t.Errorf("all done: SprintStatus = %v, want done", got)
+	}
+	// The other sprints and the open list follow their own tasks.
+	other := f.sprint("Other")
+	if got := f.d.SprintStatus(other); got != SprintOpen {
+		t.Errorf("other sprint = %v, want open", got)
+	}
+	if open := f.d.OpenSprints(); len(open) != 1 || open[0].ID != other {
+		t.Errorf("OpenSprints = %v, want only %s", open, other)
+	}
+}
+
+func TestSprintStatusNames(t *testing.T) {
+	for st, want := range map[SprintStatus][2]string{
+		SprintOpen: {"open", "Open"}, SprintReady: {"ready", "Ready"},
+		SprintInProgress: {"progress", "In Progress"}, SprintDone: {"done", "Done"},
+	} {
+		if st.String() != want[0] || st.Title() != want[1] {
+			t.Errorf("%d: %q %q, want %q %q", int(st), st.String(), st.Title(), want[0], want[1])
+		}
 	}
 }

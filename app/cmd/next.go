@@ -75,7 +75,7 @@ func nextCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().String("sprint", "", "show only this sprint (reference, id or name), open or closed")
+	c.Flags().String("sprint", "", "show only this sprint (reference, id or name), done or not")
 	c.Flags().Bool("json", false, "output as JSON")
 	return c
 }
@@ -98,7 +98,7 @@ func writeNextText(w io.Writer, doc *todo.Document, rep nextReport) {
 			head += " — " + p(s.Goal)
 		}
 		if s.Status == "done" {
-			head += " (closed)"
+			head += " (done)"
 		}
 		_, _ = fmt.Fprintln(w, head)
 		for _, sec := range []struct {

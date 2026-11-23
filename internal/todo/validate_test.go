@@ -12,7 +12,7 @@ func TestValidate(t *testing.T) {
 	const a, b, c, d = "aaaaaaa", "bbbbbbb", "ccccccc", "ddddddd"
 	good := func() todo.DiskList {
 		return todo.DiskList{
-			Version:    8,
+			Version:    9,
 			Categories: []todo.DiskCategory{{ID: a, Title: "A"}},
 			Tasks: []todo.DiskTask{{ID: b, Category: a, Title: "T", Status: "open",
 				Subtasks: []todo.DiskSubtask{{ID: c, Title: "S"}}}},
@@ -61,47 +61,45 @@ func TestValidate(t *testing.T) {
 		{"unknown view screen", func(l *todo.DiskList) { l.View = &todo.DiskView{Screen: "x"} },
 			`invalid list file: view: unknown screen "x"`},
 		{"valid sprint", func(l *todo.DiskList) {
-			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1"}}
 			l.Tasks[0].Sprint, l.Tasks[0].Status, l.Tasks[0].Subtasks[0].Done = d, "done", true
 		}, ""},
 		{"sprint state without a sprint", func(l *todo.DiskList) { l.Tasks[0].Status = "working" },
 			"invalid list file: task " + b + `: status "working" needs a sprint`},
 		{"backlog state in a sprint", func(l *todo.DiskList) {
-			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "open"}}
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1"}}
 			l.Tasks[0].Sprint, l.Tasks[0].Status = d, "deferred"
 		}, "invalid list file: task " + b + `: backlog status "deferred" in sprint ` + d},
-		{"done sprint holding a task not done", func(l *todo.DiskList) {
+		// Up to version 8 a sprint had a stored status; it is read and ignored,
+		// so it need not match the sprint's tasks.
+		{"version 8 done sprint holding a task not done", func(l *todo.DiskList) {
 			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
 			l.Tasks[0].Sprint, l.Tasks[0].Status = d, "review"
-		}, "invalid list file: sprint " + d + " is done but task " + b + " is not"},
-		{"done sprint holding an open subtask", func(l *todo.DiskList) {
-			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "done"}}
-			l.Tasks[0].Sprint, l.Tasks[0].Status = d, "done"
-		}, "invalid list file: sprint " + d + " is done but subtask " + c + " of task " + b + " is not"},
-		{"malformed sprint id", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: "BAD", Name: "S1", Status: "open"}} },
+		}, ""},
+		{"malformed sprint id", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: "BAD", Name: "S1"}} },
 			`invalid list file: sprint "S1": malformed id "BAD": an id is 7 characters from 0-9 and a-z except i, l, o and u`},
 		{"duplicate sprint id", func(l *todo.DiskList) {
-			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "open"}, {ID: d, Name: "S2", Status: "open"}}
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1"}, {ID: d, Name: "S2"}}
 		}, "invalid list file: duplicate sprint id " + d},
-		{"empty sprint name", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: d, Status: "open"}} },
+		{"empty sprint name", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: d}} },
 			"invalid list file: sprint " + d + ": invalid title: it must not be empty"},
-		{"untrimmed sprint name", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: d, Name: " S1", Status: "open"}} },
+		{"untrimmed sprint name", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: d, Name: " S1"}} },
 			"invalid list file: sprint " + d + ": name has leading or trailing whitespace"},
 		{"sprint names may repeat", func(l *todo.DiskList) {
-			l.Sprints = []todo.DiskSprint{{ID: d, Name: "Sprint", Status: "open"}, {ID: "eeeeeee", Name: "sPRINT", Status: "open"}}
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "Sprint"}, {ID: "eeeeeee", Name: "sPRINT"}}
 		}, ""},
 		{"untrimmed sprint reference", func(l *todo.DiskList) {
-			l.Sprints = []todo.DiskSprint{{ID: d, Ref: " TODO-001", Name: "S", Status: "open"}}
+			l.Sprints = []todo.DiskSprint{{ID: d, Ref: " TODO-001", Name: "S"}}
 		}, "invalid list file: sprint " + d + ": reference has leading or trailing whitespace"},
 		{"duplicate sprint reference ignoring case", func(l *todo.DiskList) {
-			l.Sprints = []todo.DiskSprint{{ID: d, Ref: "TODO-001", Name: "S", Status: "open"}, {ID: "eeeeeee", Ref: "todo-001", Name: "T", Status: "open"}}
+			l.Sprints = []todo.DiskSprint{{ID: d, Ref: "TODO-001", Name: "S"}, {ID: "eeeeeee", Ref: "todo-001", Name: "T"}}
 		}, `invalid list file: sprint eeeeeee: reference "todo-001" is already used by sprint ` + d},
 		{"sprint reference of a task", func(l *todo.DiskList) {
 			l.Tasks[0].Ref = "TODO-001"
-			l.Sprints = []todo.DiskSprint{{ID: d, Ref: "todo-001", Name: "S", Status: "open"}}
+			l.Sprints = []todo.DiskSprint{{ID: d, Ref: "todo-001", Name: "S"}}
 		}, `invalid list file: sprint ` + d + `: reference "todo-001" is already used by task ` + b},
-		{"unknown sprint status", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "bogus"}} },
-			"invalid list file: sprint " + d + ": unknown status \"bogus\""},
+		{"version 8 sprint status of any value ignored", func(l *todo.DiskList) { l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Status: "bogus"}} },
+			""},
 		{"task in a missing sprint", func(l *todo.DiskList) { l.Tasks[0].Sprint = d },
 			"invalid list file: task " + b + ": sprint \"" + d + "\" does not exist"},
 		{"task with a reference", func(l *todo.DiskList) { l.Tasks[0].Ref = "APP-001" }, ""},
@@ -117,7 +115,7 @@ func TestValidate(t *testing.T) {
 		{"valid refs", func(l *todo.DiskList) {
 			l.Refs = &todo.DiskRefs{Prefix: "TODO", SprintPrefix: "SP", Last: map[string]int{"SP": 1, "TODO": 1, "W2": 5}}
 			l.Categories[0].Prefix = "WORK"
-			l.Sprints = []todo.DiskSprint{{ID: d, Ref: "SP-001", Name: "S1", Status: "open"}}
+			l.Sprints = []todo.DiskSprint{{ID: d, Ref: "SP-001", Name: "S1"}}
 		}, ""},
 		{"sprint prefix setting invalid", func(l *todo.DiskList) { l.Refs = &todo.DiskRefs{SprintPrefix: "sp"} },
 			"invalid list file: refs: invalid reference prefix \"sp\""},
@@ -136,7 +134,7 @@ func TestValidate(t *testing.T) {
 		{"category prefix invalid", func(l *todo.DiskList) { l.Categories[0].Prefix = "1A" },
 			"invalid list file: category " + a + ": invalid reference prefix \"1A\""},
 		{"version 7 sprint prefix ignored", func(l *todo.DiskList) {
-			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Prefix: "x-", Status: "open"}}
+			l.Sprints = []todo.DiskSprint{{ID: d, Name: "S1", Prefix: "x-"}}
 		}, ""},
 	}
 	for _, tc := range cases {

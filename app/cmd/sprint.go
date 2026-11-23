@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 
@@ -11,8 +10,7 @@ import (
 )
 
 // jsonSprint is the shape every `--json` sprint output uses: one per sprint in
-// `sprint list`, the sprint itself from `sprint add`, `edit`, `close` and
-// `reopen`, the sprint wrapped in {"removed": ...} from `sprint rm`, and the
+// `sprint list`, the sprint itself from `sprint add` and `edit`, the sprint wrapped in {"removed": ...} from `sprint rm`, and the
 // sprint fields embedded in each sprint of `todo next`.
 type jsonSprint struct {
 	ID     string         `json:"id"`
@@ -34,14 +32,15 @@ func sprintCounts(doc *todo.Document, id string) map[string]int {
 	}
 }
 
-// writeSprintTable prints sprints as a table: reference, id, status,
+// writeSprintTable prints sprints as a table: reference, id, status (derived
+// from the tasks, see todo.Document.SprintStatus),
 // per-column counts, then the name and, when there is one, the goal.
 func writeSprintTable(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) {
 	width := len("ref")
 	for _, sp := range sprints {
 		width = max(width, len(sp.Ref))
 	}
-	_, _ = fmt.Fprintf(w, "%-*s       id  status  next  progress  done  name — goal\n", width, "ref")
+	_, _ = fmt.Fprintf(w, "%-*s       id  status    next  progress  done  name — goal\n", width, "ref")
 	next, progress, done := todo.ColNext.String(), todo.ColInProgress.String(), todo.ColDone.String()
 	for _, sp := range sprints {
 		c := sprintCounts(doc, sp.ID)
@@ -49,7 +48,7 @@ func writeSprintTable(w io.Writer, doc *todo.Document, sprints []*todo.Sprint) {
 		if sp.Goal != "" {
 			label += " — " + todo.Printable(sp.Goal)
 		}
-		_, _ = fmt.Fprintf(w, "%-*s  %7s  %-6s  %4d  %8d  %4d  %s\n", width, sp.Ref, sp.ID, sp.Status.String(), c[next], c[progress], c[done], label)
+		_, _ = fmt.Fprintf(w, "%-*s  %7s  %-8s  %4d  %8d  %4d  %s\n", width, sp.Ref, sp.ID, doc.SprintStatus(sp.ID).String(), c[next], c[progress], c[done], label)
 	}
 }
 
@@ -105,18 +104,18 @@ func addSprintFlag(cmd *cobra.Command) {
 func sprintCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "sprint",
-		Short: "manage sprints (list|add|edit|close|reopen|rm)",
+		Short: "manage sprints (list|add|edit|rm); a sprint's status (open, ready, progress, done) follows its tasks",
 		Args:  cobra.NoArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	c.AddCommand(sprintListCmd(), sprintAddCmd(), sprintEditCmd(), sprintCloseCmd(), sprintReopenCmd(), sprintRmCmd())
+	c.AddCommand(sprintListCmd(), sprintAddCmd(), sprintEditCmd(), sprintRmCmd())
 	return c
 }
 
 func sprintListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "list",
-		Short: "list the open sprints with their task counts (--all includes closed ones)",
+		Short: "list the sprints not done with their task counts (--all includes done ones)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withStore(cmd, func(_ context.Context, _ *todo.Store, doc *todo.Document) error {
@@ -132,7 +131,7 @@ func sprintListCmd() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().Bool("all", false, "include closed sprints")
+	c.Flags().Bool("all", false, "include done sprints")
 	c.Flags().Bool("json", false, "output the sprints as JSON")
 	return c
 }
@@ -201,46 +200,10 @@ func sprintEditCmd() *cobra.Command {
 	return c
 }
 
-func sprintCloseCmd() *cobra.Command {
-	c := &cobra.Command{
-		Use:   "close --sprint <ref|id|name>",
-		Short: "close a sprint; refused while it has tasks not done",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withSprint(cmd, "close", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {
-				res, err := s.CloseSprint(ctx, sp.ID)
-				if errors.Is(err, todo.ErrSprintNotDone) {
-					return res, fmt.Errorf("cannot close %q: %w", sprintLabel(sp), err)
-				}
-				return res, err
-			})
-		},
-	}
-	addSprintFlag(c)
-	addJSONFlag(c)
-	return c
-}
-
-func sprintReopenCmd() *cobra.Command {
-	c := &cobra.Command{
-		Use:   "reopen --sprint <ref|id|name>",
-		Short: "reopen a closed sprint",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withSprint(cmd, "reopen", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {
-				return s.ReopenSprint(ctx, sp.ID)
-			})
-		},
-	}
-	addSprintFlag(c)
-	addJSONFlag(c)
-	return c
-}
-
 func sprintRmCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "rm --sprint <ref|id|name>",
-		Short: "delete a closed sprint and all its tasks; refused while the sprint is open",
+		Short: "delete a sprint and all its tasks; refused while it has tasks not done",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withSprint(cmd, "rm", func(ctx context.Context, s *todo.Store, sp *todo.Sprint) (todo.WriteResult, error) {

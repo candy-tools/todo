@@ -12,26 +12,19 @@ import (
 )
 
 // deleteSprintOnDisk deletes sprint id through a second store on path, as
-// another session would: an open sprint is finished and closed first, as only
-// a closed sprint may be deleted.
+// another session would: its tasks are finished first, as only a done sprint
+// may be deleted.
 func deleteSprintOnDisk(t *testing.T, path, id string) {
 	t.Helper()
-	st := openSecond(t, path)
-	doc, _, err := st.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sp, ok := doc.SprintByID(id); ok && sp.Status != todo.SprintDone {
-		finishAndCloseOnDisk(t, path, id)
-	}
-	if _, err := st.DeleteSprint(context.Background(), id); err != nil {
+	finishOnDisk(t, path, id)
+	if _, err := openSecond(t, path).DeleteSprint(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// finishAndCloseOnDisk completes sprint id's tasks and closes it through a
+// finishOnDisk completes sprint id's tasks, and so the sprint, through a
 // second store on path, as another session would.
-func finishAndCloseOnDisk(t *testing.T, path, id string) {
+func finishOnDisk(t *testing.T, path, id string) {
 	t.Helper()
 	ctx := context.Background()
 	st := openSecond(t, path)
@@ -43,9 +36,6 @@ func finishAndCloseOnDisk(t *testing.T, path, id string) {
 		if _, err := st.SetState(ctx, it.ID, todo.Done, todo.StateOptions{Cascade: true}); err != nil {
 			t.Fatalf("complete %s: %v", it.ID, err)
 		}
-	}
-	if _, err := st.CloseSprint(ctx, id); err != nil {
-		t.Fatalf("close %s: %v", id, err)
 	}
 }
 
@@ -151,18 +141,19 @@ func TestTinyTerminalFitsTwoPanes(t *testing.T) {
 	}
 }
 
-// With every sprint closed the workspace opens on the newest, the sidebar's
+// With every sprint done the workspace opens on the newest, the sidebar's
 // first sprint, and shows its board.
-func TestOnlyClosedSprintsShowNewestDone(t *testing.T) {
+func TestOnlyDoneSprintsShowNewestDone(t *testing.T) {
 	m, path := newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s00000a", Name: "A", Status: "done"}, {ID: "s00000b", Name: "B", Status: "done"}},
+		[]seedSprint{{ID: "s00000a", Name: "A"}, {ID: "s00000b", Name: "B"}},
+		seedTask{ID: "t000002", Title: "aDone", Status: "done", Sprint: "s00000a"},
 		seedTask{ID: "t000001", Title: "bDone", Status: "done", Sprint: "s00000b"}))
 	m = press(m, "s")
 	if s := m.sprints.selected(m.doc); m.view.screen != screenSprint || m.view.sprint != "s00000b" || s == nil || s.ID != "s00000b" {
-		t.Fatalf("only closed: screen %v sprint %q selected %v, want B, the newest, on both", m.view.screen, m.view.sprint, s)
+		t.Fatalf("only done: screen %v sprint %q selected %v, want B, the newest, on both", m.view.screen, m.view.sprint, s)
 	}
-	if !inBoardPane(m, "closed — c in the sidebar reopens it") || !hasRow(press(m, "tab", "3"), "bDone") {
-		t.Errorf("want B's frozen board:\n%s", ansi.Strip(m.View()))
+	if !inBoardPane(m, "✓ Done") || !hasRow(press(m, "tab", "3"), "bDone") {
+		t.Errorf("want B's board:\n%s", ansi.Strip(m.View()))
 	}
 	if v := storedView(t, path); v.Screen != todo.ScreenSprint || v.Sprint != "s00000b" {
 		t.Errorf("stored view %+v, want B's board", v)
@@ -220,7 +211,7 @@ func TestShownSprintDeletedElsewhereKeepsUnifiedView(t *testing.T) {
 
 func TestOldSavedSprintsScreenOpensWorkspace(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, map[string]any{"screen": "sprints", "split": true},
-		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}},
+		[]seedSprint{{ID: "s00000a", Name: "A"}},
 		seedTask{ID: "t000001", Title: "x", Status: "new", Sprint: "s00000a"}))
 	if m.view.screen != screenSprint || m.view.sprint != "s00000a" || m.splitShown() {
 		t.Fatalf("screen %v sprint %q splitShown %v", m.view.screen, m.view.sprint, m.splitShown())
@@ -243,7 +234,7 @@ func TestQuitStoresSprintOnScreen(t *testing.T) {
 	if v := storedView(t, path); v.Sprint != "s00000a" {
 		t.Fatalf("an arrow in the list stored %+v, want A still stored", v)
 	}
-	nm, cmd := press(m, "q").Update(keyMsg("enter"))
+	nm, cmd := press(m, "q").Update(keyMsg("y"))
 	if !quits(cmd) {
 		t.Fatal("q, confirmed, should quit")
 	}
@@ -253,7 +244,7 @@ func TestQuitStoresSprintOnScreen(t *testing.T) {
 	// Nothing changed since: quitting again writes nothing.
 	m = nm.(model)
 	before := storeFP(t, m)
-	if _, cmd := press(m, "q").Update(keyMsg("enter")); !quits(cmd) || storeFP(t, m) != before {
+	if _, cmd := press(m, "q").Update(keyMsg("y")); !quits(cmd) || storeFP(t, m) != before {
 		t.Error("q with the view unchanged must quit without a write")
 	}
 }
@@ -263,7 +254,8 @@ func TestSidebarIgnoresBoardKeys(t *testing.T) {
 	m = press(m, "s")
 	m = selectTitle(t, m, "aNext") // the board's cursor is on a task
 	before := storeFP(t, m)
-	for _, key := range []string{"3", "a", "A", "m", "t"} { // [ ] 1 2 jump the sidebar's sections
+	// [ ] 1–4 jump the sidebar's sections; c no longer closes a sprint.
+	for _, key := range []string{"a", "A", "m", "t", "c"} {
 		got := press(m, key)
 		if got.boardColumn() != todo.ColNext || got.mode != modeMain || got.tree.grabbed || got.view.sprint != "s00000a" {
 			t.Errorf("%q in the sidebar: column %v mode %v grabbed %v, want nothing", key, got.boardColumn(), got.mode, got.tree.grabbed)
@@ -309,7 +301,7 @@ func TestWorkspaceFootersPerFocus(t *testing.T) {
 	m, _ := threeSprints(t)
 	m = press(m, "s")
 	f := ansi.Strip(m.footer(200))
-	for _, want := range []string{"n: New", "e: Edit", "c: Close/reopen", "d: Delete", "tab: Board", "?: Help", "q: Quit"} {
+	for _, want := range []string{"n: New", "e: Edit", "d: Delete", "tab: Board", "?: Help", "q: Quit"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("sidebar footer %q misses %q", f, want)
 		}

@@ -65,7 +65,7 @@ func TestStoreNumbersOldSprints(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(b)
-	for _, want := range []string{`"version": 8`, `"ref": "TODO-001"`, `"ref": "TODO-002"`, `"ref": "TODO-003"`} {
+	for _, want := range []string{`"version": 9`, `"ref": "TODO-001"`, `"ref": "TODO-002"`, `"ref": "TODO-003"`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("written file lacks %s:\n%s", want, text)
 		}

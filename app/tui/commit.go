@@ -110,7 +110,7 @@ func (m *model) writer() *todo.Store {
 // keeps the list.
 //
 // A write the list's rules refuse (see refusal) did not fail to save: its
-// reason takes the footer as the status, e.g. "reopen the sprint first".
+// reason takes the footer as the status, e.g. "tasks in different sprints cannot nest".
 //
 // commit reports whether the write succeeded, so a caller can keep the user's
 // input to retry a failed save.
@@ -148,9 +148,8 @@ func (m *model) commit(focusID string, write storeWrite) (saved bool) {
 }
 
 // refusal returns the footer status for err when it is a write the list's
-// rules refuse whatever the list holds (todo.ErrBadRequest): a task in a
-// closed sprint, tasks of two sprints nested, a sprint closed with tasks not
-// done. Such a write did not fail to save, so the footer shows its reason, not
+// rules refuse whatever the list holds (todo.ErrBadRequest): tasks of two
+// sprints nested, a sprint deleted with tasks not done. Such a write did not fail to save, so the footer shows its reason, not
 // an error. ok is false for any other error.
 func refusal(err error) (reason string, ok bool) {
 	if !errors.Is(err, todo.ErrBadRequest) {

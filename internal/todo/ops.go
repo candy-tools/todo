@@ -239,8 +239,7 @@ func (d *Document) addCategory(title, parentID string, at func(parent *Item) (in
 // f.Ref fails with ErrRefGenerated. f.Sprint puts a top-level task in that sprint ("" for the
 // backlog) and is checked as checkNewMembership says: a state that does not
 // fit it is ErrNeedsSprint or ErrInSprint, a missing sprint ErrSprintNotFound,
-// a closed one ErrSprintClosed; a subtask names none (ErrSprintMembership) and
-// its task's sprint must be open (ErrSprintClosed).
+// and a subtask names none (ErrSprintMembership).
 func (d *Document) AddTask(f Fields, st Status, parentID, afterID string) (string, error) {
 	return d.addTask(f, st, parentID, func(parent *Item) (int, error) {
 		return d.slot(parent, Task, afterID, nil)
@@ -302,16 +301,15 @@ func (d *Document) addTask(f Fields, st Status, parentID string, at func(parent 
 
 // checkNewMembership checks that a task in state st may be added under parent
 // in sprint ("" for the backlog). A top-level task's state must fit sprint
-// (see checkMembership), and sprint must be one d holds (ErrSprintNotFound)
-// and open (ErrSprintClosed). A subtask follows its task: it names no sprint
-// of its own (ErrSprintMembership), and its task's sprint must be open
-// (ErrSprintClosed).
+// (see checkMembership), and sprint must be one d holds (ErrSprintNotFound).
+// A subtask follows its task: it names no sprint of its own
+// (ErrSprintMembership).
 func (d *Document) checkNewMembership(st Status, sprint string, parent *Item) error {
 	if parent.Kind == Task {
 		if sprint != "" {
 			return ErrSprintMembership
 		}
-		return d.checkOpen(parent.SprintID())
+		return nil
 	}
 	if err := checkMembership(st, sprint); err != nil {
 		return err
@@ -319,10 +317,8 @@ func (d *Document) checkNewMembership(st Status, sprint string, parent *Item) er
 	if sprint == "" {
 		return nil
 	}
-	if _, err := d.sprint(sprint); err != nil {
-		return err
-	}
-	return d.checkOpen(sprint)
+	_, err := d.sprint(sprint)
+	return err
 }
 
 // checkMembership checks that a top-level task in state st fits sprint, its
@@ -338,28 +334,13 @@ func checkMembership(st Status, sprint string) error {
 	return nil
 }
 
-// checkOpen fails with ErrSprintClosed when sprint names a done sprint: its
-// tasks keep their membership and state until it is reopened.
-func (d *Document) checkOpen(sprint string) error {
-	if d.closedSprint(sprint) {
-		return ErrSprintClosed
-	}
-	return nil
-}
-
 // checkState checks that task it may take state st: a top-level task's state
-// must fit its sprint (see checkMembership), and a task or subtask of a done
-// sprint may only be Done (ErrSprintClosed).
+// must fit its sprint (see checkMembership); a subtask's may be any.
 func (d *Document) checkState(it *Item, st Status) error {
-	if !it.IsSubtask() {
-		if err := checkMembership(st, it.Sprint); err != nil {
-			return err
-		}
+	if it.IsSubtask() {
+		return nil
 	}
-	if st != Done {
-		return d.checkOpen(it.SprintID())
-	}
-	return nil
+	return checkMembership(st, it.Sprint)
 }
 
 // cleaned returns c with the title, reference and prefix it names cleaned (see
@@ -543,9 +524,8 @@ func (d *Document) reopen(id string, st Status, restore DoneStates) error {
 // ErrNotFound, a category ErrNotTask, and a subtask given a state other than
 // Open or Done ErrSubtaskStatus. The membership rule holds too, and a state
 // change never moves a task into or out of a sprint: a top-level task given a
-// sprint state outside a sprint fails with ErrNeedsSprint, one given a backlog
-// state in a sprint with ErrInSprint, and any change that leaves a task or
-// subtask of a closed sprint not Done with ErrSprintClosed.
+// sprint state outside a sprint fails with ErrNeedsSprint, and one given a
+// backlog state in a sprint with ErrInSprint.
 func (d *Document) SetState(id string, st Status, o StateOptions) (changed bool, err error) {
 	if o.Restore != nil && o.Cascade {
 		return false, ErrRestoreAndCascade
@@ -594,7 +574,7 @@ func (d *Document) statuses() DoneStates {
 // and a task moved between categories keeps its reference. A move never
 // changes which sprint a task is in: a task moved between categories keeps
 // its sprint, and nesting and lifting follow renest's rules
-// (ErrSprintMembership, ErrSprintClosed). A moved category's subtree is
+// (ErrSprintMembership). A moved category's subtree is
 // re-levelled.
 func (d *Document) Move(id, parentID, afterID string) error {
 	it, err := d.lookup(id)
@@ -643,14 +623,10 @@ func (d *Document) Move(id, parentID, afterID string) error {
 // sprint, or of the backlog when it is in none (ErrSprintMembership), and as a
 // subtask it holds no sprint of its own; a subtask lifted out takes its former
 // task's sprint, and a state that does not fit that sprint fails it as
-// checkMembership does. Nesting or lifting in a done sprint is ErrSprintClosed;
-// reordering a subtask under its own task is not.
+// checkMembership does.
 func (d *Document) renest(it, parent *Item, toSubtask bool) (Status, string, error) {
 	if toSubtask && it.SprintID() != parent.SprintID() {
 		return 0, "", ErrSprintMembership
-	}
-	if it.Parent != parent && d.closedSprint(it.SprintID()) {
-		return 0, "", ErrSprintClosed
 	}
 	if toSubtask {
 		oldParent := Open

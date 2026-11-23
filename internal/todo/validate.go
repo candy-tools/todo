@@ -85,11 +85,6 @@ func (l *diskList) validateSprints() error {
 			return invalidf("sprint %s: name has leading or trailing whitespace", s.ID)
 		}
 	}
-	for _, s := range l.Sprints {
-		if _, ok := SprintStatusFromName(s.Status); !ok {
-			return invalidf("sprint %s: unknown status %q", s.ID, s.Status)
-		}
-	}
 	return nil
 }
 
@@ -109,14 +104,9 @@ func (l *diskList) validateTaskSprints() error {
 }
 
 // validateMembership checks the membership rule on every task, in file order:
-// a task in a sprint state has a sprint and one in a backlog state has none,
-// and a done sprint holds only done tasks with done subtasks. The statuses
-// and sprints must already be valid.
+// a task in a sprint state has a sprint and one in a backlog state has none.
+// The statuses and sprints must already be valid.
 func (l *diskList) validateMembership() error {
-	done := make(map[string]bool, len(l.Sprints))
-	for _, s := range l.Sprints {
-		done[s.ID] = s.Status == SprintDone.String()
-	}
 	for _, t := range l.Tasks {
 		st, _ := statusFromDisk(t.Status)
 		switch {
@@ -124,15 +114,6 @@ func (l *diskList) validateMembership() error {
 			return invalidf("task %s: status %q needs a sprint", t.ID, t.Status)
 		case !st.InSprint() && t.Sprint != "":
 			return invalidf("task %s: backlog status %q in sprint %s", t.ID, t.Status, t.Sprint)
-		case !done[t.Sprint]:
-			continue
-		case st != Done:
-			return invalidf("sprint %s is done but task %s is not", t.Sprint, t.ID)
-		}
-		for _, s := range t.Subtasks {
-			if !s.Done {
-				return invalidf("sprint %s is done but subtask %s of task %s is not", t.Sprint, s.ID, t.ID)
-			}
 		}
 	}
 	return nil

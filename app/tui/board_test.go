@@ -20,7 +20,7 @@ func sectionsBoard(t *testing.T, n, width, height int) model {
 			tasks = append(tasks, seedTask{ID: fmt.Sprintf("t%03d%03d", i, j), Title: fmt.Sprintf("%s%02d", st, j), Status: st, Sprint: "s00000a"})
 		}
 	}
-	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Goal: "goal a", Status: "open"}}, tasks...))
+	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Goal: "goal a"}}, tasks...))
 	m = send(m, tea.WindowSizeMsg{Width: width, Height: height})
 	return press(m, "s", "tab")
 }
@@ -105,7 +105,7 @@ func TestUpShowsHeadingsAboveFirstTask(t *testing.T) {
 
 // A grabbed task steps only past the tasks of its own section.
 func TestGrabStepsWithinSection(t *testing.T) {
-	m, path := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Status: "open"}},
+	m, path := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A"}},
 		seedTask{ID: "t000001", Title: "n1", Status: "new", Sprint: "s00000a"},
 		seedTask{ID: "t000002", Title: "w1", Status: "working", Sprint: "s00000a"},
 		seedTask{ID: "t000003", Title: "n2", Status: "new", Sprint: "s00000a"},

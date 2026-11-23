@@ -58,11 +58,10 @@ var helpSections = []helpSection{
 	{"Sprints sidebar", []helpBinding{
 		{"n", "New sprint"},
 		{"e", "Edit the sprint's name and goal"},
-		{"c", "Close / reopen the sprint"},
-		{"d", "Delete the closed sprint and its tasks"},
+		{"d", "Delete the sprint and its tasks (done or empty only)"},
 		{"enter  tab", "Focus the board (tab on the board: back to the list)"},
 		{"[  ]", "Previous / next section of sprints"},
-		{"1 2", "Jump to the Open / Done sprints"},
+		{"1–4", "Jump to the Open / Ready / In Progress / Done sprints"},
 	}},
 	{"Views", []helpBinding{
 		{"v", "Split: categories sidebar + task list (opens on the selection)"},
@@ -71,7 +70,7 @@ var helpSections = []helpSection{
 	{"App", []helpBinding{
 		{"?", "Show / hide this help"},
 		{"S", "Settings: the task and sprint reference prefixes"},
-		{"q", "Quit (asks first: enter yes, esc no)"},
+		{"q", "Quit (asks first: y yes, enter/esc no)"},
 		{"esc", "Clear search / state filter; else focus the sidebar; else ask to quit"},
 	}},
 }

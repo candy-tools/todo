@@ -63,7 +63,7 @@ func TestSprintSharedNameIsAmbiguous(t *testing.T) {
 	path := listInTodo(t)
 	addSprint(t, path, "Same")
 	addSprint(t, path, "same")
-	_, err := runCmd(t, "sprint", "close", "--file", path, "--sprint", "SAME")
+	_, err := runCmd(t, "sprint", "edit", "--file", path, "--sprint", "SAME", "--set-goal", "x")
 	if err == nil || codeOf(t, err) != exitAmbiguous {
 		t.Fatalf("err = %v, want exit %d", err, exitAmbiguous)
 	}
@@ -103,9 +103,9 @@ func TestSprintOutputsShowRef(t *testing.T) {
 	if got[0]["ref"] != "TODO-001" || got[0]["prefix"] != nil {
 		t.Errorf("json sprint = %v, want ref TODO-001 and no prefix", got[0])
 	}
-	out, err = runCmd(t, "sprint", "reopen", "--file", path, "--sprint", "Alpha")
-	if err != nil || strings.TrimSpace(out) != "reopen: TODO-001 Alpha" {
-		t.Errorf("reopen = %q, %v", out, err)
+	out, err = runCmd(t, "sprint", "edit", "--file", path, "--sprint", "Alpha", "--set-goal", "g")
+	if err != nil || strings.TrimSpace(out) != "edit: TODO-001 Alpha" {
+		t.Errorf("edit = %q, %v", out, err)
 	}
 	out, err = runCmd(t, "next", "--file", path)
 	if err != nil || !strings.HasPrefix(out, "TODO-001 Alpha — g") {

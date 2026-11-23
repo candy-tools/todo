@@ -9,12 +9,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// seedSprint is a sprint of a sprintJSON list; status is "open" or "done".
+// seedSprint is a sprint of a sprintJSON list; its state follows its tasks.
 type seedSprint struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Goal   string `json:"goal,omitempty"`
-	Status string `json:"status"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Goal string `json:"goal,omitempty"`
 }
 
 // seedTask is a top-level task of a sprintJSON list, in category C; sprint is
@@ -56,9 +55,9 @@ func threeSprints(t *testing.T) (model, string) {
 	t.Helper()
 	return newJSONModel(t, sprintJSON(t, nil,
 		[]seedSprint{
-			{ID: "s00000a", Name: "A", Goal: "goal a", Status: "open"},
-			{ID: "s00000b", Name: "B", Status: "done"},
-			{ID: "s00000c", Name: "C", Goal: "goal c", Status: "open"},
+			{ID: "s00000a", Name: "A", Goal: "goal a"},
+			{ID: "s00000b", Name: "B"},
+			{ID: "s00000c", Name: "C", Goal: "goal c"},
 		},
 		seedTask{ID: "t000001", Title: "backlogTask", Status: "open"},
 		seedTask{ID: "t000002", Title: "aNext", Status: "new", Sprint: "s00000a"},
@@ -128,9 +127,9 @@ func TestBoardHeaderMarksDoneSprint(t *testing.T) {
 	if h := m.header(100); !strings.Contains(h, "Sprints › SPRINT-002 B ✓") {
 		t.Errorf("header = %q, want B marked done in the crumb", h)
 	}
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "closed — c in the sidebar reopens it") || !strings.Contains(v, "━━ Done 1 ━━") ||
-		!strings.Contains(v, "B ✓ closed") {
-		t.Errorf("board head = %s, want B marked closed", v)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "1/1   ✓ Done") || !strings.Contains(v, "━━ Done 1 ━━") ||
+		!strings.Contains(v, "B ✓ done") {
+		t.Errorf("board head = %s, want B marked done", v)
 	}
 	if got := rowTitles(m.tree); !equalStrings(got, []string{"bDone"}) {
 		t.Errorf("B's rows = %v, want only B's task", got)
@@ -144,7 +143,7 @@ func TestBoardHeadShowsGoal(t *testing.T) {
 		t.Errorf("view = %s, want C's goal in the board head and its sections", v)
 	}
 	long := strings.Repeat("a very long goal ", 20)
-	m, _ = newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Goal: long, Status: "open"}},
+	m, _ = newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Goal: long}},
 		seedTask{ID: "t000001", Title: "w", Status: "working", Sprint: "s00000a"}))
 	m.showSprint("s00000a")
 	lines := strings.Split(ansi.Strip(m.View()), "\n")
@@ -203,12 +202,12 @@ func TestEscOnBoardFocusesList(t *testing.T) {
 	}
 }
 
-func TestKFromBacklogSkipsClosedLastViewed(t *testing.T) {
+func TestKFromBacklogSkipsDoneLastViewed(t *testing.T) {
 	m, _ := threeSprints(t)
 	m.showSprint("s00000b") // B is done
 	m = press(m, "b", "k")
 	if m.view.screen != screenSprint || m.view.sprint != "s00000a" {
-		t.Errorf("k from the Backlog after a closed sprint: screen %v sprint %q, want the first open one, A", m.view.screen, m.view.sprint)
+		t.Errorf("k from the Backlog after a done sprint: screen %v sprint %q, want the first open one, A", m.view.screen, m.view.sprint)
 	}
 }
 
@@ -259,7 +258,8 @@ func TestKFromBacklogOpensLastViewed(t *testing.T) {
 }
 
 func TestKWithoutOpenSprintsHints(t *testing.T) {
-	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000b", Name: "B", Status: "done"}}))
+	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000b", Name: "B"}},
+		seedTask{ID: "t000001", Title: "x", Status: "done", Sprint: "s00000b"}))
 	m = press(m, "k")
 	if m.view.screen != screenBacklog {
 		t.Errorf("k with no open sprint must stay put, screen = %v", m.view.screen)
@@ -343,29 +343,36 @@ func TestSectionKeysOnlyOnBoard(t *testing.T) {
 func TestSprintListRowsOrderAndCounts(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, nil,
 		[]seedSprint{
-			{ID: "s00000a", Name: "Alpha", Goal: "first goal", Status: "open"},
-			{ID: "s00000b", Name: "Beta", Status: "done"},
-			{ID: "s00000c", Name: "Gamma", Goal: "third goal", Status: "open"},
-			{ID: "s00000d", Name: "Delta", Status: "done"},
+			{ID: "s00000a", Name: "Alpha", Goal: "first goal"},
+			{ID: "s00000b", Name: "Beta"},
+			{ID: "s00000c", Name: "Gamma", Goal: "third goal"},
+			{ID: "s00000d", Name: "Delta"},
+			{ID: "s00000e", Name: "Eps"},
 		},
 		seedTask{ID: "t000001", Title: "a1", Status: "new", Sprint: "s00000a"},
 		seedTask{ID: "t000002", Title: "a2", Status: "ready", Sprint: "s00000a"},
 		seedTask{ID: "t000003", Title: "a3", Status: "review", Sprint: "s00000a"},
 		seedTask{ID: "t000004", Title: "a4", Status: "done", Sprint: "s00000a"},
 		seedTask{ID: "t000005", Title: "b1", Status: "done", Sprint: "s00000b"},
+		seedTask{ID: "t000006", Title: "d1", Status: "done", Sprint: "s00000d"},
+		seedTask{ID: "t000007", Title: "e1", Status: "ready", Sprint: "s00000e"},
+		seedTask{ID: "t000008", Title: "e2", Status: "working", Sprint: "s00000e"},
 	))
 	m = press(m, "s", "down") // on Gamma
-	lines := strings.Split(ansi.Strip(m.sprints.view(m.doc, 100, 20)), "\n")
-	if len(lines) != 10 {
-		t.Fatalf("want 2 rules and 4 two-line rows, got %d lines", len(lines))
-	}
+	lines := strings.Split(ansi.Strip(m.sprints.view(m.doc, 100, 30)), "\n")
 	wants := [][]string{
 		{"━━ Open 2 ━"},
-		{"● SPRINT-001 Alpha", "2·1·1"}, {"first goal"},
-		{"● SPRINT-003 Gamma", "0·0·0"}, {"third goal"},
+		{"◌ SPRINT-001 Alpha", "2·1·1"}, {"first goal"},
+		{"◌ SPRINT-003 Gamma", "0·0·0"}, {"third goal"},
+		{"━━ Ready 1 ━"},
+		{"◉ SPRINT-005 Eps", "1·1·0"}, {"—"},
+		{"━━ In Progress 0 ━"},
 		{"━━ Done 2 ━"},
-		{"✓ SPRINT-004 Delta", "0·0·0"}, {"—"},
+		{"✓ SPRINT-004 Delta", "0·0·1"}, {"—"},
 		{"✓ SPRINT-002 Beta", "0·0·1"}, {"—"},
+	}
+	if len(lines) != len(wants) {
+		t.Fatalf("want 4 rules and 5 two-line rows, got %d lines:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
 	for i, want := range wants {
 		for _, w := range want {
@@ -374,12 +381,12 @@ func TestSprintListRowsOrderAndCounts(t *testing.T) {
 			}
 		}
 	}
-	m = press(m, "down")
+	m = press(m, "down", "down")
 	if sel := m.sprints.selected(m.doc); sel == nil || sel.Name != "Delta" {
 		t.Errorf("selected = %v, want Delta", sel)
 	}
 	if out := m.View(); !strings.Contains(out, "Gamma") || strings.Contains(out, "a1") {
-		t.Errorf("the sidebar lists the sprints, and Delta's empty board none of Alpha's tasks:\n%s", out)
+		t.Errorf("the sidebar lists the sprints, and Delta's board none of Alpha's tasks:\n%s", out)
 	}
 }
 
@@ -401,7 +408,7 @@ func TestSaveViewStoresScreen(t *testing.T) {
 
 func TestOpensOnStoredBoard(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, map[string]any{"screen": "sprint", "sprint": "s00000a", "unified": true},
-		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}},
+		[]seedSprint{{ID: "s00000a", Name: "A"}},
 		seedTask{ID: "t000001", Title: "aNext", Status: "new", Sprint: "s00000a"}))
 	if m.view.screen != screenSprint || m.view.sprint != "s00000a" || !m.view.all {
 		t.Fatalf("opened on screen %v sprint %q unified %v, want A's board under the unified view", m.view.screen, m.view.sprint, m.view.all)
@@ -413,7 +420,7 @@ func TestOpensOnStoredBoard(t *testing.T) {
 
 func TestApplyViewMissingSprint(t *testing.T) {
 	m, _ := newJSONModel(t, sprintJSON(t, map[string]any{"screen": "sprint", "sprint": "s0000zz"},
-		[]seedSprint{{ID: "s00000a", Name: "A", Status: "open"}}))
+		[]seedSprint{{ID: "s00000a", Name: "A"}}))
 	if m.view.screen != screenSprint || m.view.sprint != "s00000a" || !m.listFocus {
 		t.Errorf("a saved view naming a missing sprint opened screen %v sprint %q, want the Sprints workspace on A", m.view.screen, m.view.sprint)
 	}

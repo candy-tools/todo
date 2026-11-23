@@ -52,9 +52,6 @@ func TestSprintPrefixWithoutFolder(t *testing.T) {
 func TestSprintRefNumberNotReused(t *testing.T) {
 	d := &todo.Document{FolderPrefix: "TODO"}
 	a := must(d.AddSprint("A", ""))
-	if err := d.CloseSprint(a); err != nil {
-		t.Fatal(err)
-	}
 	if err := d.DeleteSprint(a); err != nil {
 		t.Fatal(err)
 	}

@@ -128,7 +128,7 @@ func TestBoardShowsSectionsAndHidesEmptyCategories(t *testing.T) {
 }
 
 func TestEmptySprintShowsNothingLine(t *testing.T) {
-	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A", Status: "open"}},
+	m, _ := newJSONModel(t, sprintJSON(t, nil, []seedSprint{{ID: "s00000a", Name: "A"}},
 		seedTask{ID: "t000001", Title: "backlogTask", Status: "open"}))
 	m = press(m, "s", "tab")
 	if out := ansi.Strip(m.View()); !strings.Contains(out, "nothing in this sprint") || strings.Contains(out, "━━ Next") {
@@ -159,11 +159,14 @@ func TestEmptySprintShowsNothingLine(t *testing.T) {
 func TestEmptySectionShowsItsRuleAlone(t *testing.T) {
 	m, _ := newTestModelOn(t, board, todo.ColInProgress)
 	out := ansi.Strip(m.View())
-	next, progress := strings.Index(out, "━━ Next 0 ━━"), strings.Index(out, "━━ In Progress 1 ━━")
+	// The board's In Progress rule comes after its Next rule; the sidebar's own
+	// In Progress section may come before.
+	next := strings.Index(out, "━━ Next 0 ━━")
+	progress := strings.Index(out[max(next, 0):], "━━ In Progress 1 ━━")
 	if next < 0 || progress < 0 {
 		t.Fatalf("the board misses its sections:\n%s", out)
 	}
-	if between := out[next:progress]; strings.Contains(between, "working") || strings.Count(between, "\n") != 1 {
+	if between := out[next : next+progress]; strings.Contains(between, "working") || strings.Count(between, "\n") != 1 {
 		t.Errorf("the empty Next section must be its rule alone:\n%s", out)
 	}
 }
@@ -496,28 +499,5 @@ func TestItemMetaShowsColumnAndState(t *testing.T) {
 	it.Plan = "docs/p.md"
 	if got := itemMeta(it); strings.Contains(got, "no plan") {
 		t.Errorf("meta with plan = %q", got)
-	}
-}
-
-// On a narrow pane the readiness takes a shorter wording instead of being cut
-// with "…"; where the full one fits it keeps it.
-func TestProgressLineShortensReadiness(t *testing.T) {
-	done := map[todo.Column]int{todo.ColDone: 2}
-	for _, tc := range []struct {
-		name   string
-		s      *todo.Sprint
-		width  int
-		want   string
-		absent string
-	}{
-		{"ready narrow", &todo.Sprint{Status: todo.SprintOpen}, 54, "ready to close — c in sidebar", "…"},
-		{"ready wide", &todo.Sprint{Status: todo.SprintOpen}, 100, "ready to close (c in the sidebar)", "…"},
-		{"closed narrow", &todo.Sprint{Status: todo.SprintDone}, 54, "closed — c in sidebar reopens", "…"},
-		{"closed wide", &todo.Sprint{Status: todo.SprintDone}, 100, "closed — c in the sidebar reopens it", "…"},
-	} {
-		got := ansi.Strip(progressLine(tc.s, done, tc.width))
-		if !strings.Contains(got, tc.want) || strings.Contains(got, tc.absent) {
-			t.Errorf("%s: %q, want %q and no %q", tc.name, got, tc.want, tc.absent)
-		}
 	}
 }

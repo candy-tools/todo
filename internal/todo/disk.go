@@ -18,8 +18,9 @@ import (
 // version 7 the "_comment" note, the "refs" section and the category and
 // sprint "prefix" fields, version 8 the sprint "ref" field and the refs
 // "sprintPrefix" field, and dropped the sprint "prefix" field (still read, and
-// ignored).
-const fileVersion = 8
+// ignored), version 9 dropped the sprint "status" field (still read, and
+// ignored: a sprint's state is derived from its tasks).
+const fileVersion = 9
 
 // fileComment is the note todo puts at the top of the file, under "_comment",
 // for whoever opens the file instead of running todo: mostly coding agents,
@@ -74,18 +75,18 @@ type diskView struct {
 	Sprint  string `json:"sprint,omitempty"`
 }
 
-// diskSprint is a sprint; Status is "open" or "done". Ref is "" only in a
-// file written before sprints had references: such sprints get one when the
-// list is read (see Store). Prefix is the task reference prefix sprints had in
-// version 7: it is read so such a file decodes, then ignored, and never
-// written.
+// diskSprint is a sprint. Ref is "" only in a file written before sprints
+// had references: such sprints get one when the list is read (see Store).
+// Prefix is the task reference prefix sprints had in version 7, and Status the
+// "open" or "done" sprints had up to version 8: both are read so such a file
+// decodes, then ignored, and never written.
 type diskSprint struct {
 	ID     string `json:"id"`
 	Ref    string `json:"ref,omitempty"`
 	Name   string `json:"name"`
 	Goal   string `json:"goal,omitempty"`
 	Prefix string `json:"prefix,omitempty"`
-	Status string `json:"status"`
+	Status string `json:"status,omitempty"`
 }
 
 // importedSprintID is the ID of the sprint that takes the tasks a file older
@@ -147,7 +148,7 @@ func toDisk(d *Document) diskList {
 		l.View = v
 	}
 	for _, s := range d.Sprints {
-		l.Sprints = append(l.Sprints, diskSprint{ID: s.ID, Ref: s.Ref, Name: s.Name, Goal: s.Goal, Status: s.Status.String()})
+		l.Sprints = append(l.Sprints, diskSprint{ID: s.ID, Ref: s.Ref, Name: s.Name, Goal: s.Goal})
 	}
 	for _, cat := range d.Enumerate() {
 		if cat.Kind != Category {
@@ -200,7 +201,6 @@ func fromDisk(l diskList) *Document {
 	}
 	for _, s := range l.Sprints {
 		sp := &Sprint{ID: s.ID, Ref: s.Ref, Name: s.Name, Goal: s.Goal}
-		sp.Status, _ = SprintStatusFromName(s.Status)
 		d.Sprints = append(d.Sprints, sp)
 	}
 	cats := make(map[string]*Item, len(l.Categories))
@@ -363,7 +363,7 @@ func (l *diskList) upgradeSprints() {
 		}
 		l.Tasks[i].Sprint = importedSprintID
 		if !made {
-			l.Sprints = append([]diskSprint{{ID: importedSprintID, Name: ImportedSprintName, Status: SprintOpen.String()}}, l.Sprints...)
+			l.Sprints = append([]diskSprint{{ID: importedSprintID, Name: ImportedSprintName}}, l.Sprints...)
 			made = true
 		}
 	}

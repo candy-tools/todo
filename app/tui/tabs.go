@@ -107,11 +107,11 @@ const (
 )
 
 // boardHead renders the lines above a sprint's tree, rows of them (at most
-// boardChrome), width wide: its goal, its progress with whether it can be
-// closed, and a rule under them. A short pane gives up the goal first, then
-// the rule: the progress goes last.
-func boardHead(s *todo.Sprint, counts map[todo.Column]int, width, rows int) []string {
-	goal, progress := goalLine(s, width), progressLine(s, counts, width)
+// boardChrome), width wide: its goal, its progress with its state st, and a
+// rule under them. A short pane gives up the goal first, then the rule: the
+// progress goes last.
+func boardHead(s *todo.Sprint, st todo.SprintStatus, counts map[todo.Column]int, width, rows int) []string {
+	goal, progress := goalLine(s, width), progressLine(st, counts, width)
 	switch {
 	case rows >= boardChrome:
 		return []string{goal, progress, headRule(width)}
@@ -141,36 +141,26 @@ func goalLine(s *todo.Sprint, width int) string {
 }
 
 // progressLine renders the board head's progress line, width wide: the done
-// tasks as a bar and a count, then whether the sprint can be closed. The bar
-// shrinks, down to minBarCells, so the readiness reads in full; when it still
-// does not fit, the readiness is cut with "…".
-func progressLine(s *todo.Sprint, counts map[todo.Column]int, width int) string {
+// tasks as a bar and a count, then the sprint's state st with its glyph (see
+// sprintStatusGlyph), "no tasks yet" for an empty sprint. The bar shrinks,
+// down to minBarCells, so the state reads in full; when it still does not
+// fit, the state is cut with "…".
+func progressLine(st todo.SprintStatus, counts map[todo.Column]int, width int) string {
 	total := 0
 	for _, c := range todo.SprintColumns() {
 		total += counts[c]
 	}
 	done := counts[todo.ColDone]
 
-	// short is a shorter wording of the readiness, for a pane where the full
-	// one would not fit beside the narrowest bar.
-	ready, short, readyStyle := "", "", headerHintSty
-	switch {
-	case s.Status == todo.SprintDone:
-		ready, short = "closed — c in the sidebar reopens it", "closed — c in sidebar reopens"
-	case total == 0:
-		ready = "no tasks yet"
-	case done < total:
-		ready = fmt.Sprintf("close blocked: %d not done", total-done)
-	default:
-		ready, short, readyStyle = "ready to close (c in the sidebar)", "ready to close — c in sidebar", doneStyle
+	glyph, readyStyle := sprintStatusGlyph(st)
+	ready := glyph + " " + st.Title()
+	if total == 0 {
+		ready, readyStyle = "no tasks yet", headerHintSty
 	}
 
 	const label = "  Done  "
 	count := fmt.Sprintf(" %d/%d   ", done, total)
 	fixed := ansi.StringWidth(label) + ansi.StringWidth(count)
-	if short != "" && fixed+minBarCells+ansi.StringWidth(ready) > width {
-		ready = short
-	}
 	cells := min(max(width-fixed-ansi.StringWidth(ready), minBarCells), barCells)
 	filled := 0
 	if total > 0 {

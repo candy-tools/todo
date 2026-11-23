@@ -40,47 +40,43 @@ type sprintPicker struct {
 	taskID  string
 }
 
-// sprintRow is the picker row of sprint s, its label (see sprintLabel): done
-// sprints carry a check mark.
-func sprintRow(s *todo.Sprint) sprintPickRow {
+// sprintRow is the picker row of sprint s of d, its label (see sprintLabel):
+// done sprints carry a check mark.
+func sprintRow(d *todo.Document, s *todo.Sprint) sprintPickRow {
 	label := sprintLabel(s)
-	if s.Status == todo.SprintDone {
+	if d.SprintStatus(s.ID) == todo.SprintDone {
 		label = "✓ " + label
 	}
 	return sprintPickRow{sprintID: s.ID, label: label}
 }
 
-// newJumpPicker lists every sprint of d, the open ones first and then the done
-// ones, for K.
+// newJumpPicker lists every sprint of d as the Sprints sidebar orders them
+// (see sidebarRows), for K.
 func newJumpPicker(d *todo.Document) sprintPicker {
 	p := sprintPicker{title: "Go to sprint", purpose: pickJump}
-	for _, status := range []todo.SprintStatus{todo.SprintOpen, todo.SprintDone} {
-		for _, s := range d.Sprints {
-			if s.Status == status {
-				p.rows = append(p.rows, sprintRow(s))
-			}
-		}
+	for _, s := range sidebarRows(d) {
+		p.rows = append(p.rows, sprintRow(d, s))
 	}
 	return p
 }
 
-// newAssignPicker lists the open sprints of d, for p on a backlog task.
+// newAssignPicker lists the sprints of d not done, for a on a backlog task.
 func newAssignPicker(d *todo.Document, task *todo.Item) sprintPicker {
 	p := sprintPicker{title: "Assign to sprint", purpose: pickAssign, taskID: task.ID}
 	for _, s := range d.OpenSprints() {
-		p.rows = append(p.rows, sprintRow(s))
+		p.rows = append(p.rows, sprintRow(d, s))
 	}
 	return p
 }
 
-// newSendToPicker lists the Backlog, then the open sprints of d other than the
+// newSendToPicker lists the Backlog, then the sprints not done of d other than the
 // one task is in, for o.
 func newSendToPicker(d *todo.Document, task *todo.Item) sprintPicker {
 	p := sprintPicker{title: "Send to", purpose: pickSendTo, taskID: task.ID}
 	p.rows = append(p.rows, sprintPickRow{label: todo.ColBacklog.Title(), backlog: true})
 	for _, s := range d.OpenSprints() {
 		if s.ID != task.SprintID() {
-			p.rows = append(p.rows, sprintRow(s))
+			p.rows = append(p.rows, sprintRow(d, s))
 		}
 	}
 	return p
@@ -172,9 +168,8 @@ func (m model) openAssignPicker(task *todo.Item) (tea.Model, tea.Cmd) {
 }
 
 // openSendToPicker is o: it opens the dialog that moves the selected sprint task
-// to another open sprint or back to the Backlog. A category, a subtask (it
-// follows its task), a backlog task and a task of a closed sprint get a footer
-// hint instead.
+// to another sprint not done or back to the Backlog. A category, a subtask (it
+// follows its task) and a backlog task get a footer hint instead.
 func (m model) openSendToPicker() (tea.Model, tea.Cmd) {
 	it := m.selectedItem()
 	switch {
@@ -188,9 +183,6 @@ func (m model) openSendToPicker() (tea.Model, tea.Cmd) {
 		return m, nil
 	case it.SprintID() == "":
 		m.status = "use a to assign it to a sprint"
-		return m, nil
-	case m.sprintClosed(it.SprintID()):
-		m.status = todo.ErrSprintClosed.Error()
 		return m, nil
 	}
 	m.openSprintPick(newSendToPicker(m.doc, it))

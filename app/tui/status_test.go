@@ -458,13 +458,13 @@ func TestReopenFromSnapshotIntoPickedState(t *testing.T) {
 	}
 }
 
-// closedBoard is a closed sprint holding one done task, shipped, with a done
-// subtask, beside an open sprint and a backlog task, shown on the closed
-// sprint's Done tab with shipped selected.
-func closedBoard(t *testing.T) (model, string) {
+// doneBoard is a sprint whose one task, shipped, and its subtask are done (so
+// the sprint is Done), beside an open sprint and a backlog task, shown on the
+// done sprint's Done section with shipped selected.
+func doneBoard(t *testing.T) (model, string) {
 	t.Helper()
 	m, path := newJSONModel(t, `{"version": 6,
-		"sprints": [{"id": "s000001", "name": "Closed", "status": "done"}, {"id": "s000002", "name": "Open", "status": "open"}],
+		"sprints": [{"id": "s000001", "name": "Finished"}, {"id": "s000002", "name": "Open"}],
 		"categories": [{"id": "c000000", "title": "C"}], "tasks": [
 		{"id": "t000001", "category": "c000000", "sprint": "s000001", "title": "shipped", "status": "done",
 			"subtasks": [{"id": "p000001", "title": "part", "done": true}]},
@@ -472,45 +472,36 @@ func closedBoard(t *testing.T) (model, string) {
 	return onBoard(t, m, "s000001", todo.ColDone, "shipped"), path
 }
 
-// On a closed sprint's board every key that would change a task's membership
-// or state, or add a task, leaves the file alone and says why.
-func TestClosedBoardKeysShowReopenHint(t *testing.T) {
-	for _, key := range []string{"a", "A", "t", "n", "N", "o"} {
-		t.Run(key, func(t *testing.T) {
-			m, _ := closedBoard(t)
-			before := storeFP(t, m)
-			m = press(m, key)
-			if m.status != "reopen the sprint first" || m.err != nil {
-				t.Errorf("status %q err %v, want the reopen hint", m.status, m.err)
+// A done sprint is not frozen: on its board the keys that change a task's
+// state or membership, or add a task, work as on any other board.
+func TestDoneBoardKeysWork(t *testing.T) {
+	for _, tc := range []struct {
+		key  string
+		mode mode
+	}{
+		{"t", modeStatePick}, {"n", modeForm}, {"N", modeForm}, {"o", modeSprintPick},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			m, _ := doneBoard(t)
+			if m.doc.SprintStatus("s000001") != todo.SprintDone {
+				t.Fatal("precondition: the sprint is Done")
 			}
-			if m.mode != modeMain {
-				t.Errorf("mode = %v, want no dialog opened", m.mode)
-			}
-			if storeFP(t, m) != before {
-				t.Error("the file changed")
+			m = press(m, tc.key)
+			if m.mode != tc.mode || m.err != nil || m.status != "" {
+				t.Errorf("mode %v err %v status %q, want mode %v", m.mode, m.err, m.status, tc.mode)
 			}
 		})
 	}
-}
-
-// A write the list refuses (here the sprint closed by another process since
-// the board was drawn) shows its reason in the footer, not as a failed save.
-func TestRefusedWriteIsAStatus(t *testing.T) {
-	m, path := newJSONModel(t, sprintJSON(t, nil,
-		[]seedSprint{{ID: "s000001", Name: "Sprint 1", Status: "open"}},
-		seedTask{ID: "t000001", Title: "x", Status: "done", Sprint: "s000001"}))
-	m = onBoard(t, m, "s000001", todo.ColDone, "x")
-	if _, err := openSecond(t, path).CloseSprint(context.Background(), "s000001"); err != nil {
-		t.Fatal(err)
-	}
+	m, path := doneBoard(t)
 	m = press(m, "A")
-	if m.err != nil || m.status != "reopen the sprint first" {
-		t.Errorf("err %v status %q, want no save error and the reopen hint", m.err, m.status)
+	if m.err != nil {
+		t.Fatalf("A: err %v", m.err)
 	}
-	if strings.Contains(m.footer(200), "save failed") {
-		t.Errorf("footer = %q", m.footer(200))
+	doc := loadSprintDoc(t, path)
+	if it := find(doc, "shipped"); it.Status != todo.Working {
+		t.Errorf("A on shipped: %v, want working", it.Status)
 	}
-	if it := find(loadSprintDoc(t, path), "x"); it.Status != todo.Done {
-		t.Errorf("x = %v, want still done", it.Status)
+	if st := doc.SprintStatus("s000001"); st != todo.SprintInProgress {
+		t.Errorf("the sprint is %v, want in progress", st)
 	}
 }

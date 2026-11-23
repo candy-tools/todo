@@ -69,11 +69,17 @@ static binary.
 
 ```bash
 make help         # list all targets
-make test         # run tests with coverage
+make verify       # the full check: tests, vet, license check, lint, coverage gate
+make test         # run tests, writing the cover profile (coverage.out)
 make lint         # golangci-lint
 make vet          # go vet
-make coverage     # enforce the per-package coverage threshold
+make coverage     # gate per-package coverage on the profile of `make test`
 ```
+
+Run `make verify` before opening a PR. It runs every check, even after one
+fails, and fails at the end if any did, so a single run shows every problem.
+The test suite runs once: `make coverage` reads the cover profile `make test`
+wrote rather than running the tests again.
 
 ### Run
 

@@ -177,7 +177,7 @@ func resolveSprint(cmd *cobra.Command, doc *todo.Document) (*todo.Sprint, error)
 	var b strings.Builder
 	fmt.Fprintf(&b, "%q matches %d sprints; name one by its reference:\n", key, len(matches))
 	for _, sp := range matches {
-		fmt.Fprintf(&b, "  --sprint %s  (%s, %s)\n", sp.Ref, todo.Printable(sp.Name), sp.Status)
+		fmt.Fprintf(&b, "  --sprint %s  (%s, %s)\n", sp.Ref, todo.Printable(sp.Name), doc.SprintStatus(sp.ID))
 	}
 	return nil, &cliError{exitAmbiguous, b.String()}
 }

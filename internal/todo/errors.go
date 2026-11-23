@@ -142,12 +142,6 @@ var ErrNeedsSprint = classed(ErrBadRequest, "task is not in a sprint (use todo a
 // backlog state. Its class is ErrBadRequest.
 var ErrInSprint = classed(ErrBadRequest, "a task in a sprint cannot take a backlog state; unassign it first")
 
-// ErrSprintClosed is returned by a write that would change a done sprint's
-// tasks beyond what it allows: add a task or subtask to it, move a task into
-// or out of it, nest or lift its tasks, or leave one of them not done. Its
-// class is ErrBadRequest.
-var ErrSprintClosed = classed(ErrBadRequest, "reopen the sprint first")
-
 // ErrSprintMembership is returned by a write that would nest tasks of
 // different sprints (the backlog counts as one), or give a subtask a sprint of
 // its own: a subtask follows its task. Its class is ErrBadRequest.
@@ -159,15 +153,11 @@ var ErrSprintMembership = classed(ErrBadRequest, "tasks in different sprints can
 // reference could name both a task and a sprint. Its class is ErrBadRequest.
 var ErrPrefixClash = classed(ErrBadRequest, "reference prefix used by both tasks and sprints")
 
-// ErrSprintOpen is returned by a write that would delete a sprint that is not
-// closed: only a done sprint may be deleted. Its class is ErrBadRequest.
-var ErrSprintOpen = classed(ErrBadRequest, "the sprint is open; close it before deleting it")
-
 // ErrSprintNotDone matches a SprintNotDoneError with errors.Is.
 var ErrSprintNotDone = errors.New("sprint has tasks not done")
 
-// SprintNotDoneError is returned by a write that would close a sprint that has
-// tasks not done. Its class is ErrBadRequest.
+// SprintNotDoneError is returned by a write that would delete a sprint that
+// has tasks not done. Its class is ErrBadRequest.
 type SprintNotDoneError struct {
 	// Remaining is how many tasks and subtasks are not done.
 	Remaining int

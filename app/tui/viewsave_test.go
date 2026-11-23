@@ -94,8 +94,8 @@ func lookOnlyList(t *testing.T, view map[string]any) string {
 	t.Helper()
 	return sprintJSON(t, view,
 		[]seedSprint{
-			{ID: "s00000a", Name: "A", Status: "open"},
-			{ID: "s00000b", Name: "B", Status: "open"},
+			{ID: "s00000a", Name: "A"},
+			{ID: "s00000b", Name: "B"},
 		},
 		seedTask{ID: "t000001", Title: "inA", Status: "new", Sprint: "s00000a"},
 	)
@@ -130,7 +130,7 @@ func TestOpenAndQuitLeavesFileAlone(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			seed := lookOnlyList(t, c.view)
 			m, path := newJSONModel(t, seed)
-			m = press(m, append(c.keys, "q", "enter")...)
+			m = press(m, append(c.keys, "q", "y")...)
 			if m.quitErr != nil || m.err != nil {
 				t.Fatalf("quit: quitErr %v err %v", m.quitErr, m.err)
 			}
@@ -156,8 +156,8 @@ func TestLookOnlyQuitKeepsExternalChange(t *testing.T) {
 	m, path := newJSONModel(t, lookOnlyList(t, map[string]any{"screen": "sprints"}))
 	external := sprintJSON(t, map[string]any{"screen": "sprints"},
 		[]seedSprint{
-			{ID: "s00000b", Name: "B", Status: "open"},
-			{ID: "s00000a", Name: "A", Status: "open"},
+			{ID: "s00000b", Name: "B"},
+			{ID: "s00000a", Name: "A"},
 		},
 		seedTask{ID: "t000001", Title: "inA", Status: "new", Sprint: "s00000a"},
 	)
@@ -168,7 +168,7 @@ func TestLookOnlyQuitKeepsExternalChange(t *testing.T) {
 	if m.view.sprint != "s00000a" || m.opensOn(m.doc.View).Sprint != "s00000b" {
 		t.Fatalf("after the reload: shows %q, file opens on %q; want A shown, B opened on", m.view.sprint, m.opensOn(m.doc.View).Sprint)
 	}
-	m = press(m, "q", "enter")
+	m = press(m, "q", "y")
 	if m.quitErr != nil {
 		t.Fatalf("quit: %v", m.quitErr)
 	}
@@ -189,7 +189,7 @@ func TestLookOnlyQuitKeepsOtherSessionsView(t *testing.T) {
 	if m.doc.View != other || m.view.sprint != "s00000a" {
 		t.Fatalf("after the reload: file view %+v, shows %q; want %+v and A shown", m.doc.View, m.view.sprint, other)
 	}
-	m = press(m, "q", "enter")
+	m = press(m, "q", "y")
 	if m.quitErr != nil {
 		t.Fatalf("quit: %v", m.quitErr)
 	}
@@ -247,7 +247,7 @@ func TestQuitStoresBrowsedSprint(t *testing.T) {
 		{"screen": "sprint", "sprint": "s00000z"},
 	} {
 		m, path := newJSONModel(t, lookOnlyList(t, view))
-		press(m, "down", "q", "enter")
+		press(m, "down", "q", "y")
 		want := todo.View{Screen: todo.ScreenSprint, Sprint: "s00000b"}
 		if got := storedView(t, path); got != want {
 			t.Errorf("view %v: after browsing to B and quitting the file holds %+v, want %+v", view, got, want)
@@ -263,7 +263,7 @@ func TestQuitStoresSprintBrowsedBackTo(t *testing.T) {
 	if got := storedView(t, path); got.Sprint != "s00000b" {
 		t.Fatalf("after s the file holds %+v, want sprint B", got)
 	}
-	press(m, "up", "q", "enter")
+	press(m, "up", "q", "y")
 	want := todo.View{Screen: todo.ScreenSprint, Sprint: "s00000a"}
 	if got := storedView(t, path); got != want {
 		t.Errorf("after browsing back to A and quitting the file holds %+v, want %+v", got, want)
@@ -278,7 +278,7 @@ func TestQuitKeepsTheViewSaveError(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	m = press(m, "q", "enter")
+	m = press(m, "q", "y")
 	if m.quitErr == nil {
 		t.Fatalf("quit with the file removed: quitErr nil, err %v", m.err)
 	}
@@ -290,7 +290,7 @@ func TestQuitKeepsTheViewSaveError(t *testing.T) {
 // A quit that stores the view without trouble has nothing to say.
 func TestQuitWithoutSaveErrorIsSilent(t *testing.T) {
 	m, _ := twoSprints(t)
-	m = press(m, "s", "down", "q", "enter")
+	m = press(m, "s", "down", "q", "y")
 	if m.quitErr != nil || quitWarning(m) != "" {
 		t.Errorf("quitErr %v warning %q, want none", m.quitErr, quitWarning(m))
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -78,7 +79,11 @@ func writeList(t *testing.T, path string, data []byte) {
 // standing in for a file a newer todo wrote.
 func withVersion(t *testing.T, data []byte, v int) []byte {
 	t.Helper()
-	out := bytes.Replace(data, []byte(`"version": 8`), fmt.Appendf(nil, `"version": %d`, v), 1)
+	loc := regexp.MustCompile(`"version": \d+`).FindIndex(data)
+	if loc == nil {
+		t.Fatalf("no version in the list file:\n%s", data)
+	}
+	out := slices.Concat(data[:loc[0]], fmt.Appendf(nil, `"version": %d`, v), data[loc[1]:])
 	if bytes.Equal(out, data) {
 		t.Fatalf("no version in the list file:\n%s", data)
 	}
@@ -459,7 +464,7 @@ func failPolls(t *testing.T, m model, path string, good []byte, v, n int) model 
 func TestReloadFailureShownAndCleared(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
-	m = failPolls(t, m, path, good, 9, 3)
+	m = failPolls(t, m, path, good, 100, 3)
 	if !errors.Is(m.err, todo.ErrNewerFormat) {
 		t.Fatalf("m.err = %v, want the failed reload (ErrNewerFormat)", m.err)
 	}
@@ -481,7 +486,7 @@ func TestReloadFailureShownAndCleared(t *testing.T) {
 func TestReloadFailureShownOnce(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
-	m = failPolls(t, m, path, good, 9, 3)
+	m = failPolls(t, m, path, good, 100, 3)
 	if !errors.Is(m.err, todo.ErrNewerFormat) {
 		t.Fatalf("m.err = %v, want the failed reload", m.err)
 	}
@@ -504,10 +509,10 @@ func TestReloadFailureShownOnce(t *testing.T) {
 func TestReloadFailureDistinctShown(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	good := readList(t, path)
-	m = failPolls(t, m, path, good, 9, 3)
+	m = failPolls(t, m, path, good, 100, 3)
 	m.err = errors.New("save failed: boom")
-	m = failPolls(t, m, path, good, 10, 1)
-	if got := m.footer(200); !strings.Contains(got, "format version 10") {
+	m = failPolls(t, m, path, good, 101, 1)
+	if got := m.footer(200); !strings.Contains(got, "format version 101") {
 		t.Errorf("a distinct reload failure must be shown, got %q", got)
 	}
 }
