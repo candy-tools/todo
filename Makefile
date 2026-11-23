@@ -3,8 +3,12 @@ default: help
 #==========================================================================================
 ##@ Testing
 #==========================================================================================
-test: ## run tests with coverage
-	@go test ./... -cover
+# Cover profile written by `make test` and read by `make coverage`, so verify runs the suite once.
+COVER_PROFILE ?= coverage.out
+
+test: ## run the go tests, writing the cover profile the coverage gate reads
+	@rm -f $(COVER_PROFILE)
+	@go test ./... -covermode=atomic -coverprofile=$(COVER_PROFILE)
 
 lint: ## run the go linter (needs golangci-lint)
 	@golangci-lint run
@@ -17,27 +21,43 @@ license-check: ## check for invalid licenses
 	@go list -m -mod=readonly -json all | go-licence-detector -includeIndirect -rules allowedLicenses.json -overrides overrideLicenses.json
 
 COVERAGE_THRESHOLD ?= 70
+# Reads the profile of `make test` (no test run of its own): each package under app/ and internal/ must reach the
+# threshold; app/metainfo is left out, as it holds only linker-stamped vars. A profile block is
+# "dir/file.go:pos numStmts count", so a package is the dir of its blocks.
 .PHONY: coverage
-coverage: ## check test coverage meets the threshold (app and internal; metainfo excluded: linker-stamped vars only)
-	@fail=0; \
-	for pkg in $$(go list ./app/... ./internal/... 2>/dev/null | grep -v '/app/metainfo$$'); do \
-		go test -coverprofile=coverage.out -covermode=atomic $$pkg > /dev/null; \
-		if [ -f coverage.out ]; then \
-			coverage=$$(go tool cover -func=coverage.out | grep total: | awk '{print $$3}' | sed 's/%//'); \
-			if [ $$(echo "$$coverage < $(COVERAGE_THRESHOLD)" | bc -l) -eq 1 ]; then \
-				echo "❌ Coverage in $$pkg is below $(COVERAGE_THRESHOLD)!"; \
-				fail=1; \
-			fi; \
-			rm -f coverage.out; \
-		else \
-			echo "⚠️ No coverage data for $$pkg"; \
-			fail=1; \
-		fi; \
-	done; \
-	exit $$fail
+coverage: ## gate per-package coverage of app/ and internal/ on the cover profile of `make test`
+	@if [ ! -f $(COVER_PROFILE) ]; then \
+		echo "❌ $(COVER_PROFILE) not found: run make test first"; \
+		exit 1; \
+	fi
+	@go list ./app/... ./internal/... | grep -v '/app/metainfo$$' | awk -v threshold=$(COVERAGE_THRESHOLD) ' \
+		FNR == 1 && NR == 1 { next } \
+		NR == FNR { \
+			pkg = $$1; sub(/\/[^\/]*:.*$$/, "", pkg); \
+			if (!($$1 in stmts)) { stmts[$$1] = $$2; total[pkg] += $$2 } \
+			if ($$3 > 0 && !($$1 in hit)) { hit[$$1] = 1; covered[pkg] += $$2 } \
+			next \
+		} \
+		{ \
+			if (!total[$$1]) { print "⚠️ No coverage data for " $$1; fail = 1; next } \
+			pct = 100 * covered[$$1] / total[$$1]; \
+			if (pct < threshold) { printf "❌ Coverage in %s is %.1f%%, below %s%%!\n", $$1, pct, threshold; fail = 1 } \
+			else printf "✅ %s %.1f%%\n", $$1, pct \
+		} \
+		END { exit fail }' $(COVER_PROFILE) -
 
 .PHONY: verify
-verify: test vet lint license-check coverage ## run the full verification suite
+verify: ## run all checks; runs every check and fails if any fail
+	@fail=0; \
+	for target in test vet license-check lint coverage; do \
+		echo "==================== make $$target ===================="; \
+		$(MAKE) --no-print-directory $$target || fail=1; \
+	done; \
+	if [ $$fail -ne 0 ]; then \
+		echo "❌ verify failed (see above)"; \
+		exit 1; \
+	fi; \
+	echo "✅ verify passed"
 
 #==========================================================================================
 ##@ Running
